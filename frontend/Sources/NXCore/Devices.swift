@@ -146,17 +146,32 @@ package enum DeviceTools {
         return found
     }
 
-    /// The development identities that can sign for a device, with their teams (one per team ID).
-    package static func certificateTeams(runner: ProcessRunner = SystemProcessRunner()) -> [SigningTeam] {
+    /// All development identities in the keychain that can sign for a device, keeping multiple certificates per team.
+    package static func allCertificateTeams(runner: ProcessRunner = SystemProcessRunner()) -> [SigningTeam] {
         guard let list = run("/usr/bin/security", ["find-identity", "-v", "-p", "codesigning"], runner: runner) else { return [] }
-        var seen = Set<String>()
+        var cachedPEMOutputs: [String: String] = [:]
         return identityRecords(list).compactMap { record in
-            guard let raw = run("/usr/bin/security", ["find-certificate", "-a", "-Z", "-c", record.identity, "-p"], runner: runner),
-                  let pem = extractCertificatePEM(from: raw, sha1: record.sha1),
+            let raw: String
+            if let existing = cachedPEMOutputs[record.identity] {
+                raw = existing
+            } else {
+                guard let fetched = run("/usr/bin/security", ["find-certificate", "-a", "-Z", "-c", record.identity, "-p"], runner: runner) else {
+                    return nil
+                }
+                cachedPEMOutputs[record.identity] = fetched
+                raw = fetched
+            }
+            guard let pem = extractCertificatePEM(from: raw, sha1: record.sha1),
                   let subject = run("/usr/bin/openssl", ["x509", "-noout", "-subject"], input: pem, runner: runner),
-                  let team = team(fromSubject: subject), seen.insert(team).inserted else { return nil }
+                  let team = team(fromSubject: subject) else { return nil }
             return SigningTeam(id: team, identity: record.identity, sha1: record.sha1)
         }
+    }
+
+    /// The development identities that can sign for a device, with their teams (one per team ID).
+    package static func certificateTeams(runner: ProcessRunner = SystemProcessRunner()) -> [SigningTeam] {
+        var seen = Set<String>()
+        return allCertificateTeams(runner: runner).filter { seen.insert($0.id).inserted }
     }
 
     /// Parses `(sha1, identity)` pairs from `security find-identity` lines for development signing certificates.

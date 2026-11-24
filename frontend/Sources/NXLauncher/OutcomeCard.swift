@@ -88,7 +88,12 @@ package struct OutcomeCard: View {
     private func note(_ status: BuildCompletionStatus) -> DSRowMessage? {
         switch status {
         case .mac: return nil
-        case .installed: return .success(String(format: loc.t("dev.installed"), devices.deviceName(build.installedOn)))
+        case .installed:
+            let base = String(format: loc.t("dev.installed"), devices.deviceName(build.installedOn))
+            let detail = build.shellUpdatedOnDevice
+                ? base + "\n" + String(format: loc.t("shell.updatedShell"), devices.deviceName(build.installedOn))
+                : base
+            return .success(detail)
         case .exported:
             return .info(build.completedFramework ? String(format: loc.t("shell.frameworkStep1Done"), build.exportedIPAText)
                          : loc.t(build.completedOneGameIPA ? "result.oneGameIPA" : "result.sharedIPA"))

@@ -204,6 +204,7 @@ extension ShellInstaller {
         ShellInstall.refreshProjectLinks(root: root, resources: resources, repo: repo)
         ShellInstall.writeProjectFrameworks(root: root, games: library.games)
         ShellInstall.pruneEmbeddedFrameworks(root: root, keeping: library.games)
+        ShellHotInstall.writeProjectStamp(root: root, resources: resources, repo: repo)
         end(Self.projectStageID, projectName, ok: true)
         return (library, env, nil, checked.notes)
     }

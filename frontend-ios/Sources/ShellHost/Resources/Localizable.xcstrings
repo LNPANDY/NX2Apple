@@ -961,6 +961,70 @@
         }
       }
     },
+    "%@, set in env.txt": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, in env.txt festgelegt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, set in env.txt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, definida en env.txt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, défini dans env.txt"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, impostata in env.txt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@、env.txt で設定"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, env.txt에서 설정됨"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, definida em env.txt"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, angiven i env.txt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@，已在 env.txt 中设置"
+          }
+        }
+      }
+    },
     "%lld additional content packs": {
       "localizations": {
         "de": {
@@ -1597,6 +1661,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "控制器布局"
+          }
+        }
+      }
+    },
+    "Could not load the game framework because the signing certificate does not match this app. Reinstall the app from your computer.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Spiel-Framework konnte nicht geladen werden, da das Signaturzertifikat nicht zur App passt. Installiere die App auf dem Computer neu."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not load the game framework because the signing certificate does not match this app. Reinstall the app from your computer."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cargar el framework del juego porque el certificado de firma no coincide con esta app. Vuelve a instalar la app desde tu ordenador."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de charger le framework du jeu car le certificat de signature ne correspond pas à cette application. Réinstallez l'application depuis votre ordinateur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile caricare il framework del gioco perché il certificato di firma non corrisponde a questa app. Reinstalla l'app dal tuo computer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "署名証明書がアプリと一致しないためゲームフレームワークを読み込めません。パソコンからアプリを再インストールしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서명 인증서가 앱과 일치하지 않아 게임 프레임워크를 불러올 수 없습니다. 컴퓨터에서 앱을 다시 설치하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível carregar o framework do jogo porque o certificado de assinatura não corresponde ao deste app. Reinstale o app pelo computador."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det gick inte att läsa in spelramverket eftersom signeringscertifikatet inte stämmer överens med appen. Installera om appen från datorn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法加载游戏框架：证书不一致，请在电脑上重新安装。"
           }
         }
       }
@@ -4161,6 +4289,70 @@
         }
       }
     },
+    "Set in env.txt": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In env.txt festgelegt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set in env.txt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Definida en env.txt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Défini dans env.txt"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impostata in env.txt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "env.txt で設定"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "env.txt에서 설정됨"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Definida em env.txt"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angiven i env.txt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已在 env.txt 中设置"
+          }
+        }
+      }
+    },
     "Settings list damaged": {
       "localizations": {
         "de": {
@@ -4733,6 +4925,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "交换 A 和 B"
+          }
+        }
+      }
+    },
+    "Tap": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tippen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tocar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toucher"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tocco"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タップ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터치"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toque"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tryck"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "触控"
           }
         }
       }
@@ -7229,6 +7485,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "无法保存已签名的游戏框架。"
+          }
+        }
+      }
+    },
+    "This app signature does not support loading games from Documents/Frameworks. Reinstall the app from NX2Apple on your computer.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese App-Signatur unterstützt kein Hot-Loading von Spielen aus Documents/Frameworks. Installiere die App über NX2Apple auf dem Computer neu."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This app signature does not support loading games from Documents/Frameworks. Reinstall the app from NX2Apple on your computer."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La firma de esta app no admite la carga en caliente desde Documents/Frameworks. Vuelve a instalar la app desde NX2Apple en tu ordenador."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La signature de cette application ne permet pas de charger des jeux depuis Documents/Frameworks. Réinstallez l'application depuis NX2Apple sur votre ordinateur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa firma dell'app non supporta il caricamento di giochi da Documents/Frameworks. Reinstalla l'app da NX2Apple sul tuo computer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリ署名では Documents/Frameworks からのゲーム読み込みに対応していません。パソコンの NX2Apple からアプリを再インストールしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 앱 서명은 Documents/Frameworks에서 게임을 불러올 수 없습니다. 컴퓨터의 NX2Apple에서 앱을 다시 설치하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A assinatura deste app não oferece suporte ao carregamento de jogos de Documents/Frameworks. Reinstale o app pelo NX2Apple no computador."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den här appsignaturen stöder inte inläsning av spel från Documents/Frameworks. Installera om appen från NX2Apple på datorn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前应用签名不支持从 Documents/Frameworks 热加载游戏。请在电脑端 NX2Apple 重新安装应用。"
           }
         }
       }

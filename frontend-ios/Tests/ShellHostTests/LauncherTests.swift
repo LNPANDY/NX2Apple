@@ -82,7 +82,16 @@ func sampleGame() throws -> LaunchableGame {
             == "应用打开期间此游戏已更新。请关闭并重新打开应用以加载新版本。")
         #expect(localizeEngineLaunchError("A game is already running.") == "已有游戏正在运行。")
         #expect(localizeEngineLaunchError("The game's start arguments are incomplete.") == "游戏的启动参数不完整。")
+        let sandboxMmapRaw = "The game's code could not be loaded: dlopen(/private/var/mobile/Containers/Data/Application/1234/Documents/Frameworks/DmGame010066101A55A000.framework/DmGame010066101A55A000, 0x0005): tried: '/private/var/mobile/Containers/Data/Application/1234/Documents/Frameworks/DmGame010066101A55A000.framework/DmGame010066101A55A000' (file system sandbox blocked mmap() of '/private/var/mobile/Containers/Data/Application/1234/Documents/Frameworks/DmGame010066101A55A000.framework/DmGame010066101A55A000')"
+        let localizedZH = localizeEngineLaunchError(sandboxMmapRaw)
+        #expect(!localizedZH.contains("dlopen("))
+        #expect(localizedZH.contains("证书不一致"))
+        #expect(localizedZH.contains("请在电脑上重新安装"))
         HostStrings.captureBundle = Bundle(path: enPath)
         #expect(hostText("NX2Apple") == "NX2Apple")
+        let localizedEN = localizeEngineLaunchError(sandboxMmapRaw)
+        #expect(!localizedEN.contains("dlopen("))
+        #expect(localizedEN.contains("certificate does not match"))
+        #expect(localizedEN.contains("Reinstall the app from your computer"))
     }
 }

@@ -98,7 +98,7 @@ import XCTest
         return xcrun
     }
 
-    private func makeRepo() throws -> String {
+    private func makeRepo(chain: String? = nil) throws -> String {
         let repo = path("repo")
         try write(repo + "/frontend-ios/Shell/build_shell.sh", """
         #!/bin/bash
@@ -114,6 +114,10 @@ import XCTest
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: repo + "/frontend-ios/Shell/build_shell.sh")
         try write(repo + "/frontend-ios/Package.swift", "// swift-tools-version: 5.9\n")
         try fm.createDirectory(atPath: repo + "/frontend-ios/Shell/App", withIntermediateDirectories: true)
+        if let chain {
+            try write(repo + "/dm/tools/nx_extract/Program.cs", "// marker\n")
+            try write(repo + "/dm/gfx/nvn/dmsh_chain.h", "#define DMSH_CHAIN \"\(chain)\"\n")
+        }
         return repo
     }
 
@@ -173,30 +177,37 @@ import XCTest
 
     private func writeDeviceBeacon(bundleID: String = ShellLibrary.defaultBundleID, teamID: String,
                                    glueVersion: Int = ShellHotInstall.glueVersion,
-                                   expiresIn: Int64?, nowEpoch: Int64) throws {
+                                   chain: String = "b-3f9a2c",
+                                   expiresIn: Int64?, nowEpoch: Int64,
+                                   allowsHotPush: Bool? = true,
+                                   certSHA1: String? = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA") throws {
         let beacon = ShellHotInstall.HostBeacon(
             schema: 1, glueVersion: glueVersion, bundleID: bundleID, teamID: teamID,
-            chain: "b-3f9a2c", version: "1.4.0", expiresAtEpoch: expiresIn.map { nowEpoch + $0 }
+            chain: chain, version: "1.4.0", expiresAtEpoch: expiresIn.map { nowEpoch + $0 },
+            allowsHotPush: allowsHotPush, certSHA1: certSHA1
         )
         let dest = container + "/\(bundleID)/" + ShellHotInstall.beaconRemotePath
         try fm.createDirectory(atPath: (dest as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
         try JSONEncoder().encode(beacon).write(to: URL(fileURLWithPath: dest), options: .atomic)
     }
 
-    func testLegacyGlueVersionOneBeaconFallsBackToFullAppUpgradeThenResumesHotPush() throws {
-        XCTAssertEqual(ShellHotInstall.glueVersion, 2)
-        let legacyBeacon = ShellHotInstall.HostBeacon(
-            schema: 1, glueVersion: 1, bundleID: ShellLibrary.defaultBundleID,
-            teamID: team, chain: "b-3f9a2c", version: "1.4.0", expiresAtEpoch: 1_800_500_000
-        )
-        let legacyData = try JSONEncoder().encode(legacyBeacon)
-        XCTAssertEqual(
-            ShellHotInstall.evaluateBeacon(legacyData, expectedBundleID: ShellLibrary.defaultBundleID, team: team, nowEpoch: 1_800_000_000),
-            .incompatible("glue 1")
-        )
+    func testLegacyGlueVersionAndMismatchedChainBeaconsFallBackToFullAppUpgradeThenResumeHotPush() throws {
+        XCTAssertEqual(ShellHotInstall.glueVersion, 3)
+        for staleGlue in [1, 2] {
+            let legacyBeacon = ShellHotInstall.HostBeacon(
+                schema: 1, glueVersion: staleGlue, bundleID: ShellLibrary.defaultBundleID,
+                teamID: team, chain: "b-3f9a2c", version: "1.5.0", expiresAtEpoch: 1_800_500_000,
+                allowsHotPush: true, certSHA1: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+            )
+            let legacyData = try JSONEncoder().encode(legacyBeacon)
+            XCTAssertEqual(
+                ShellHotInstall.evaluateBeacon(legacyData, expectedBundleID: ShellLibrary.defaultBundleID, team: team, nowEpoch: 1_800_000_000),
+                .incompatible("glue \(staleGlue)")
+            )
+        }
 
         let xcrun = try makeXcrun()
-        let repo = try makeRepo()
+        let repo = try makeRepo(chain: "108c5f92c3c4")
         let root = path("shell-root")
         let fixedNow = Date(timeIntervalSince1970: 1_800_000_000)
         let nowEpoch = Int64(fixedNow.timeIntervalSince1970)
@@ -210,20 +221,27 @@ import XCTest
         inst.resources = nil
         inst.defaults = testDefaults
         inst.now = { fixedNow }
-        inst.signingIdentity = { _, _ in "-" }
+        inst.hotSigningIdentity = { _, _, _ in "-" }
 
         XCTAssertTrue(inst.install(framework: fw1, titleID: firstID, name: "First Game", archive: arch1).ok)
 
-        // Old DmShell.app on device wrote glueVersion == 1 -> must fall back to full xcodebuild + app install.
-        try writeDeviceBeacon(teamID: team, glueVersion: 1, expiresIn: 5 * 86400, nowEpoch: nowEpoch)
+        // Old DmShell.app on device wrote glueVersion == 2 -> must fall back to full xcodebuild + app install.
+        try writeDeviceBeacon(teamID: team, glueVersion: 2, chain: "b-108c5f92c3c4", expiresIn: 5 * 86400, nowEpoch: nowEpoch)
         try "".write(toFile: state + "/calls.txt", atomically: true, encoding: .utf8)
         let upgradeOut = inst.installBuilt(framework: fw2, titleID: secondID, name: "Second Game")
         XCTAssertTrue(upgradeOut.ok, upgradeOut.message)
-        XCTAssertEqual(calls.filter { $0.hasPrefix("xcodebuild") }.count, 1, "legacy glueVersion 1 shell must trigger full app rebuild")
+        XCTAssertEqual(calls.filter { $0.hasPrefix("xcodebuild") }.count, 1, "legacy glueVersion 2 shell must trigger full app rebuild")
         XCTAssertEqual(calls.filter { $0.hasPrefix("devicectl device install app") }.count, 1)
 
-        // Upgraded DmShell.app writes glueVersion == 2 -> subsequent installs resume ~2s hot push.
-        try writeDeviceBeacon(teamID: team, glueVersion: 2, expiresIn: 5 * 86400, nowEpoch: nowEpoch)
+        // Matching glueVersion == 3 but stale shader chain -> must also trigger full app rebuild.
+        try writeDeviceBeacon(teamID: team, glueVersion: 3, chain: "b-df1800562702", expiresIn: 5 * 86400, nowEpoch: nowEpoch)
+        try "".write(toFile: state + "/calls.txt", atomically: true, encoding: .utf8)
+        let chainUpgradeOut = inst.installBuilt(framework: fw2, titleID: secondID, name: "Second Game")
+        XCTAssertTrue(chainUpgradeOut.ok, chainUpgradeOut.message)
+        XCTAssertEqual(calls.filter { $0.hasPrefix("xcodebuild") }.count, 1, "mismatched shader chain shell must trigger full app rebuild")
+
+        // Upgraded DmShell.app writes glueVersion == 3 and matching chain -> subsequent installs resume ~2s hot push.
+        try writeDeviceBeacon(teamID: team, glueVersion: 3, chain: "b-108c5f92c3c4", expiresIn: 5 * 86400, nowEpoch: nowEpoch)
         try "".write(toFile: state + "/calls.txt", atomically: true, encoding: .utf8)
         let hotOut = inst.installBuilt(framework: fw2, titleID: secondID, name: "Second Game")
         XCTAssertTrue(hotOut.ok, hotOut.message)
@@ -248,7 +266,7 @@ import XCTest
         inst.now = { fixedNow }
         inst.allowHotInstall = true
         // Real ad-hoc signing (`-`) exercises actual `/usr/bin/codesign` sealing `_CodeSignature/CodeResources` on macOS.
-        inst.signingIdentity = { _, _ in "-" }
+        inst.hotSigningIdentity = { _, _, _ in "-" }
 
         // 1. First install has no shell.json yet -> runs full xcodebuild + devicectl device install app.
         let firstOut = inst.install(framework: fw1, titleID: firstID, name: "First Game", archive: arch1)
@@ -326,7 +344,7 @@ import XCTest
         inst.defaults = testDefaults
         inst.now = { fixedNow }
         inst.allowHotInstall = true
-        inst.signingIdentity = { _, _ in "-" }
+        inst.hotSigningIdentity = { _, _, _ in "-" }
 
         XCTAssertTrue(inst.install(framework: fw1, titleID: firstID, name: "Game One", archive: arch1).ok)
         try writeDeviceBeacon(teamID: team, expiresIn: 4 * 86400, nowEpoch: nowEpoch)
@@ -365,7 +383,7 @@ import XCTest
         // Fallback Boundary 3: no local certificate in keychain -> falls back to xcodebuild.
         try writeDeviceBeacon(teamID: team, expiresIn: 5 * 86400, nowEpoch: nowEpoch)
         var noCertInst = inst
-        noCertInst.signingIdentity = { _, _ in nil }
+        noCertInst.hotSigningIdentity = { _, _, _ in nil }
         try "".write(toFile: state + "/calls.txt", atomically: true, encoding: .utf8)
         XCTAssertTrue(noCertInst.installBuilt(framework: fw2, titleID: secondID, name: "Game Two").ok)
         XCTAssertEqual(calls.filter { $0.hasPrefix("xcodebuild") }.count, 1)
@@ -394,7 +412,7 @@ import XCTest
         inst.resources = nil
         inst.defaults = testDefaults
         inst.now = { fixedNow }
-        inst.signingIdentity = { _, _ in "-" }
+        inst.hotSigningIdentity = { _, _, _ in "-" }
         XCTAssertTrue(inst.allowHotInstall)
 
         XCTAssertTrue(inst.install(framework: fw1, titleID: firstID, name: "First Game", archive: arch1).ok)
@@ -412,5 +430,108 @@ import XCTest
         XCTAssertTrue(fullOut.ok, fullOut.message)
         XCTAssertEqual(calls.filter { $0.hasPrefix("xcodebuild") }.count, 1, "disabled hot install must run full xcodebuild")
         XCTAssertEqual(calls.filter { $0.hasPrefix("devicectl device install app") }.count, 1)
+    }
+
+    func testIncompatibleBeaconFallsBackToFullBuildWithShellUpdatedNoteAcrossSingleAndBatch() throws {
+        let xcrun = try makeXcrun()
+        let repo = try makeRepo(chain: "108c5f92c3c4")
+        let root = path("shell-root")
+        let fixedNow = Date(timeIntervalSince1970: 1_800_000_000)
+        let nowEpoch = Int64(fixedNow.timeIntervalSince1970)
+
+        let fw1 = try makeSignableFramework(id: firstID, name: "First Game")
+        let fw2 = try makeSignableFramework(id: secondID, name: "Second Game")
+        let fw3 = try makeSignableFramework(id: thirdID, name: "Third Game")
+        let arch1 = path("archives", firstID), arch2 = path("archives", secondID), arch3 = path("archives", thirdID)
+        try write(arch1 + "/romfs.img", "one")
+        try write(arch2 + "/romfs.img", "two")
+        try write(arch3 + "/romfs.img", "three")
+
+        var inst = ShellInstaller(xcrun: xcrun, repo: repo, python: "/usr/bin/python3", root: root, device: device, team: team)
+        inst.resources = nil
+        inst.defaults = testDefaults
+        inst.now = { fixedNow }
+        inst.hotSigningIdentity = { _, _, _ in "-" }
+        inst.lang = .zh
+
+        XCTAssertTrue(inst.install(framework: fw1, titleID: firstID, name: "First Game", archive: arch1).ok)
+
+        // Single-game install with legacy glueVersion 2 beacon -> full xcodebuild + devicectl install app + ZH update note.
+        try writeDeviceBeacon(teamID: team, glueVersion: 2, chain: "b-df1800562702", expiresIn: 5 * 86400, nowEpoch: nowEpoch)
+        try "".write(toFile: state + "/calls.txt", atomically: true, encoding: .utf8)
+        let singleOut = inst.install(framework: fw2, titleID: secondID, name: "Second Game", archive: arch2)
+        XCTAssertTrue(singleOut.ok, singleOut.message)
+        XCTAssertTrue(singleOut.shellUpdated)
+        XCTAssertEqual(calls.filter { $0.hasPrefix("xcodebuild") }.count, 1)
+        XCTAssertEqual(calls.filter { $0.hasPrefix("devicectl device install app") }.count, 1)
+        XCTAssertTrue(singleOut.message.contains("已为 iPhone 更新游戏壳"), singleOut.message)
+
+        // Multi-game installBatch with mismatched chain beacon -> full xcodebuild + devicectl install app, single beacon check, EN update note.
+        inst.lang = .en
+        try writeDeviceBeacon(teamID: team, glueVersion: 3, chain: "b-df1800562702", expiresIn: 5 * 86400, nowEpoch: nowEpoch)
+        try "".write(toFile: state + "/calls.txt", atomically: true, encoding: .utf8)
+        let batchOut = inst.installBatch([
+            .init(framework: fw2, titleID: secondID, name: "Second Game", archive: arch2),
+            .init(framework: fw3, titleID: thirdID, name: "Third Game", archive: arch3),
+        ])
+        XCTAssertTrue(batchOut.ok, batchOut.message)
+        XCTAssertTrue(batchOut.shellUpdated)
+        XCTAssertEqual(calls.filter { $0.hasPrefix("xcodebuild") }.count, 1)
+        XCTAssertEqual(calls.filter { $0.hasPrefix("devicectl device install app") }.count, 1)
+        XCTAssertEqual(calls.filter { $0.contains(ShellHotInstall.beaconRemotePath) }.count, 1,
+                       "installBatch must check device beacon once before falling back to full build")
+        XCTAssertTrue(batchOut.message.contains("Updated the game shell on iPhone"), batchOut.message)
+
+        // Disallowed or missing hot-push privilege (e.g. non-dev .p12/distribution shell without get-task-allow) must also
+        // forbid pushing into Documents/Frameworks and fall back to a full app bundle install across single & batch paths.
+        for unsupportedFlag in [false, nil] as [Bool?] {
+            try writeDeviceBeacon(teamID: team, glueVersion: 3, chain: "b-108c5f92c3c4",
+                                  expiresIn: 5 * 86400, nowEpoch: nowEpoch, allowsHotPush: unsupportedFlag)
+            try "".write(toFile: state + "/calls.txt", atomically: true, encoding: .utf8)
+            let fullSingle = inst.install(framework: fw2, titleID: secondID, name: "Second Game", archive: arch2)
+            XCTAssertTrue(fullSingle.ok, fullSingle.message)
+            XCTAssertTrue(fullSingle.shellUpdated)
+            XCTAssertEqual(calls.filter { $0.hasPrefix("xcodebuild") }.count, 1)
+            XCTAssertEqual(calls.filter { $0.hasPrefix("devicectl device install app") }.count, 1)
+            XCTAssertFalse(calls.contains { $0.contains("Documents/Frameworks/.staging-") },
+                           "must never push external frameworks to Documents/Frameworks when allowsHotPush is \(String(describing: unsupportedFlag))")
+
+            try "".write(toFile: state + "/calls.txt", atomically: true, encoding: .utf8)
+            let fullBatch = inst.installBatch([
+                .init(framework: fw2, titleID: secondID, name: "Second Game", archive: arch2),
+                .init(framework: fw3, titleID: thirdID, name: "Third Game", archive: arch3),
+            ])
+            XCTAssertTrue(fullBatch.ok, fullBatch.message)
+            XCTAssertTrue(fullBatch.shellUpdated)
+            XCTAssertEqual(calls.filter { $0.hasPrefix("xcodebuild") }.count, 1)
+            XCTAssertEqual(calls.filter { $0.hasPrefix("devicectl device install app") }.count, 1)
+            XCTAssertFalse(calls.contains { $0.contains("Documents/Frameworks/.staging-") })
+        }
+        // Certificate fingerprint missing or mismatched under the same team -> must also fall back to full bundle install.
+        try writeDeviceBeacon(teamID: team, glueVersion: 3, chain: "b-108c5f92c3c4",
+                              expiresIn: 5 * 86400, nowEpoch: nowEpoch, allowsHotPush: true, certSHA1: nil)
+        try "".write(toFile: state + "/calls.txt", atomically: true, encoding: .utf8)
+        let missingCertOut = inst.install(framework: fw2, titleID: secondID, name: "Second Game", archive: arch2)
+        XCTAssertTrue(missingCertOut.ok, missingCertOut.message)
+        XCTAssertTrue(missingCertOut.shellUpdated)
+        XCTAssertEqual(calls.filter { $0.hasPrefix("xcodebuild") }.count, 1)
+        XCTAssertFalse(calls.contains { $0.contains("Documents/Frameworks/.staging-") })
+
+        // When hotSigningIdentity enforces exact SHA-1 match and the local keychain holds a different cert for the same team,
+        // hot push is refused and full xcodebuild + app install runs without failing.
+        var mismatchedCertInst = inst
+        let otherSHA1 = String(repeating: "B", count: 40)
+        mismatchedCertInst.hotSigningIdentity = { beacon, _, _ in
+            beacon.certSHA1 == otherSHA1 ? "-" : nil
+        }
+        try writeDeviceBeacon(teamID: team, glueVersion: 3, chain: "b-108c5f92c3c4",
+                              expiresIn: 5 * 86400, nowEpoch: nowEpoch, allowsHotPush: true,
+                              certSHA1: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+        try "".write(toFile: state + "/calls.txt", atomically: true, encoding: .utf8)
+        let mismatchOut = mismatchedCertInst.install(framework: fw2, titleID: secondID, name: "Second Game", archive: arch2)
+        XCTAssertTrue(mismatchOut.ok, mismatchOut.message)
+        XCTAssertEqual(calls.filter { $0.hasPrefix("xcodebuild") }.count, 1)
+        XCTAssertEqual(calls.filter { $0.hasPrefix("devicectl device install app") }.count, 1)
+        XCTAssertFalse(calls.contains { $0.contains("Documents/Frameworks/.staging-") })
     }
 }

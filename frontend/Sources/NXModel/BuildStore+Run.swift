@@ -80,6 +80,7 @@ extension BuildStore {
         let override = takeOverrideFlag()   // for this build only: the next one asks again
         installedOn = ""
         installedAppPath = ""
+        shellUpdatedOnDevice = false
         exportedIPAPath = ""
         if !deferShellPackaging {
             needsReplaceOldImgReminder = false

@@ -234,6 +234,109 @@ import XCTest
         XCTAssertTrue(app.staticTexts["cheats.triageNeedsBakeText"].waitForExistence(timeout: 5))
     }
 
+    func testEmptyCheatsEntryIsVisibleAndFramegenRotationLocalizedInEnAndZh() throws {
+        let cases: [(tag: String, appleLang: String, cheatsTitle: String, emptyHint: String, framegen: String, framegenNotePrefix: String, rotation: String, autoOpt: String, landscapeOpt: String, portraitOpt: String)] = [
+            (
+                tag: "en",
+                appleLang: "en",
+                cheatsTitle: "Cheats",
+                emptyHint: "Import .txt",
+                framegen: "Frame generation",
+                framegenNotePrefix: "Shows 60 frames a second while the game draws 30.",
+                rotation: "Rotation",
+                autoOpt: "Automatic",
+                landscapeOpt: "Landscape",
+                portraitOpt: "Portrait"
+            ),
+            (
+                tag: "zh",
+                appleLang: "zh-Hans",
+                cheatsTitle: "金手指",
+                emptyHint: "导入 .txt",
+                framegen: "帧生成",
+                framegenNotePrefix: "在游戏以 30 帧绘制时输出每秒 60 帧。",
+                rotation: "屏幕方向",
+                autoOpt: "自动",
+                landscapeOpt: "横屏",
+                portraitOpt: "竖屏"
+            )
+        ]
+
+        for entry in cases {
+            XCUIDevice.shared.orientation = .portrait
+            app.launchArguments = [
+                "-AppleLanguages", "(\(entry.appleLang))",
+                "-AppleLocale", entry.appleLang,
+                "--host", "--select", "0100000000010000", "--screen", "settings", "--mock-settings-framegen-rotation"
+            ]
+            app.launch()
+
+            let cheatsEntry = app.buttons["set.cheats"]
+            XCTAssertTrue(cheatsEntry.waitForExistence(timeout: 10), "Cheats entry must stay visible when no cheats or Build ID exist (\(entry.tag))")
+            XCTAssertTrue(app.staticTexts[entry.cheatsTitle].exists, "Expected localized Cheats title in \(entry.tag)")
+            XCTAssertTrue(app.staticTexts[entry.emptyHint].exists, "Expected empty cheats import prompt in \(entry.tag)")
+
+            let scroll = app.descendants(matching: .any)["settings.scroll"].firstMatch
+            XCTAssertTrue(scroll.waitForExistence(timeout: 5))
+            let framegenToggle = app.switches["setting.DM_FRAMEGEN"]
+            for _ in 0..<4 where !framegenToggle.exists {
+                scroll.swipeUp()
+            }
+            XCTAssertTrue(framegenToggle.waitForExistence(timeout: 5), "Frame generation toggle missing in \(entry.tag)")
+            XCTAssertTrue(app.staticTexts[entry.framegen].exists, "Expected localized Frame generation label in \(entry.tag)")
+            XCTAssertTrue(
+                app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", entry.framegenNotePrefix)).firstMatch.exists,
+                "Expected localized Frame generation note in \(entry.tag)"
+            )
+
+            let rotationSegmented = app.segmentedControls["setting.DM_ROTATION"]
+            let rotationButton = app.buttons["setting.DM_ROTATION"]
+            let rotationLabelMatches = app.descendants(matching: .any).matching(
+                NSPredicate(format: "label == %@ OR label CONTAINS %@", entry.rotation, entry.rotation)
+            )
+            for _ in 0..<4 where !rotationSegmented.exists && !rotationButton.exists {
+                scroll.swipeUp()
+            }
+            let hasRotationControl = rotationSegmented.waitForExistence(timeout: 5) || rotationButton.waitForExistence(timeout: 5)
+            XCTAssertTrue(hasRotationControl, "Expected Rotation control in \(entry.tag)")
+            XCTAssertTrue(
+                app.staticTexts[entry.rotation].exists || rotationLabelMatches.firstMatch.exists,
+                "Expected localized Rotation label in \(entry.tag)"
+            )
+            saveOptionalScreenshot(named: "ios-settings-framegen-rotation-\(entry.tag)")
+            if rotationSegmented.exists {
+                XCTAssertTrue(rotationSegmented.buttons[entry.autoOpt].exists, "Expected localized Automatic option in \(entry.tag)")
+                XCTAssertTrue(rotationSegmented.buttons[entry.landscapeOpt].exists, "Expected localized Landscape option in \(entry.tag)")
+                XCTAssertTrue(rotationSegmented.buttons[entry.portraitOpt].exists, "Expected localized Portrait option in \(entry.tag)")
+            } else if app.buttons[entry.autoOpt].exists {
+                XCTAssertTrue(app.buttons[entry.landscapeOpt].exists, "Expected localized Landscape option in \(entry.tag)")
+                XCTAssertTrue(app.buttons[entry.portraitOpt].exists, "Expected localized Portrait option in \(entry.tag)")
+            } else {
+                // Inline menu picker exposes current option text as StaticText and expands all options on tap.
+                XCTAssertTrue(app.staticTexts[entry.autoOpt].exists, "Expected localized current option \(entry.autoOpt) in \(entry.tag)")
+                rotationButton.tap()
+                XCTAssertTrue(app.buttons[entry.autoOpt].waitForExistence(timeout: 5), "Expected \(entry.autoOpt) in Rotation menu")
+                XCTAssertTrue(app.buttons[entry.landscapeOpt].exists, "Expected \(entry.landscapeOpt) in Rotation menu")
+                XCTAssertTrue(app.buttons[entry.portraitOpt].exists, "Expected \(entry.portraitOpt) in Rotation menu")
+                app.buttons[entry.autoOpt].firstMatch.tap()
+            }
+
+            scroll.swipeDown()
+            sleep(1)
+
+            // Verify tapping Cheats opens CheatsSheetView even with zero cheats and unknown Build ID.
+            for _ in 0..<4 where !cheatsEntry.exists {
+                scroll.swipeDown()
+            }
+            XCTAssertTrue(cheatsEntry.waitForExistence(timeout: 5))
+            cheatsEntry.tap()
+            XCTAssertTrue(app.staticTexts["cheats.buildID"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.buttons["cheats.import"].exists)
+            saveOptionalScreenshot(named: "ios-cheats-empty-guide-\(entry.tag)")
+            app.terminate()
+        }
+    }
+
     func testCaptureCheatsScreenshotsEnAndZh() throws {
         guard let shotDir = ProcessInfo.processInfo.environment["NX_IOS_CHEATS_SHOT_DIR"], !shotDir.isEmpty else {
             throw XCTSkip("Set NX_IOS_CHEATS_SHOT_DIR to capture iOS Cheats screenshots")

@@ -9,9 +9,10 @@ import Foundation
 
 package enum ShellHotInstall {
     package static let beaconRemotePath = "Documents/.shell-host.json"
-    /// Bumped when `DmShell.app` gains new host UI or launch capabilities (e.g. Home Screen shortcuts and expanded in-game menu)
-    /// so an older installed shell upgrades via one full `xcodebuild` install before resuming hot framework pushes.
-    package static let glueVersion = 2
+    /// Bumped when `DmShell.app` gains new host UI or launch capabilities (e.g. Cheats hub, localization catalogs, and
+    /// expanded in-game menu) so an older installed shell upgrades via one full `xcodebuild` install before resuming
+    /// hot framework pushes.
+    package static let glueVersion = 3
     /// Fall back to full `xcodebuild` when fewer than 24 hours remain on a 7-day profile so the app's signature is renewed too.
     package static let minRemainingLifetime: Int64 = 24 * 3600
 
@@ -23,9 +24,12 @@ package enum ShellHotInstall {
         package var chain: String
         package var version: String
         package var expiresAtEpoch: Int64?
+        package var allowsHotPush: Bool?
+        package var certSHA1: String?
 
         package init(schema: Int = 1, glueVersion: Int = ShellHotInstall.glueVersion, bundleID: String, teamID: String,
-                     chain: String, version: String, expiresAtEpoch: Int64? = nil) {
+                     chain: String, version: String, expiresAtEpoch: Int64? = nil, allowsHotPush: Bool? = nil,
+                     certSHA1: String? = nil) {
             self.schema = schema
             self.glueVersion = glueVersion
             self.bundleID = bundleID
@@ -33,6 +37,8 @@ package enum ShellHotInstall {
             self.chain = chain
             self.version = version
             self.expiresAtEpoch = expiresAtEpoch
+            self.allowsHotPush = allowsHotPush
+            self.certSHA1 = certSHA1
         }
     }
 
@@ -63,6 +69,32 @@ package enum ShellHotInstall {
         return !match.sha1.isEmpty ? match.sha1 : match.identity
     }
 
+    /// Resolves a local Apple Development signing identity whose SHA-1 fingerprint exactly matches the running shell's
+    /// code signature on the device (`beacon.certSHA1`), refusing mismatches or non-development/distribution profiles.
+    package static func matchingSigningIdentity(for beacon: HostBeacon, team: String, runner: ProcessRunner) -> String? {
+        guard !team.isEmpty,
+              beacon.teamID == team,
+              beacon.allowsHotPush == true,
+              let targetSHA1 = beacon.certSHA1?.trimmingCharacters(in: .whitespacesAndNewlines),
+              isValidSHA1(targetSHA1) else {
+            return nil
+        }
+        guard let match = DeviceTools.allCertificateTeams(runner: runner).first(where: {
+            $0.id == team && !$0.identity.isEmpty && $0.sha1.caseInsensitiveCompare(targetSHA1) == .orderedSame
+        }) else {
+            return nil
+        }
+        return !match.sha1.isEmpty ? match.sha1 : match.identity
+    }
+
+    private static func isValidSHA1(_ value: String) -> Bool {
+        value.count == 40 && value.unicodeScalars.allSatisfy {
+            ($0.value >= 48 && $0.value <= 57)
+                || ($0.value >= 65 && $0.value <= 70)
+                || ($0.value >= 97 && $0.value <= 102)
+        }
+    }
+
     /// True when `<framework>/game.manifest.json` declares `loader == "FH"` and its executable exists on disk.
     package static func supportsHotPush(framework: String, titleID: String = "", fm: FileManager = .default) -> Bool {
         guard let data = fm.contents(atPath: framework + "/game.manifest.json"),
@@ -73,7 +105,8 @@ package enum ShellHotInstall {
         return !exe.isEmpty && fm.fileExists(atPath: framework + "/" + exe)
     }
 
-    package static func evaluateBeacon(_ data: Data?, expectedBundleID: String, team: String, nowEpoch: Int64) -> BeaconVerdict {
+    package static func evaluateBeacon(_ data: Data?, expectedBundleID: String, team: String, nowEpoch: Int64,
+                                       expectedChain: String? = nil) -> BeaconVerdict {
         guard let data, let beacon = try? JSONDecoder().decode(HostBeacon.self, from: data) else {
             return .unreadable
         }
@@ -85,6 +118,16 @@ package enum ShellHotInstall {
         }
         guard !team.isEmpty, beacon.teamID == team else {
             return .incompatible("teamID \(beacon.teamID.isEmpty ? "none" : beacon.teamID)")
+        }
+        if let expectedChain, !expectedChain.isEmpty, beacon.chain != expectedChain {
+            return .incompatible("chain \(beacon.chain.isEmpty ? "none" : beacon.chain)")
+        }
+        guard beacon.allowsHotPush == true else {
+            return .incompatible("hotPush \(beacon.allowsHotPush.map { String($0) } ?? "missing")")
+        }
+        guard let certSHA1 = beacon.certSHA1?.trimmingCharacters(in: .whitespacesAndNewlines),
+              isValidSHA1(certSHA1) else {
+            return .incompatible("certSHA1 missing")
         }
         if let exp = beacon.expiresAtEpoch, exp - nowEpoch < minRemainingLifetime {
             return .expiringSoon
@@ -143,6 +186,48 @@ package enum ShellHotInstall {
          "--domain-type", "appDataContainer", "--domain-identifier", bundleID]
     }
 
+    package struct ProjectStamp: Codable, Equatable {
+        package var glueVersion: Int
+        package var chain: String
+
+        package init(glueVersion: Int = ShellHotInstall.glueVersion, chain: String) {
+            self.glueVersion = glueVersion
+            self.chain = chain
+        }
+    }
+
+    package static func projectStampFile(root: String) -> String {
+        ShellInstall.projectFolder(root: root) + "/.shell-stamp.json"
+    }
+
+    package static func expectedChain(resources: String?, repo: String) -> String? {
+        [resources.map { $0 + "/engine" }, repo.isEmpty ? nil : EngineLayout.root(repo)]
+            .compactMap { $0 }
+            .lazy
+            .compactMap { StaleFrameworks.currentChain(engineRoot: $0) }
+            .first
+    }
+
+    package static func writeProjectStamp(root: String, resources: String?, repo: String, fm: FileManager = .default) {
+        let stamp = ProjectStamp(glueVersion: glueVersion, chain: expectedChain(resources: resources, repo: repo) ?? "")
+        guard let data = try? JSONEncoder().encode(stamp) else { return }
+        let folder = ShellInstall.projectFolder(root: root)
+        try? fm.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        try? data.write(to: URL(fileURLWithPath: projectStampFile(root: root)), options: .atomic)
+    }
+
+    package static func projectStampMatches(root: String, expectedChain: String?, fm: FileManager = .default) -> Bool {
+        guard let data = fm.contents(atPath: projectStampFile(root: root)),
+              let stamp = try? JSONDecoder().decode(ProjectStamp.self, from: data),
+              stamp.glueVersion == glueVersion else {
+            return false
+        }
+        if let expectedChain, !expectedChain.isEmpty {
+            return stamp.chain == expectedChain
+        }
+        return true
+    }
+
     package static func copyReadyCommand(xcrun: String, device: String, bundleID: String,
                                          sourceReady: String, stagingSubdir: String) -> [String] {
         [xcrun, "devicectl", "device", "copy", "to", "--device", device, "--source", sourceReady,
@@ -159,43 +244,53 @@ extension ShellInstaller {
         package var pickedArtwork: String?
     }
 
+    package enum HotInstallAttempt {
+        case completed(Outcome, notes: [String])
+        case fallback(shellOutdated: Bool)
+    }
+
     /// Attempts a ~2-second hot framework sign + push into `Documents/Frameworks/` when the shared app is already installed on
-    /// `device` with the same team and valid provisioning lifetime. Returns nil whenever full `xcodebuild` should run instead.
-    func tryHotInstall(games: [HotGame]) -> (outcome: Outcome, notes: [String])? {
-        guard allowHotInstall else { return nil }
+    /// `device` with the same team and valid provisioning lifetime. Returns `.fallback` whenever full `xcodebuild` should run instead.
+    func attemptHotInstall(games: [HotGame]) -> HotInstallAttempt {
+        guard allowHotInstall else { return .fallback(shellOutdated: false) }
         let fm = FileManager.default
-        guard !games.isEmpty, !team.isEmpty, !device.isEmpty else { return nil }
+        guard !games.isEmpty, !team.isEmpty, !device.isEmpty else { return .fallback(shellOutdated: false) }
         guard games.allSatisfy({ ShellHotInstall.supportsHotPush(framework: $0.framework, titleID: $0.titleID, fm: fm) }) else {
-            return nil
+            return .fallback(shellOutdated: false)
         }
         let stateFile = ShellLibrary.stateFile(root: root)
-        guard fm.fileExists(atPath: stateFile) else { return nil }
+        guard fm.fileExists(atPath: stateFile) else { return .fallback(shellOutdated: false) }
         let existing = ShellLibrary.load(root: root)
-        guard !existing.bundleID.isEmpty else { return nil }
-        guard let identity = signingIdentity(team, runner), !identity.isEmpty else {
-            log("hot-install: no local development certificate for team \(team), using full app build\n")
-            return nil
-        }
-        if let refused = pairingRefusal() { return (refused, []) }
+        guard !existing.bundleID.isEmpty else { return .fallback(shellOutdated: false) }
+        if let refused = pairingRefusal() { return .completed(refused, notes: []) }
 
         let beaconFile = NSTemporaryDirectory() + "nspb-shell-beacon-\(UUID().uuidString.prefix(8)).json"
         defer { try? fm.removeItem(atPath: beaconFile) }
         let fetched = run(ShellHotInstall.beaconCommand(xcrun: xcrun, device: device, bundleID: existing.bundleID, destination: beaconFile),
                           env: nil, label: "hot-check", step: { _ in nil })
         let beaconData = fetched.status == 0 ? fm.contents(atPath: beaconFile) : nil
+        let expectedChain = ShellHotInstall.expectedChain(resources: resources, repo: repo)
+        let eligibleBeacon: ShellHotInstall.HostBeacon
         switch ShellHotInstall.evaluateBeacon(beaconData, expectedBundleID: existing.bundleID,
-                                              team: team, nowEpoch: Int64(now().timeIntervalSince1970)) {
-        case .eligible:
-            break
+                                              team: team, nowEpoch: Int64(now().timeIntervalSince1970),
+                                              expectedChain: expectedChain) {
+        case .eligible(let beacon):
+            eligibleBeacon = beacon
         case .unreadable:
             log("hot-install: shared app host beacon not present on device, using full app build\n")
-            return nil
+            return .fallback(shellOutdated: false)
         case .incompatible(let detail):
             log("hot-install: host beacon mismatch (\(detail)), using full app build\n")
-            return nil
+            return .fallback(shellOutdated: true)
         case .expiringSoon:
             log("hot-install: device provisioning profile expires within 24 hours, using full app build to renew signature\n")
-            return nil
+            return .fallback(shellOutdated: false)
+        }
+        let resolvedIdentity = hotSigningIdentity?(eligibleBeacon, team, runner)
+            ?? ShellHotInstall.matchingSigningIdentity(for: eligibleBeacon, team: team, runner: runner)
+        guard let identity = resolvedIdentity, !identity.isEmpty else {
+            log("hot-install: no local development certificate matching shell certificate \(eligibleBeacon.certSHA1 ?? "unknown") for team \(team), using full app build\n")
+            return .fallback(shellOutdated: false)
         }
 
         ShellInstall.sweepDiscarded(in: ShellInstall.frameworksMirror(root: root))
@@ -222,7 +317,7 @@ extension ShellInstaller {
             let checked = leaveOutIncomplete(&library, titleID: game.titleID, name: game.name)
             if checked.failure != nil {
                 rollback()
-                return nil
+                return .fallback(shellOutdated: false)
             }
             notes.append(contentsOf: checked.notes)
         }
@@ -238,7 +333,7 @@ extension ShellInstaller {
             try fm.createDirectory(atPath: stageDir, withIntermediateDirectories: true)
         } catch {
             rollback()
-            return nil
+            return .fallback(shellOutdated: false)
         }
 
         let installName = fmt("dev.installStage", deviceName)
@@ -254,7 +349,7 @@ extension ShellInstaller {
             } catch {
                 log("hot-install: could not stage \(fwName): \(error.localizedDescription), falling back to full app build\n")
                 rollback()
-                return nil
+                return .fallback(shellOutdated: false)
             }
             _ = run(ShellHotInstall.cleanFrameworkAttributesCommand(framework: localCopy), env: nil, label: installName, step: { _ in nil })
             let signed = run(ShellHotInstall.codesignFrameworkCommand(codesign: codesignPath, identity: identity,
@@ -264,7 +359,7 @@ extension ShellInstaller {
                   let footprint = ShellHotInstall.frameworkFootprint(atPath: localCopy, fm: fm) else {
                 log("hot-install: codesign failed for \(fwName), falling back to full app build\n")
                 rollback()
-                return nil
+                return .fallback(shellOutdated: false)
             }
             let token = UUID().uuidString.prefix(8).lowercased()
             let remoteStaging = "Documents/Frameworks/.staging-\(upperID)-\(token)"
@@ -275,14 +370,14 @@ extension ShellInstaller {
             guard copiedFW.status == 0 else {
                 log("hot-install: copying \(fwName) failed, falling back to full app build\n")
                 rollback()
-                return nil
+                return .fallback(shellOutdated: false)
             }
             let ready = ShellHotInstall.ReadyMarker(titleID: upperID, files: footprint.files, bytes: footprint.bytes)
             let readyLocal = stageDir + "/\(idx)-.ready"
             guard let readyData = try? JSONEncoder().encode(ready),
                   (try? readyData.write(to: URL(fileURLWithPath: readyLocal), options: .atomic)) != nil else {
                 rollback()
-                return nil
+                return .fallback(shellOutdated: false)
             }
             let copiedReady = run(ShellHotInstall.copyReadyCommand(xcrun: xcrun, device: device, bundleID: library.bundleID,
                                                                    sourceReady: readyLocal, stagingSubdir: remoteStaging),
@@ -290,7 +385,7 @@ extension ShellInstaller {
             guard copiedReady.status == 0 else {
                 log("hot-install: writing .ready for \(fwName) failed, falling back to full app build\n")
                 rollback()
-                return nil
+                return .fallback(shellOutdated: false)
             }
         }
 
@@ -298,13 +393,20 @@ extension ShellInstaller {
             try library.save(root: root)
         } catch {
             rollback()
-            return nil
+            return .fallback(shellOutdated: false)
         }
         for (_, previous) in replaced { ShellInstall.discard(previous) }
         ShellLibrary.recordInstalled(root: root, device: device)
         end(Self.installStageID, installName, ok: true)
         let outcome = Outcome(ok: true, message: fmt("dev.installed", deviceName),
                               appPath: ShellInstall.appPath(root: root), bundleID: library.bundleID)
-        return (outcome, notes)
+        return .completed(outcome, notes: notes)
+    }
+
+    func tryHotInstall(games: [HotGame]) -> (outcome: Outcome, notes: [String])? {
+        switch attemptHotInstall(games: games) {
+        case .completed(let outcome, let notes): return (outcome, notes)
+        case .fallback: return nil
+        }
     }
 }

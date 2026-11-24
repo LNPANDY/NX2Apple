@@ -530,5 +530,68 @@ private struct FakeCertPicker: SideloadCertificatePicker {
         await model.removeSideloadCertificateNow()
         #expect(model.sideloadCertificate == nil)
     }
+
+    @MainActor @Test func shellHostModelBlocksExternalHotFrameworkLaunchWhenProfileDisallowsHotLoading() async throws {
+        let box = try Sandbox()
+        let hotRoot = box.root.appendingPathComponent("Documents/Frameworks", isDirectory: true)
+        try FileManager.default.createDirectory(at: hotRoot, withIntermediateDirectories: true)
+
+        let (fwURL, _) = try Self.buildMinimalFramework(in: hotRoot, titleID: Fixtures.orbit, stripSignature: true)
+        let fixtureDir = box.games.appendingPathComponent(Fixtures.orbit, isDirectory: true)
+        try FileManager.default.copyItem(at: fixtureDir.appendingPathComponent("launcher.json"),
+                                         to: fwURL.appendingPathComponent("launcher.json"))
+        try FileManager.default.copyItem(at: fixtureDir.appendingPathComponent("DmGame.framework/msl"),
+                                         to: fwURL.appendingPathComponent("msl"))
+        try FileManager.default.removeItem(at: fixtureDir)
+        try box.giveAppData(Fixtures.orbit)
+
+        var cfg = box.config()
+        cfg.hotFrameworksRoot = hotRoot
+        cfg.supportsHotFrameworkLoading = { false }
+        let launcher = CapturingLauncher()
+        let model = ShellHostModel(config: cfg, launcher: launcher)
+        await model.waitForStartupTasks()
+
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.isEmpty, "disallowed external framework must be blocked before dlopen")
+        #expect(model.notice == hostText("This app signature does not support loading games from Documents/Frameworks. Reinstall the app from NX2Apple on your computer."))
+    }
+
+    @Test func frameworkSignatureExtractsCMSSigningCertificateSHA1AndDetectsMismatch() throws {
+        let box = try Sandbox()
+        let hotRoot = box.root.appendingPathComponent("Documents/Frameworks", isDirectory: true)
+        let appBundle = box.root.appendingPathComponent("DmShell.app", isDirectory: true)
+        try FileManager.default.createDirectory(at: hotRoot, withIntermediateDirectories: true)
+
+        let (fwURL, exeURL) = try Self.buildMinimalFramework(in: hotRoot, titleID: Fixtures.orbit, stripSignature: true)
+        let p12 = try Self.generateP12(in: box.root, name: "cms_sha1", keyKind: "rsa",
+                                       commonName: "Apple Development: Shell Match", teamID: "SAME123456", password: "pw")
+        let backing = InMemoryCertBacking()
+        let store = SideloadCertificateStore(backing: backing)
+        _ = try store.importPKCS12(data: p12, password: "pw")
+        let identity = try store.loadIdentity()
+        _ = try MachOLocalSigner.signFramework(at: fwURL, allowedRoot: hotRoot, identity: identity, hostBundleID: "org.nxnative.shell")
+
+        // Compute the expected uppercase SHA-1 of the leaf certificate DER using `openssl x509`.
+        let pemURL = box.root.appendingPathComponent("cms_sha1.crt")
+        let fp = try Self.run("/usr/bin/openssl", ["x509", "-in", pemURL.path, "-noout", "-fingerprint", "-sha1"])
+        #expect(fp.status == 0)
+        let expectedSHA1 = fp.stdout
+            .components(separatedBy: "=").last?
+            .replacingOccurrences(of: ":", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased() ?? ""
+        #expect(expectedSHA1.count == 40)
+
+        let info = try #require(FrameworkSignature.inspect(executable: exeURL))
+        #expect(info.certSHA1 == expectedSHA1)
+        #expect(FrameworkSignature.preflightExternal(executable: exeURL, appBundleURL: appBundle,
+                                                   hostTeamID: "SAME123456", hostCertSHA1: expectedSHA1) == nil)
+
+        let otherSHA1 = String(repeating: "F", count: 40)
+        let mismatch = FrameworkSignature.preflightExternal(executable: exeURL, appBundleURL: appBundle,
+                                                            hostTeamID: "SAME123456", hostCertSHA1: otherSHA1)
+        #expect(mismatch == hostText("Could not load the game framework because the signing certificate does not match this app. Reinstall the app from your computer."))
+    }
 }
 #endif

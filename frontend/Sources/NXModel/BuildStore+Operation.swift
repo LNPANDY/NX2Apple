@@ -132,6 +132,7 @@ extension BuildStore {
         updatedImgPath = ""
         refreshCompletionSummary = nil
         pendingRefreshNotice = nil
+        shellUpdatedOnDevice = false
         completedOperation = nil
     }
 

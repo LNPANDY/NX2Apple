@@ -36,11 +36,16 @@ enum BuildNotice {
     }
 
     /// Title and body: the game, the target, and for a failure the reason (the build's own last word).
-    static func text(_ outcome: Outcome, game: String, target: String, device: String?, _ t: (String) -> String) -> (title: String, body: String) {
+    static func text(_ outcome: Outcome, game: String, target: String, device: String?, _ t: (String) -> String,
+                     shellUpdated: Bool = false) -> (title: String, body: String) {
         let place = target == "mac-app" ? t("notify.forMac")
             : device.map { String(format: t("notify.installedOn"), $0) } ?? t("notify.forIOS")
         switch outcome {
-        case .finished, .stopped: return (String(format: t("notify.doneTitle"), game), place)
+        case .finished, .stopped:
+            let body = shellUpdated && target != "mac-app"
+                ? place + "\n" + String(format: t("shell.updatedShell"), device ?? "iPhone")
+                : place
+            return (String(format: t("notify.doneTitle"), game), body)
         case .failed(let reason):
             return (String(format: t("notify.failedTitle"), game), reason.isEmpty ? place : place + "\n" + reason)
         }
@@ -153,7 +158,9 @@ final class BuildNotifier: NSObject, ObservableObject, UNUserNotificationCenterD
         let titleID = m.gameTitleID ?? ""
         let game = library.games.first { $0.titleID == titleID }
         let name = game?.name ?? GameLibrary.title(for: m.gameFolder?.folder ?? m.basePath, repo: m.repo.path, titleID: titleID)
-        let text = BuildNotice.text(outcome, game: name, target: m.runningTarget, device: m.installedOn.isEmpty ? nil : m.devices.deviceName(m.installedOn), m.t)
+        let text = BuildNotice.text(outcome, game: name, target: m.runningTarget,
+                                    device: m.installedOn.isEmpty ? nil : m.devices.deviceName(m.installedOn), m.t,
+                                    shellUpdated: m.shellUpdatedOnDevice)
         let content = UNMutableNotificationContent()
         content.title = text.title
         content.body = text.body
