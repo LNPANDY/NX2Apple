@@ -1,13 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "de",
-      "german",
-      "deutsch"
-    ],
-    "name": "Deutsch",
-    "order": 3
-  },
+  "_language": {"locales": ["de", "german", "deutsch"], "name": "Deutsch", "order": 3},
   "activity.averageSession": "Schnitt %@",
   "activity.button": "Aktivitätslog",
   "activity.dayCount": "%lld Tage",
@@ -2067,6 +2059,8 @@
   "macLibDiag.sheetTitle": "Übersprungene Dateien",
   "macLibVerify.badge": "Ungeprüftes Profil",
   "macLibVerify.note": "Noch kein eigenes Profil vorhanden. Du kannst das Spiel trotzdem über den allgemeinen Ablauf erstellen und Kompatibilitätsprobleme melden.",
+  "mng.cloud.externalNote": "Cloud-Spielstände werden für MacNativeGames-Builds nicht unterstützt. Spielstände bleiben unter ~/Library/Application Support/MacNativeGames/<Spielordner>/profile/save/.",
+  "mng.saves.externalNote": "MacNativeGames speichert Spielstände getrennt unter ~/Library/Application Support/MacNativeGames/<Spielordner>/profile/save/ und teilt sie nicht mit nxnative-Builds.",
   "msg.aocCopied": "Zusatzinhalte (%d DLC) im Ordner aoc/ des Spieleordners abgelegt",
   "msg.archiveAt": "Archiv: %@",
   "msg.archiveFailed": "Archiv fehlgeschlagen (Exit-Code %d)",

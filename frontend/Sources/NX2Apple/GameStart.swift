@@ -47,23 +47,25 @@ enum GameStart {
             environment.merge(NxkitLaunch.controlMaps(environment)) { $1 }
         }   // DM_STICK_DEADZONE_L / _R: off adds nothing
         // The global setup and this game's own choices (SaveLocation.swift): a save folder and a cloud folder, under the names of
-        // the app's engine (SaveEngine.swift). A game with nothing set adds nothing.
+        // the app's engine (SaveEngine.swift). Engines whose saves are outside launcher management (MNG, S2Arm) receive neither DM_SAVE nor DM_SAVE_SYNC.
         let engine = SaveEngines.forApp(game.appPath)
-        var base = SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath).save
-        if let saves {
-            let own = GameCloudSaves(titleID: game.titleID, appPath: game.appPath).setting
-            let save = SaveLocations.effectiveSave(titleID: game.titleID, appPath: game.appPath, global: saves.global, game: saves.game, engine: engine)
-            let cloud = SaveLocations.effectiveCloud(global: saves.global, game: saves.game, own: own)
-            let saveEnv = SaveLocations.environment(save: save, cloud: cloud, engine: engine)
-            if let folder = saveEnv[engine.saveKey] { try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true) }
-            environment.merge(saveEnv) { $1 }
-            base = save.path
-        }
-        // The player's own save folder (PlayerProfile.swift); the default player adds nothing, so their saves stay where they were
-        if let player {
-            let playerEnv = player.environment(base: base, existing: environment, engine: engine)
-            if let save = playerEnv[engine.saveKey] { try? FileManager.default.createDirectory(atPath: save, withIntermediateDirectories: true) }
-            environment.merge(playerEnv) { $1 }
+        if engine.managesSavesInLauncher {
+            var base = SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath, engine: engine).save
+            if let saves {
+                let own = GameCloudSaves(titleID: game.titleID, appPath: game.appPath).setting
+                let save = SaveLocations.effectiveSave(titleID: game.titleID, appPath: game.appPath, global: saves.global, game: saves.game, engine: engine)
+                let cloud = SaveLocations.effectiveCloud(global: saves.global, game: saves.game, own: own)
+                let saveEnv = SaveLocations.environment(save: save, cloud: cloud, engine: engine)
+                if let folder = saveEnv[engine.saveKey] { try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true) }
+                environment.merge(saveEnv) { $1 }
+                base = save.path
+            }
+            // The player's own save folder (PlayerProfile.swift); the default player adds nothing, so their saves stay where they were
+            if let player {
+                let playerEnv = player.environment(base: base, existing: environment, engine: engine)
+                if let save = playerEnv[engine.saveKey] { try? FileManager.default.createDirectory(atPath: save, withIntermediateDirectories: true) }
+                environment.merge(playerEnv) { $1 }
+            }
         }
         return environment
     }

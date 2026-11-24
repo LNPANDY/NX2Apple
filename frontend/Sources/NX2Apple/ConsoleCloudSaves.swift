@@ -84,7 +84,7 @@ enum ConsoleCloudSaves {
     /// The games this Mac can play (a complete Mac app): only those sync here. An iPhone-only build or a game not built yet has no
     /// save on this Mac to show. In the library's order.
     @MainActor static func inputs(library: GameLibrary) -> [Input] {
-        library.games.filter { $0.isReady && !$0.appPath.isEmpty }
+        library.games.filter { $0.isReady && !$0.appPath.isEmpty && SaveEngines.forApp($0.appPath).managesSavesInLauncher }
             .map { Input(id: $0.id.uuidString, title: $0.name, titleID: $0.titleID, appPath: $0.appPath) }
     }
 

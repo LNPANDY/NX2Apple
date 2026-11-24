@@ -1,12 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "ko",
-      "korean",
-      "한국어"
-    ],
-    "name": "한국어"
-  },
+  "_language": {"locales": ["ko", "korean", "한국어"], "name": "한국어"},
   "activity.averageSession": "평균 %@",
   "activity.button": "플레이 기록",
   "activity.dayCount": "%lld일",
@@ -2066,6 +2059,8 @@
   "macLibDiag.sheetTitle": "건너뛴 파일",
   "macLibVerify.badge": "미검증 프로필",
   "macLibVerify.note": "아직 전용 프로필이 없습니다. 일반 파이프라인으로 빌드를 시도할 수 있으며 호환성 문제가 있으면 제보해 주세요.",
+  "mng.cloud.externalNote": "MacNativeGames 빌드는 클라우드 저장을 지원하지 않습니다. 저장 데이터는 ~/Library/Application Support/MacNativeGames/<게임 폴더>/profile/save/에 보관됩니다.",
+  "mng.saves.externalNote": "MacNativeGames 빌드의 저장 데이터는 ~/Library/Application Support/MacNativeGames/<게임 폴더>/profile/save/에 별도로 저장되며 nxnative 빌드와 공유되지 않습니다.",
   "msg.aocCopied": "추가 콘텐츠(DLC %d개)를 게임 폴더의 aoc/에 넣었습니다",
   "msg.archiveAt": "아카이브: %@",
   "msg.archiveFailed": "아카이브 실패 (종료 코드 %d)",

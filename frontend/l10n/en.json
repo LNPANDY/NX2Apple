@@ -1,11 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "en"
-    ],
-    "name": "English",
-    "order": 1
-  },
+  "_language": {"locales": ["en"], "name": "English", "order": 1},
   "activity.averageSession": "Average %@",
   "activity.button": "Activity Log",
   "activity.dayCount": "%lld days",
@@ -2065,6 +2059,8 @@
   "macLibDiag.sheetTitle": "Skipped files",
   "macLibVerify.badge": "Unverified profile",
   "macLibVerify.note": "No dedicated profile yet. You can still build with the general pipeline and report any compatibility issues.",
+  "mng.cloud.externalNote": "Cloud saves are not supported for MacNativeGames builds. Saves stay in ~/Library/Application Support/MacNativeGames/<game folder>/profile/save/.",
+  "mng.saves.externalNote": "MacNativeGames keeps its saves separately in ~/Library/Application Support/MacNativeGames/<game folder>/profile/save/ and does not share saves with nxnative builds.",
   "msg.aocCopied": "add-on content (%d DLC) placed in the game folder's aoc/",
   "msg.archiveAt": "Archive: %@",
   "msg.archiveFailed": "Archive failed (exit code %d)",

@@ -1,12 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "es",
-      "spanish",
-      "español"
-    ],
-    "name": "Español"
-  },
+  "_language": {"locales": ["es", "spanish", "español"], "name": "Español"},
   "activity.averageSession": "Media %@",
   "activity.button": "Registro de actividad",
   "activity.dayCount": "%lld días",
@@ -2066,6 +2059,8 @@
   "macLibDiag.sheetTitle": "Archivos omitidos",
   "macLibVerify.badge": "Perfil sin verificar",
   "macLibVerify.note": "Aún no tiene un perfil específico. Puedes compilarlo con el flujo general e informar de cualquier problema de compatibilidad.",
+  "mng.cloud.externalNote": "Las partidas en la nube no son compatibles con compilaciones de MacNativeGames. Los guardados permanecen en ~/Library/Application Support/MacNativeGames/<carpeta del juego>/profile/save/.",
+  "mng.saves.externalNote": "MacNativeGames guarda sus partidas por separado en ~/Library/Application Support/MacNativeGames/<carpeta del juego>/profile/save/ y no comparte guardados con las compilaciones de nxnative.",
   "msg.aocCopied": "contenido adicional (%d DLC) colocado en aoc/ de la carpeta del juego",
   "msg.archiveAt": "Archivo: %@",
   "msg.archiveFailed": "Falló el archivo (código de salida %d)",

@@ -1,11 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "ja",
-      "japanese"
-    ],
-    "name": "日本語"
-  },
+  "_language": {"locales": ["ja", "japanese"], "name": "日本語"},
   "activity.averageSession": "平均 %@",
   "activity.button": "プレイ記録",
   "activity.dayCount": "%lld日間",
@@ -2065,6 +2059,8 @@
   "macLibDiag.sheetTitle": "スキップされたファイル",
   "macLibVerify.badge": "未検証のプロファイル",
   "macLibVerify.note": "専用プロファイルはまだありません。汎用パイプラインでビルドを試すことができ、互換性の問題があれば報告できます。",
+  "mng.cloud.externalNote": "MacNativeGames ビルドはクラウドセーブに対応していません。セーブデータは ~/Library/Application Support/MacNativeGames/<ゲームフォルダ>/profile/save/ に保存されます。",
+  "mng.saves.externalNote": "MacNativeGames のセーブデータは ~/Library/Application Support/MacNativeGames/<ゲームフォルダ>/profile/save/ に独立して保存され、nxnative 版とは共有されません。",
   "msg.aocCopied": "追加コンテンツ（DLC %d 個）をゲームフォルダの aoc/ に配置しました",
   "msg.archiveAt": "アーカイブ：%@",
   "msg.archiveFailed": "アーカイブに失敗しました（終了コード %d）",

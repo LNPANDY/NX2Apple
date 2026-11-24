@@ -1,12 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "pt-br",
-      "pt",
-      "portuguese"
-    ],
-    "name": "Português (Brasil)"
-  },
+  "_language": {"locales": ["pt-br", "pt", "portuguese"], "name": "Português (Brasil)"},
   "activity.averageSession": "Média %@",
   "activity.button": "Registro de atividade",
   "activity.dayCount": "%lld dias",
@@ -2066,6 +2059,8 @@
   "macLibDiag.sheetTitle": "Arquivos ignorados",
   "macLibVerify.badge": "Perfil não verificado",
   "macLibVerify.note": "Ainda sem perfil dedicado. Você pode compilar usando o fluxo geral e relatar qualquer problema de compatibilidade.",
+  "mng.cloud.externalNote": "Saves na nuvem não são compatíveis com compilações do MacNativeGames. Os saves permanecem em ~/Library/Application Support/MacNativeGames/<pasta do jogo>/profile/save/.",
+  "mng.saves.externalNote": "O MacNativeGames mantém seus saves separadamente em ~/Library/Application Support/MacNativeGames/<pasta do jogo>/profile/save/ e não os compartilha com compilações do nxnative.",
   "msg.aocCopied": "conteúdo adicional (%d DLC) colocado em aoc/ na pasta do jogo",
   "msg.archiveAt": "Arquivo: %@",
   "msg.archiveFailed": "Falha no arquivo (código de saída %d)",

@@ -51,6 +51,7 @@ package struct PlayerProfile: Codable, Equatable, Identifiable, Sendable {
     /// `engine` names the keys (SaveEngine): an app nxkit built gets `NXKIT_SAVE`, `NXKIT_SAVE_SYNC=0`, and plays as the game's
     /// user 1 under the player's name (`NXKIT_USER`, `NXKIT_NICK`), the default player too once renamed.
     package func environment(base: URL, existing: [String: String] = [:], engine: any SaveEngine = DmSaveEngine()) -> [String: String] {
+        guard engine.managesSavesInLauncher else { return [:] }
         var env = engine.playerEnvironment(name: name)
         guard !isDefault else { return name.isEmpty ? [:] : env }
         env[engine.saveKey] = saveFolder(base: base).path

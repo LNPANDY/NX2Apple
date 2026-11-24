@@ -32,7 +32,8 @@ struct CloudSaveStart: Equatable {
     static func plan(for game: LibraryGame, environment: [String: String] = [:], saves: GameCloudSaves? = nil) -> CloudSaveStart? {
         guard !game.appPath.isEmpty, FileManager.default.fileExists(atPath: game.appPath) else { return nil }
         let engine = SaveEngines.forApp(game.appPath)
-        let mac = SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath)
+        guard engine.managesSavesInLauncher else { return nil }
+        let mac = SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath, engine: engine)
         var start: CloudSaveStart
         if let report = engine.reportCommand(app: game.appPath, wait: reportWait) {
             guard let folder = CloudSaveSync.folder(for: environment[engine.syncKey]) else { return nil }

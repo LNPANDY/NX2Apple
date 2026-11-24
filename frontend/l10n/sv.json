@@ -1,12 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "sv",
-      "swedish"
-    ],
-    "name": "Svenska",
-    "order": 2
-  },
+  "_language": {"locales": ["sv", "swedish"], "name": "Svenska", "order": 2},
   "activity.averageSession": "Snitt %@",
   "activity.button": "Aktivitetslogg",
   "activity.dayCount": "%lld dagar",
@@ -2066,6 +2059,8 @@
   "macLibDiag.sheetTitle": "Överhoppade filer",
   "macLibVerify.badge": "Overifierad profil",
   "macLibVerify.note": "Ingen dedikerad profil ännu. Du kan ändå bygga med det allmänna flödet och rapportera eventuella kompatibilitetsproblem.",
+  "mng.cloud.externalNote": "Molnsparning stöds inte för MacNativeGames-byggen. Sparfiler lagras i ~/Library/Application Support/MacNativeGames/<spelmapp>/profile/save/.",
+  "mng.saves.externalNote": "MacNativeGames lagrar sina sparfiler separat i ~/Library/Application Support/MacNativeGames/<spelmapp>/profile/save/ och delar inte sparfiler med nxnative-byggen.",
   "msg.aocCopied": "tilläggsinnehåll (%d DLC) placerades i spelmappens aoc/",
   "msg.archiveAt": "Arkiv: %@",
   "msg.archiveFailed": "Arkiveringen misslyckades (slutkod %d)",

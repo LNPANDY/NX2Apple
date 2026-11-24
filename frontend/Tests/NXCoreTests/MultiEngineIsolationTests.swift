@@ -116,11 +116,53 @@ final class MultiEngineIsolationTests: XCTestCase {
         XCTAssertEqual(try MacGameBundle.read(nlk).upstream, .noLagKart)
 
         XCTAssertTrue(EngineUpstreamKind.nxnative.sharesSaveWithNxnative)
-        XCTAssertTrue(EngineUpstreamKind.macNativeGames.sharesSaveWithNxnative)
+        XCTAssertFalse(EngineUpstreamKind.macNativeGames.sharesSaveWithNxnative)
         XCTAssertTrue(EngineUpstreamKind.kidWithSword.sharesSaveWithNxnative)
         XCTAssertTrue(EngineUpstreamKind.noLagKart.sharesSaveWithNxnative)
         XCTAssertFalse(EngineUpstreamKind.s2arm.sharesSaveWithNxnative)
         XCTAssertFalse(EngineUpstreamKind.nxkit.sharesSaveWithNxnative)
+    }
+
+    func testSaveEnginesRouteMNGAndS2ArmWithoutFallingBackToDm() throws {
+        let support = root.appendingPathComponent("support", isDirectory: true)
+        let totkTID = "0100F2C0115B6000"
+        let nx = try createFakeBundle(at: root.appendingPathComponent("TOTK.app"), titleID: totkTID, displayName: "TOTK", upstream: .nxnative)
+        let kws = try createFakeBundle(at: root.appendingPathComponent("OOT [Kid with Sword].app"), titleID: EngineUpstreamKind.ootSwitch2TitleID, displayName: "OOT", upstream: .kidWithSword)
+        let nlk = try createFakeBundle(at: root.appendingPathComponent("MKW [No Lag Kart].app"), titleID: EngineUpstreamKind.mkwSwitch2TitleID, displayName: "MKW", upstream: .noLagKart)
+        let mng = try createFakeBundle(at: root.appendingPathComponent("TOTK [MacNativeGames].app"), titleID: totkTID, displayName: "TOTK", upstream: .macNativeGames)
+        let s2arm = try createFakeBundle(at: root.appendingPathComponent("TOTK [S2Arm].app"), titleID: totkTID, displayName: "TOTK", upstream: .s2arm)
+        let nxkit = try createFakeBundle(at: root.appendingPathComponent("TOTK [nxkit].app"), titleID: totkTID, displayName: "TOTK", upstream: .nxkit)
+
+        XCTAssertTrue(SaveEngines.forApp(nx.path) is DmSaveEngine)
+        XCTAssertTrue(SaveEngines.forApp(kws.path) is DmSaveEngine)
+        XCTAssertTrue(SaveEngines.forApp(nlk.path) is DmSaveEngine)
+        XCTAssertTrue(SaveEngines.forApp(mng.path) is MacNativeGamesSaveEngine)
+        XCTAssertTrue(SaveEngines.forApp(s2arm.path) is S2ArmSaveEngine)
+        XCTAssertTrue(SaveEngines.forApp(nxkit.path) is NxkitSaveEngine)
+
+        let mngEngine = SaveEngines.forApp(mng.path)
+        XCTAssertFalse(mngEngine.managesSavesInLauncher)
+        XCTAssertEqual(mngEngine.defaultSave(titleID: totkTID, support: support).path, support.appendingPathComponent("MacNativeGames/TOTK/profile/save").path)
+        XCTAssertEqual(mngEngine.defaultSave(titleID: "01002DA013484000", support: support).path,
+                       support.appendingPathComponent("The Legend of Zelda Skyward Sword HD/save").path)
+        XCTAssertEqual(mngEngine.defaultSave(titleID: "010048900CF64000", support: support).path,
+                       support.appendingPathComponent("MacNativeGames/Worldend Syndrome/save").path)
+
+        let s2armEngine = SaveEngines.forApp(s2arm.path)
+        XCTAssertFalse(s2armEngine.managesSavesInLauncher)
+        XCTAssertEqual(s2armEngine.defaultSave(titleID: totkTID, support: support).path,
+                       support.appendingPathComponent("NX2Apple/s2arm-data/\(totkTID)/SaveData").path)
+
+        // Global/game save overrides and library marker must never hijack MNG or S2Arm paths or inject DM_SAVE/DM_SAVE_SYNC.
+        let global = SaveGlobalSettings(cloudFolder: "icloud", cloudOn: true, saveRoot: "/Volumes/Saves")
+        let gameOverride = SaveGameOverride(cloud: .folder("/Volumes/Cloud"), saveFolder: "/Volumes/CustomSave")
+        for engine in [mngEngine, s2armEngine] {
+            let eff = SaveLocations.effectiveSave(titleID: totkTID, appPath: mng.path, global: global, game: gameOverride, support: support, engine: engine)
+            XCTAssertEqual(eff.path, engine.defaultSave(titleID: totkTID, support: support))
+            XCTAssertEqual(eff.source, .standard)
+            XCTAssertTrue(SaveLocations.environment(save: eff, cloud: .init(folder: "icloud", source: .global), engine: engine).isEmpty)
+            XCTAssertTrue(PlayerProfile(id: "p2", name: "Alice").environment(base: eff.path, engine: engine).isEmpty)
+        }
     }
 
     func testOneGameIPAPathAndPersonalBundleIDIsolation() {
@@ -161,5 +203,56 @@ final class MultiEngineIsolationTests: XCTestCase {
 
         DefaultBuildPreference.set(nil, titleID: tid, defaults: defaults)
         XCTAssertNil(DefaultBuildPreference.get(titleID: tid, defaults: defaults))
+    }
+
+    func testMNGSaveTargetResolvesUsersTxtAndProfileDirFallback() throws {
+        let support = root.appendingPathComponent("support", isDirectory: true)
+        let totkTID = "0100F2C0115B6000"
+        let profileDir = support.appendingPathComponent("MacNativeGames/TOTK/profile", isDirectory: true)
+        let saveBase = profileDir.appendingPathComponent("save", isDirectory: true)
+        try FileManager.default.createDirectory(at: saveBase, withIntermediateDirectories: true)
+
+        // When profile exists and users.txt names a UID whose directory is missing, revealURL opens the parent profile directory.
+        let uid = "bc947674f5e2b55ebbb6afdf0579d70b"
+        try "# comment\ninvalid-short\n*\(uid)\tLocal\n11111111111111111111111111111111\tOther\n"
+            .write(to: profileDir.appendingPathComponent("users.txt"), atomically: true, encoding: .utf8)
+
+        let missingUIDTarget = MacNativeGamesSaveEngine.resolveSaveTarget(titleID: totkTID, support: support, environment: [:])
+        XCTAssertEqual(missingUIDTarget.displaySaveURL.standardizedFileURL, saveBase.standardizedFileURL)
+        XCTAssertEqual(missingUIDTarget.revealURL.standardizedFileURL, profileDir.standardizedFileURL)
+
+        // When the UID folder exists, both displaySaveURL and revealURL resolve directly to save/<uid>.
+        let uidDir = saveBase.appendingPathComponent(uid, isDirectory: true)
+        try FileManager.default.createDirectory(at: uidDir, withIntermediateDirectories: true)
+        let existingUIDTarget = MacNativeGamesSaveEngine.resolveSaveTarget(titleID: totkTID, support: support, environment: [:])
+        XCTAssertEqual(existingUIDTarget.displaySaveURL.standardizedFileURL, uidDir.standardizedFileURL)
+        XCTAssertEqual(existingUIDTarget.revealURL.standardizedFileURL, uidDir.standardizedFileURL)
+
+        // Without `*`, activeUserID picks the first valid 32-hex UID.
+        try "0123456789abcdef0123456789abcdef\tFirst\n".write(to: profileDir.appendingPathComponent("users.txt"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(MacNativeGamesSaveEngine.activeUserID(inProfile: profileDir), "0123456789abcdef0123456789abcdef")
+
+        // TOTK_PROFILE_DIR overrides the default profile location and falls back to that profile dir if its <uid> folder is missing.
+        let customProfile = root.appendingPathComponent("custom-totk-profile", isDirectory: true)
+        let customUID = "aaaa2222bbbb3333cccc4444dddd5555"
+        try FileManager.default.createDirectory(at: customProfile, withIntermediateDirectories: true)
+        try "*\(customUID)\tCustom\n".write(to: customProfile.appendingPathComponent("users.txt"), atomically: true, encoding: .utf8)
+        let overrideMissing = MacNativeGamesSaveEngine.resolveSaveTarget(
+            titleID: nil,
+            support: support,
+            environment: ["TOTK_PROFILE_DIR": customProfile.path]
+        )
+        XCTAssertEqual(overrideMissing.displaySaveURL.path, customProfile.appendingPathComponent("save", isDirectory: true).path)
+        XCTAssertEqual(overrideMissing.revealURL.path, customProfile.path)
+
+        let customUIDDir = customProfile.appendingPathComponent("save/\(customUID)", isDirectory: true)
+        try FileManager.default.createDirectory(at: customUIDDir, withIntermediateDirectories: true)
+        let overrideExisting = MacNativeGamesSaveEngine.resolveSaveTarget(
+            titleID: nil,
+            support: support,
+            environment: ["TOTK_PROFILE_DIR": customProfile.path]
+        )
+        XCTAssertEqual(overrideExisting.displaySaveURL.path, customUIDDir.path)
+        XCTAssertEqual(overrideExisting.revealURL.path, customUIDDir.path)
     }
 }

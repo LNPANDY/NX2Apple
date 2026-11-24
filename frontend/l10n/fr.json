@@ -1,12 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "fr",
-      "french"
-    ],
-    "name": "Français",
-    "order": 4
-  },
+  "_language": {"locales": ["fr", "french"], "name": "Français", "order": 4},
   "activity.averageSession": "Moyenne %@",
   "activity.button": "Journal d’activité",
   "activity.dayCount": "%lld jours",
@@ -2066,6 +2059,8 @@
   "macLibDiag.sheetTitle": "Fichiers ignorés",
   "macLibVerify.badge": "Profil non vérifié",
   "macLibVerify.note": "Aucun profil dédié pour le moment. Vous pouvez tout de même compiler avec le flux général et signaler tout problème de compatibilité.",
+  "mng.cloud.externalNote": "Les sauvegardes iCloud ne sont pas prises en charge pour les versions MacNativeGames. Les sauvegardes restent dans ~/Library/Application Support/MacNativeGames/<dossier du jeu>/profile/save/.",
+  "mng.saves.externalNote": "MacNativeGames enregistre ses sauvegardes séparément dans ~/Library/Application Support/MacNativeGames/<dossier du jeu>/profile/save/ et ne les partage pas avec les versions nxnative.",
   "msg.aocCopied": "contenu additionnel (%d DLC) placé dans le dossier aoc/ du jeu",
   "msg.archiveAt": "Archive : %@",
   "msg.archiveFailed": "Échec de l’archive (code de sortie %d)",

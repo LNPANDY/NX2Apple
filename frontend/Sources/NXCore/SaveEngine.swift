@@ -18,8 +18,12 @@ package protocol SaveEngine: Sendable {
     var psoUserKey: String? { get }
     /// The engine keeps the save of an app in a library folder beside the app, `save/<title ID>`.
     var savesInLibraryFolder: Bool { get }
+    /// True when the launcher manages this engine's save folder, import/export, player isolation, and cloud sync.
+    var managesSavesInLauncher: Bool { get }
     /// The save when the launcher names none.
     func defaultSave(titleID: String, support: URL) -> URL
+    /// Engine-owned save and backup paths to remove when deleting a build (when `managesSavesInLauncher` is false).
+    func deletionPaths(titleID: String, support: URL) -> [String]
     /// What a player adds besides the save folder. `name` is empty for a player who kept the default name.
     func playerEnvironment(name: String) -> [String: String]
     /// The engine follows the player's choice before the start.
@@ -32,10 +36,67 @@ package protocol SaveEngine: Sendable {
     func sendCommand(app: String) -> [String]?
 }
 
+extension SaveEngine {
+    package var managesSavesInLauncher: Bool { true }
+    package func deletionPaths(titleID: String, support: URL) -> [String] { [] }
+}
+
 package enum SaveEngines {
-    /// The engine of the app at `path`: nxkit for an app nxkit built, else dm.
+    /// Save engine descriptor for an explicitly known upstream kind.
+    package static func forUpstream(_ upstream: EngineUpstreamKind) -> any SaveEngine {
+        switch upstream {
+        case .nxnative, .kidWithSword, .noLagKart:
+            return DmSaveEngine()
+        case .nxkit:
+            return NxkitSaveEngine()
+        case .macNativeGames:
+            return MacNativeGamesSaveEngine()
+        case .s2arm:
+            return S2ArmSaveEngine()
+        }
+    }
+
+    /// The engine of the app at `path`, resolving MNG / S2Arm / nxkit explicitly so neither MNG nor S2Arm ever falls back to `dm`.
     package static func forApp(_ path: String) -> any SaveEngine {
-        !path.isEmpty && NxkitLaunch.isNxkit(app: path) ? NxkitSaveEngine() : DmSaveEngine()
+        guard !path.isEmpty else { return DmSaveEngine() }
+        if let bundle = try? MacGameBundle.read(URL(fileURLWithPath: path)) {
+            return forUpstream(bundle.upstream)
+        }
+        if let detected = detectExternalUpstream(at: path) {
+            return forUpstream(detected)
+        }
+        return DmSaveEngine()
+    }
+
+    /// Fallback detection when a bundle's Info.plist lacks binaries or title ID keys (e.g. partial builds or test stubs).
+    private static func detectExternalUpstream(at path: String) -> EngineUpstreamKind? {
+        let appURL = URL(fileURLWithPath: path)
+        let plistURL = appURL.appendingPathComponent("Contents/Info.plist")
+        if let data = try? Data(contentsOf: plistURL),
+           let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] {
+            let explicit = (info["DMUpstream"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let bundleID = (info["CFBundleIdentifier"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+            let executable = (info["CFBundleExecutable"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if explicit == EngineUpstreamKind.macNativeGames.rawValue
+                || (explicit == nil && (EngineUpstream.macNativeGamesBundleTitleIDs[bundleID] != nil || bundleID.hasPrefix("org.macnativegames."))) {
+                return .macNativeGames
+            }
+            if explicit == EngineUpstreamKind.s2arm.rawValue
+                || (explicit == nil && (bundleID == "org.s2arm.macos.game" || bundleID.hasPrefix("org.s2arm.") || executable == "s2arm-host" || executable == "s2arm-launch")) {
+                return .s2arm
+            }
+            if explicit == EngineUpstreamKind.nxkit.rawValue
+                || (explicit == nil && (bundleID.hasPrefix("org.nxkit.game.") || executable == NxkitBuilder.hostName)) {
+                return .nxkit
+            }
+        }
+        let stem = appURL.deletingPathExtension().lastPathComponent
+        for kind in [EngineUpstreamKind.macNativeGames, .s2arm, .nxkit] {
+            if !kind.appFilenameSuffix.isEmpty && stem.hasSuffix(" [\(kind.appFilenameSuffix)]") {
+                return kind
+            }
+        }
+        return nil
     }
 }
 

@@ -59,6 +59,9 @@ package enum SaveLocations {
                                       volumeHolds: (String) -> Bool? = { VolumeSaves.holdsSaves(at: $0) }) -> EffectiveSave {
         let engine = engine ?? SaveEngines.forApp(appPath)
         let usual = engine.defaultSave(titleID: titleID, support: support)
+        guard engine.managesSavesInLauncher else {
+            return EffectiveSave(path: usual, source: .standard, volumeHoldsSaves: true)
+        }
         func result(_ url: URL, _ source: Source) -> EffectiveSave {
             // A chosen folder on a volume that cannot hold a save is not used: the usual place is, and the UI says why.
             if source == .game || source == .global, volumeHolds(url.path) == false {
@@ -97,6 +100,7 @@ package enum SaveLocations {
     /// The launch environment these settings add, under the engine's names. Nothing for a game with nothing set, so a usual start is unchanged.
     /// The cloud folder (`DM_SAVE_SYNC`) is only written when the global setup, an override or the game's own setting decides.
     package static func environment(save: EffectiveSave, cloud: EffectiveCloud, engine: any SaveEngine = DmSaveEngine()) -> [String: String] {
+        guard engine.managesSavesInLauncher else { return [:] }
         var env: [String: String] = [:]
         if [.game, .global, .libraryFolder, .fallback].contains(save.source) { env[engine.saveKey] = save.path.path }
         if cloud.source == .global || cloud.source == .game { env[engine.syncKey] = cloud.folder ?? "0" }

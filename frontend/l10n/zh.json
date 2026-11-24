@@ -1,12 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "zh",
-      "chinese"
-    ],
-    "name": "中文",
-    "order": 0
-  },
+  "_language": {"locales": ["zh", "chinese"], "name": "中文", "order": 0},
   "activity.averageSession": "平均 %@",
   "activity.button": "游玩记录",
   "activity.dayCount": "%lld 天",
@@ -2066,6 +2059,8 @@
   "macLibDiag.sheetTitle": "已跳过的文件",
   "macLibVerify.badge": "未验证的配置文件",
   "macLibVerify.note": "此游戏尚无专属验证配置，仍可使用通用流程尝试构建，如遇兼容问题欢迎反馈。",
+  "mng.cloud.externalNote": "MacNativeGames 构建不支持云存档同步，存档独立保存在 ~/Library/Application Support/MacNativeGames/<游戏文件夹>/profile/save/。",
+  "mng.saves.externalNote": "MacNativeGames 构建的存档独立保存在 ~/Library/Application Support/MacNativeGames/<游戏文件夹>/profile/save/，与 nxnative 版不互通。",
   "msg.aocCopied": "附加内容（%d 个 DLC）已放进游戏文件夹的 aoc/",
   "msg.archiveAt": "归档：%@",
   "msg.archiveFailed": "归档失败（退出码 %d）",
