@@ -27,16 +27,17 @@ if str(QT_DIR) not in sys.path:
 
 from nspb_qt import build_seed_cache  # noqa: E402
 from nspb_qt import seed_compression as sc  # noqa: E402
-from nspb_qt import seed_compression_dialog as scd  # noqa: E402
 
 try:
     from PySide6.QtWidgets import QApplication
+    from nspb_qt import seed_compression_dialog as scd
     from nspb_qt.model import Model
     from nspb_qt.i18n import Lang
     from nspb_qt.ui import MainWindow
     HAS_QT = True
 except ImportError:
     QApplication = None
+    scd = None
     Model = None
     Lang = None
     MainWindow = None
