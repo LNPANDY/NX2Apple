@@ -80,11 +80,24 @@ import NXLauncher
         defer { try? fm.removeItem(at: root) }
         let stores = try buildFixture(at: root)
         let build = stores.build
-        // nxkit (Beta): the same stand-in as its nxb, beside a nxkit-host and the release's MANIFEST.json (#1460)
+        // nxkit (Beta): stand-in nxb produces an nxkit-shaped bundle beside nxkit-host and MANIFEST.json (#1460)
         let pair = root.appendingPathComponent("nxbuild")
         try fm.createDirectory(at: pair, withIntermediateDirectories: true)
-        for name in ["nxb", "nxkit-host"] {
-            try packer.write(to: pair.appendingPathComponent(name), atomically: true, encoding: .utf8)
+        let nxkitPacker = """
+        #!/usr/bin/python3
+        import pathlib, plistlib, sys
+        app = pathlib.Path(sys.argv[sys.argv.index('-o') + 1])
+        macos = app / 'Contents/MacOS'
+        res = app / 'Contents/Resources/nxkit'
+        macos.mkdir(parents=True, exist_ok=True)
+        res.mkdir(parents=True, exist_ok=True)
+        (macos / 'nxkit-host').touch(mode=0o755)
+        (res / 'romfs').write_bytes(b'k')
+        info = dict(DMTitleID='0100000000010000', CFBundleName='雪: The / Journey', CFBundleExecutable='nxkit-host')
+        (app / 'Contents/Info.plist').write_bytes(plistlib.dumps(info))
+        """
+        for (name, body) in [("nxb", nxkitPacker), ("nxkit-host", packer)] {
+            try body.write(to: pair.appendingPathComponent(name), atomically: true, encoding: .utf8)
             try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: pair.appendingPathComponent(name).path)
         }
         try Data(#"{"format":1,"version":"0.10.2","arch":"arm64","macos_min":"26.0","files":{"nxb":"a","nxkit-host":"b"}}"#.utf8)
@@ -107,7 +120,7 @@ import NXLauncher
             XCTAssertTrue(build.done, build.log.text)
             let path = build.macAppPath
             if !nxkit { try capture(stores, filename: URL(fileURLWithPath: path).lastPathComponent) }
-            XCTAssertEqual(path, output.appendingPathComponent("雪 - The - Journey.app").path)
+            XCTAssertEqual(path, output.appendingPathComponent(nxkit ? "雪 - The - Journey [nxkit].app" : "雪 - The - Journey.app").path)
             XCTAssertTrue(build.log.text.contains(path))
             // the script keeps its build folder, nxkit's work folder is under Caches and its empty `<id>_build` is tidied
             XCTAssertEqual(fm.fileExists(atPath: output.appendingPathComponent(titleID + "_build").path), !nxkit)

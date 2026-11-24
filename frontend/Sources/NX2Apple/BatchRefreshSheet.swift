@@ -47,8 +47,9 @@ import NXModel
         )
         entry.fastRefresh = fastRefresh
         entry.rebuildsShaders = fastRefresh && rebuildsShaders
+        if fastRefresh { entry.upstream = .nxnative }
         entry.locksTarget = true
-        entry.existingAppPath = (isMac && !game.appPath.isEmpty) ? game.appPath : nil
+        entry.existingAppPath = isMac ? game.nxnativeMacBuildForRefresh?.appPath : nil
         entry.externalImgPath = isMac ? nil : externalImgPath
         entry.archivePath = (isMac || game.archivePath.isEmpty) ? nil : game.archivePath
         return entry
@@ -181,7 +182,7 @@ struct BatchRefreshSheet: View {
                 return nil
             }
 
-            var hasMac = game.isReady
+            var hasMac = game.nxnativeMacBuildForRefresh != nil
             var hasIOS = game.hasIOSBuild(shellRoot: stores.build.shellCachePath)
             if !hasMac && !hasIOS {
                 if game.lastTarget == BuildTarget.mac {

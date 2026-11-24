@@ -164,9 +164,51 @@ package enum EngineUpstreamKind: String, Codable, CaseIterable, Equatable, Senda
         return allowlist.contains(normalized)
     }
 
-    /// Isolated work directory suffix for specialized `nxnative` variants so shader/PSO caches never pollute default `nxnative`.
+    /// Isolated work directory suffix for non-nxnative engines so shader/PSO/extraction caches never collide across engines.
     package var workDirSuffix: String? {
-        isNxnativeVariant ? rawValue : nil
+        switch self {
+        case .nxnative: return nil
+        case .macNativeGames: return "mng"
+        case .s2arm: return "s2arm"
+        case .nxkit: return "nxkit"
+        case .kidWithSword: return "kidwithsword"
+        case .noLagKart: return "nolagkart"
+        }
+    }
+
+    /// Filename suffix appended to non-nxnative Mac `.app` bundles so multiple engine builds coexist in one folder.
+    package var appFilenameSuffix: String {
+        switch self {
+        case .nxnative: return ""
+        case .macNativeGames: return "MacNativeGames"
+        case .s2arm: return "S2Arm"
+        case .nxkit: return "nxkit"
+        case .kidWithSword: return "Kid with Sword"
+        case .noLagKart: return "No Lag Kart"
+        }
+    }
+
+    /// Canonical display/fallback order for multi-build cards and selectors.
+    package static let displayOrder: [EngineUpstreamKind] = [
+        .nxnative, .macNativeGames, .kidWithSword, .noLagKart, .s2arm, .nxkit,
+    ]
+
+    /// Distinct Mac bundle identifier for external `nxnative` variants so LaunchServices and SavedChoices never collide.
+    package func personalMacBundleID(titleID: String) -> String? {
+        guard isNxnativeVariant else { return nil }
+        let tid = titleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard tid.count == 16, tid.allSatisfy(\.isHexDigit) else { return nil }
+        return "org.nxnative.\(tid).\(rawValue)"
+    }
+
+    /// True when this engine uses the same `dm/host` save layout as `nxnative`.
+    package var sharesSaveWithNxnative: Bool {
+        switch self {
+        case .nxnative, .macNativeGames, .kidWithSword, .noLagKart:
+            return true
+        case .s2arm, .nxkit:
+            return false
+        }
     }
 
     /// Remote Git branch tracked by this external engine.

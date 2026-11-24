@@ -206,6 +206,7 @@ extension BuildStore {
             updatedImgPath = ""
         }
         send = .idle
+        lastRunWasFastRefresh = true
         activeBuildUpstream = .nxnative
         mngRun = false
         s2armRun = false
@@ -231,14 +232,21 @@ extension BuildStore {
             "--progress", "json"
         ]
 
+        let nxnativeExistingApp: String = {
+            let candidate = existingMacAppPath ?? macAppPath
+            guard !candidate.isEmpty,
+                  let bundle = try? MacGameBundle.read(URL(fileURLWithPath: candidate)),
+                  bundle.upstream == .nxnative else { return "" }
+            return candidate
+        }()
         let macOutput = isMac
-            ? MacAppOutput(workDir: URL(fileURLWithPath: workDir), key: tid, titleID: tid, preferred: existingMacAppPath ?? macAppPath)
+            ? MacAppOutput(workDir: URL(fileURLWithPath: workDir), key: tid, titleID: tid, upstream: .nxnative, preferred: nxnativeExistingApp)
             : nil
         oneGameIPAPath = ""
 
         var tempEnvURL: URL?
         if exportsOneGame {
-            oneGameIPAPath = OneGameIPA.path(folder: resolvedOutDir, titleID: tid)
+            oneGameIPAPath = OneGameIPA.path(folder: resolvedOutDir, titleID: tid, upstream: .nxnative)
             args += OneGameIPA.arguments(ipa: oneGameIPAPath)
         } else if isMac, let macOutput {
             macAppPath = ""
@@ -256,7 +264,8 @@ extension BuildStore {
                 seenRomfs.insert(path)
                 romfsCandidates.append(path)
             }
-            if let existingApp = existingMacAppPath ?? (FileManager.default.fileExists(atPath: macOutput.builderURL.path) ? macOutput.builderURL.path : nil) {
+            let prefillApp = !nxnativeExistingApp.isEmpty ? nxnativeExistingApp : (FileManager.default.fileExists(atPath: macOutput.builderURL.path) ? macOutput.builderURL.path : nil)
+            if let existingApp = prefillApp {
                 addRomfs(existingApp + "/Contents/Resources/romfs.img")
             }
             for img in RomFSArchive.reusableImages(root: resolvedOutDir, key: tid) {

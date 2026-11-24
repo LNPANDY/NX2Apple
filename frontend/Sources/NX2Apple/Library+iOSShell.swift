@@ -14,7 +14,10 @@ extension GameLibrary {
             }
         }
         if appExists {
-            if ipa.isEmpty { game.ipaPath = "" }
+            if ipa.isEmpty {
+                game.ipaPath = ""
+                game.ipaBuilds.removeValue(forKey: EngineUpstreamKind.nxnative.rawValue)
+            }
             game.iosAppPath = app
             if !device.isEmpty {
                 game.installedDevice = device

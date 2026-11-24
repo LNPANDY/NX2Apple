@@ -432,7 +432,7 @@ struct CheatsView: View {
             titleID: game.titleID,
             targetName: BuildTarget.ios,
             gameName: game.name,
-            existingMacAppPath: game.appPath.isEmpty ? nil : game.appPath,
+            existingMacAppPath: game.nxnativeMacBuildForRefresh?.appPath,
             cheatsDir: cheatFiles.folder.path
         )
         onStartedFastBake?()

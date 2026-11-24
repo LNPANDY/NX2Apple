@@ -25,7 +25,7 @@ extension LauncherView {
                 return assessment.heroState != .upToDate
             }
             return toolsAge.older.contains(item.id)
-                && (item.isReady || item.hasIOSBuild(shellRoot: stores.build.shellCachePath) || !item.inputs["base", default: []].isEmpty || item.inputs[GameLibrary.folderInput] != nil)
+                && (item.nxnativeMacBuildForRefresh != nil || item.hasIOSBuild(shellRoot: stores.build.shellCachePath) || !item.inputs["base", default: []].isEmpty || item.inputs[GameLibrary.folderInput] != nil)
         }
     }
 
@@ -120,7 +120,7 @@ extension LauncherView {
     }
 
     func resolvedRefreshTargets(for game: LibraryGame) -> (hasMac: Bool, hasIOS: Bool) {
-        let hasMac = game.isReady
+        let hasMac = game.nxnativeMacBuildForRefresh != nil
         let hasIOS = game.hasIOSBuild(shellRoot: stores.build.shellCachePath)
         if hasMac || hasIOS {
             return (hasMac, hasIOS)
@@ -227,7 +227,7 @@ extension LauncherView {
     func enqueueSingleGameRefresh(_ game: LibraryGame, assessment: GameRefreshAssessment?, externalIOSImgPath: String?) {
         let batch = UUID()
         var entries: [QueueEntry] = []
-        let hasMac = game.isReady
+        let hasMac = game.nxnativeMacBuildForRefresh != nil
         let hasIOS = game.hasIOSBuild(shellRoot: stores.build.shellCachePath)
 
         if hasMac {

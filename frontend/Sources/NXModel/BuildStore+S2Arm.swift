@@ -23,7 +23,7 @@ extension BuildStore {
         let initialPy = resolveBuildPython(includeS2Arm: true)
         let baseDir = inputFolder
         let tidHex = buildKey
-        let workDir = (outDir.isEmpty ? baseDir : outDir) + "/" + tidHex + "_build"
+        let workDir = nxnativeWorkDirectory(baseOut: outDir.isEmpty ? baseDir : outDir, tidHex: tidHex, upstream: .s2arm)
         if cloudFolderCheck(workDir) {
             failure = BuildFailure(kind: .cloudFolder, gameName: nil, detail: workDir)
             fail(failureWhat(failure!))
@@ -483,7 +483,7 @@ extension BuildStore {
                 let workDir = effectiveWorkDir.isEmpty ? (root as NSString).deletingLastPathComponent : effectiveWorkDir
                 let tid = gameTitleID ?? buildKey
                 let name = gameName
-                let macOutput = MacAppOutput(workDir: URL(fileURLWithPath: workDir), key: buildKey, titleID: gameTitleID, preferred: macAppPath)
+                let macOutput = MacAppOutput(workDir: URL(fileURLWithPath: workDir), key: buildKey, titleID: gameTitleID, upstream: .s2arm, preferred: macAppPath)
                 let tree = s2armPath
                 let upstreamsRoot = upstreamsRootURL
                 let homeDir = home

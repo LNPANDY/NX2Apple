@@ -86,6 +86,7 @@ extension BuildStore {
             updatedImgPath = ""
         }
         send = .idle
+        lastRunWasFastRefresh = false
         activeBuildUpstream = buildUpstream
         mngRun = false
         s2armRun = false
@@ -105,7 +106,7 @@ extension BuildStore {
             let tidHex = buildKey
             // The work folder is a cache of the game (a second build reuses its stages). The app is built in the output folder's `<id>_build` and placed beside it.
             let workDir = NxkitBuilder.workDirectory(root: nxkitWorkRoot, key: tidHex)
-            let appFolder = (outDir.isEmpty ? inputFolder : outDir) + "/" + tidHex + "_build"
+            let appFolder = nxnativeWorkDirectory(baseOut: outDir.isEmpty ? inputFolder : outDir, tidHex: tidHex, upstream: .nxkit)
             if cloudFolderCheck(appFolder) {
                 failure = BuildFailure(kind: .cloudFolder, gameName: nil, detail: appFolder)
                 fail(failureWhat(failure!))
@@ -123,7 +124,7 @@ extension BuildStore {
                 }
                 input = folder
             }
-            let macOutput = MacAppOutput(workDir: URL(fileURLWithPath: appFolder), key: tidHex, titleID: gameTitleID, preferred: macAppPath)
+            let macOutput = MacAppOutput(workDir: URL(fileURLWithPath: appFolder), key: tidHex, titleID: gameTitleID, upstream: .nxkit, preferred: macAppPath)
             oneGameIPAPath = ""
             macAppPath = ""
             effectiveWorkDir = workDir
@@ -324,18 +325,22 @@ extension BuildStore {
             for image in reusable { args += ["--romfs-from", image] }
         }
         let macApp = target == BuildTarget.mac
-        let macOutput = macApp ? MacAppOutput(workDir: URL(fileURLWithPath: workDir), key: tidHex, titleID: gameTitleID, preferred: macAppPath) : nil
+        let macOutput = macApp ? MacAppOutput(workDir: URL(fileURLWithPath: workDir), key: tidHex, titleID: gameTitleID, upstream: buildUpstream, preferred: macAppPath) : nil
         oneGameIPAPath = ""
         if exportsOneGame {
             // One game's own IPA with its game data inside (BuildStore+OneGame.swift, #540)
-            oneGameIPAPath = OneGameIPA.path(folder: outDir.isEmpty ? baseDir : outDir, titleID: tidHex)
+            oneGameIPAPath = OneGameIPA.path(folder: outDir.isEmpty ? baseDir : outDir, titleID: tidHex, upstream: buildUpstream)
             let variantBundleID = isVariant && RepoLayout.supportsBundleID(capabilityDir)
-                ? OneGameIPA.personalBundleID(titleID: tidHex, teamID: devices.signingTeam)
+                ? OneGameIPA.personalBundleID(titleID: tidHex, teamID: devices.signingTeam, upstream: buildUpstream)
                 : nil
             args += OneGameIPA.arguments(ipa: oneGameIPAPath, bundleID: variantBundleID)
         } else if let macOutput {
             macAppPath = ""
             args += ["--platform", "mac-app", "-o", macOutput.builderURL.path]
+            if isVariant, RepoLayout.supportsBundleID(capabilityDir),
+               let variantBundleID = buildUpstream.personalMacBundleID(titleID: tidHex) {
+                args += ["--bundle-id", variantBundleID]
+            }
             if shouldPassSeenShaders(forTitleID: gameTitleID ?? tidHex) {
                 args += ["--seen-shaders"]
                 say(t("msg.seenShadersOn"))

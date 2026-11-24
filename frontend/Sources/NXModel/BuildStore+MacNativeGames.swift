@@ -254,7 +254,7 @@ extension BuildStore {
         let tidHex = buildKey
         let resolvedTitleID = gameTitleID
         let outputRoot = outDir.isEmpty ? baseDir : outDir
-        let workDir = outputRoot + "/" + tidHex + "_build"
+        let workDir = nxnativeWorkDirectory(baseOut: outputRoot, tidHex: tidHex, upstream: .macNativeGames)
         if cloudFolderCheck(workDir) {
             failure = BuildFailure(kind: .cloudFolder, gameName: nil, detail: workDir)
             fail(failureWhat(failure!))
@@ -266,11 +266,12 @@ extension BuildStore {
         }
         try? FileManager.default.createDirectory(atPath: workDir, withIntermediateDirectories: true)
         // Keep first-build `-o` outside `--work` (required by games/tmnt/build.py: --out and --work must be separate).
-        let stageDir = URL(fileURLWithPath: outputRoot + "/" + tidHex + "_stage")
+        let stageDir = URL(fileURLWithPath: outputRoot + "/" + tidHex + "_mng_stage")
         let macOutput = MacAppOutput(
             workDir: URL(fileURLWithPath: workDir),
             key: tidHex,
             titleID: resolvedTitleID,
+            upstream: .macNativeGames,
             preferred: macAppPath,
             stagingDirectory: stageDir
         )

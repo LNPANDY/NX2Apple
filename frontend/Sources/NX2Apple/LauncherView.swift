@@ -120,7 +120,7 @@ struct LauncherView: View {
         _buildDependencies = ObservedObject(wrappedValue: stores.dependencies)
         _buildQueue = ObservedObject(wrappedValue: stores.queue)
         _repo = ObservedObject(wrappedValue: stores.repo); _engine = ObservedObject(wrappedValue: stores.engineSync); _playSessions = ObservedObject(wrappedValue: stores.playSessions); _librarySelection = ObservedObject(wrappedValue: stores.librarySelection)
-        let library = library ?? GameLibrary()
+        let library = library ?? GameLibrary(defaults: stores.defaults)
         _library = StateObject(wrappedValue: library)
         _recorder = StateObject(wrappedValue: recorder ?? BuildRecorder(stores: stores, library: library, activeBuildID: activeBuildID))
         _page = State(initialValue: initialPage)
