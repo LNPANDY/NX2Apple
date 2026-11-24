@@ -42,6 +42,8 @@ enum GalleryDesktopScene: String, CaseIterable {
     case footerVerifying, footerExporting, footerInstalling, footerRenewing, footerSending
     // Settings
     case appChecking, appDownloading, appPreparing, appAvailable, engineExperimental, missingTool, players, libraryFolders
+    // Saves (SavesPage, #1079)
+    case savesPage
     case nxkitIdle, nxkitChecking, nxkitWaiting, nxkitUnreachable, nxkitAppleSilicon
     case nxkitBadSignature, nxkitChecksum, nxkitIncompatible, nxkitIncomplete, nxkitDownload, nxkitUnpack, nxkitCancelled
     // sheets
@@ -110,6 +112,7 @@ enum GalleryDesktopScene: String, CaseIterable {
         case .engineExperimental: return "Engine: Experimental channel"
         case .missingTool: return "General: a tool is missing"
         case .players: return "Library: players"
+        case .savesPage: return "Saves: every built game's save"
         case .libraryFolders: return "Library: folders, one missing"
         case .nxkitIdle: return "nxkit: not checked yet"
         case .nxkitChecking: return "nxkit: checking"
@@ -451,6 +454,10 @@ extension GalleryFixtures {
             stores.dependencies.deps = [Dep(id: "xcode", name: "Xcode", hint: "", present: true, installCmd: []),
                                         Dep(id: "python", name: "Python 3.12", hint: "", present: false, installCmd: [])]
             return launcher(GalleryLauncher(page: .settings))
+        case .savesPage:
+            _ = makeMacApp(for: 0, in: library)
+            _ = makeMacApp(for: 2, in: library)
+            return launcher(GalleryLauncher(page: .saves))
         case .players:
             stores.players.create(name: "Alex")
             stores.players.create(name: "Sam")

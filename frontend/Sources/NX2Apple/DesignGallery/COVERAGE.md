@@ -4,9 +4,9 @@ Written by `GalleryCoverageTests` from `GalleryCoverage.swift`: every View type 
 popover and alert, every notice and every case of the state enums the views switch on, with the gallery's scenes
 (`GalleryScene.id`) that show it, or the reason none can. After a change:
 `NX_WRITE_COVERAGE=1 swift test --package-path frontend --filter GalleryCoverageTests`. The gallery has
-340 scenes.
+341 scenes.
 
-## Views: 232 of 242 in a scene
+## Views: 233 of 243 in a scene
 
 | View | Scenes |
 |---|---|
@@ -227,6 +227,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `RenameGameSheet` | `rename` |
 | `RootView` | Reason: The app's roots: they choose the onboarding, the launcher or the console demo, whose scenes show what they draw. |
 | `SaveImportSheet` | `saveImport` |
+| `SavesPage` | `desktop-savesPage` |
 | `SavesView` | `saves`, `desktop-savesReady` |
 | `SeedCompressionSettingsRow` | `settingsTools`, `desktop-seedCompressionStorage` |
 | `SeedCompressionSheet` | `seedCompressionPrompt`, `seedCompressionProgress`, `seedCompressionDone` |
@@ -312,12 +313,13 @@ popover and alert, every notice and every case of the state enums the views swit
 | `hero.switch2` | `librarySwitch2` |
 | `library.skippedBanner` | `libraryNoticeWarning` |
 
-## States: 284 of 284 in a scene
+## States: 285 of 285 in a scene
 
 | State | Scenes |
 |---|---|
 | `LauncherPage.library` | `libraryGames` |
 | `LauncherPage.builds` | `buildsIdle` |
+| `LauncherPage.saves` | `desktop-savesPage` |
 | `LauncherPage.settings` | `settings` |
 | `SettingsCategory.general` | `settings` |
 | `SettingsCategory.library` | `settingsLibrary` |

@@ -83,7 +83,7 @@ enum GalleryCoverage {
         "CardGroup": [.settings], "CardRow": [.settings], "CardDivider": [.settings], "LauncherSegmented": [.settings],
         "LauncherSecondaryButton": [.settings], "AppCard": [.settings, .desktop(D.appAvailable)], "SettingsUpdateAction": [.desktop(D.appAvailable)],
         "PersonalDefaultsCard": [.settings], "MissingToolRow": [.desktop(D.missingTool)], "LibraryFoldersCard": [.settingsLibrary, .desktop(D.libraryFolders)],
-        "GlobalSavesCard": [.settingsLibrary], "CloudSavesCard": [.settingsLibrary, .gameOptions], "PlayersCard": [.desktop(D.players)],
+        "GlobalSavesCard": [.settingsLibrary], "CloudSavesCard": [.settingsLibrary, .gameOptions], "PlayersCard": [.desktop(D.players)], "SavesPage": [.desktop(D.savesPage)],
         "ControlsCard": [.settingsControls], "StickDeadzoneCard": [.settingsControls], "StickVisualizer": [.settingsControls],
         "KeysCard": [.settingsTools], "ToolsCard": [.settingsTools], "ShellCacheRow": [.settingsTools], "CacheFolderRow": [.settingsTools], "BuildCacheRows": [.settingsTools], "SeedCompressionSettingsRow": [.settingsTools, .desktop(D.seedCompressionStorage)], "DiagnosticsButton": [.settingsTools],
         "BuildFilesCard": [.settingsTools], "DSOverflowMenu": [.settingsTools], "LauncherDropdown": [.settingsTools, .settings],
@@ -191,7 +191,7 @@ enum GalleryCoverage {
     static var states: [String: [GalleryScene]] {
         var map: [String: [GalleryScene]] = [:]
         func add(_ name: String, _ cases: [String: [GalleryScene]]) { for (key, scenes) in cases { map[name + "." + key] = scenes } }
-        add("LauncherPage", ["library": [.libraryGames], "builds": [.buildsIdle], "settings": [.settings]])
+        add("LauncherPage", ["library": [.libraryGames], "builds": [.buildsIdle], "saves": [.desktop(D.savesPage)], "settings": [.settings]])
         add("SettingsCategory", ["general": [.settings], "library": [.settingsLibrary], "controls": [.settingsControls], "tools": [.settingsTools]])
         add("LibraryFilter", ["owned": [.desktop(D.filterOwned)], "built": [.console(C.menuOnlyBuilt)], "mac": [.desktop(D.filterMac)], "ios": [.desktop(D.filterIOS)]])
         add("LibrarySort", ["recent": [.allGames], "name": [.desktop(D.sortName)]])

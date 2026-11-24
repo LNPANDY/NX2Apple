@@ -2,11 +2,12 @@ import SwiftUI
 import NXCore
 
 enum LauncherPage: String, CaseIterable {
-    case library, builds, settings
+    case library, builds, saves, settings
     var symbol: String {
         switch self {
         case .library: return "gamecontroller"
         case .builds: return "shippingbox"
+        case .saves: return "externaldrive"
         case .settings: return "slider.horizontal.3"
         }
     }
