@@ -608,4 +608,158 @@ import XCTest
         XCTAssertEqual(batchTargets.first?.hasMac, false)
         XCTAssertEqual(batchTargets.first?.hasIOS, true)
     }
+
+    func testStardewPathBAppearsInRebuildGroupAndSingleRefreshNotMarkedFast() throws {
+        NSApplication.shared.setActivationPolicy(.accessory)
+        let stores = makeStores()
+        let artwork = makeArtworkStore()
+        let pad = PadFocus()
+        stores.dependencies.checked = true
+        stores.deviceStore.devices = [
+            AppleDevice(id: "UDID-PATHB", name: "Player iPhone", model: "iPhone 17 Pro", os: "27.0", reachable: true, transport: "wired")
+        ]
+        stores.deviceStore.installDevice = "UDID-PATHB"
+
+        let shellRoot = temporary.appendingPathComponent("shell-pathb").path
+        let stardewTID = "0100E65002BB8000"
+        let balatroTID = "0100CD801CE5E000"
+        for tid in [stardewTID, balatroTID] {
+            let fwDir = ShellInstall.mirroredFramework(root: shellRoot, titleID: tid)
+            try fm.createDirectory(atPath: fwDir, withIntermediateDirectories: true)
+            try Data("{}".utf8).write(to: URL(fileURLWithPath: fwDir + "/game.manifest.json"))
+            try Data("bin".utf8).write(to: URL(fileURLWithPath: fwDir + "/DmGame" + tid))
+        }
+        testDefaults.set(shellRoot, forKey: "shellRoot")
+
+        let repo = temporary.appendingPathComponent("repo-pathb").path
+        let engine = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("engine").path
+        let nvnDir = repo + "/dm/gfx/nvn"
+        try fm.createDirectory(atPath: nvnDir, withIntermediateDirectories: true)
+        try "#define DMSH_CHAIN \"108c5f92c3c4\"\n".write(toFile: nvnDir + "/dmsh_chain.h", atomically: true, encoding: .utf8)
+        let gamesDst = repo + "/dm/games"
+        try fm.createDirectory(atPath: gamesDst, withIntermediateDirectories: true)
+        try fm.copyItem(atPath: engine + "/dm/games/" + stardewTID.lowercased(), toPath: gamesDst + "/" + stardewTID.lowercased())
+
+        let seedRoot = temporary.appendingPathComponent("seeds-pathb").path
+        let outDir = temporary.appendingPathComponent("out-pathb").path
+        let stardewSeed = BuildSeedCache.seedDirectory(for: stardewTID, seedRoot: seedRoot)
+        try fm.createDirectory(atPath: stardewSeed + "/ExeFS", withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: stardewSeed + "/shader/pkg", withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: stardewSeed + "/shader/tables", withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: stardewSeed + "/shader/ios", withIntermediateDirectories: true)
+        try Data("bin".utf8).write(to: URL(fileURLWithPath: stardewSeed + "/ExeFS/main"))
+        try Data("c1".utf8).write(to: URL(fileURLWithPath: stardewSeed + "/shader/tables/c1_full.tsv"))
+        try Data("cb".utf8).write(to: URL(fileURLWithPath: stardewSeed + "/shader/tables/cb_extent.tsv"))
+        try Data("old".utf8).write(to: URL(fileURLWithPath: stardewSeed + "/shader/ios/b-aaaaaaaaaaaa.img"))
+        try JSONEncoder().encode(BuildSeedRecord(titleID: stardewTID, baseTitleID: stardewTID, appName: "Stardew Valley", gfxAPI: "nvn", chain: "aaaaaaaaaaaa", profileID: stardewTID.lowercased()))
+            .write(to: URL(fileURLWithPath: stardewSeed + "/seed.json"))
+
+        let stardewImg = outDir + "/games/Stardew Valley/Stardew Valley.img"
+        try fm.createDirectory(atPath: (stardewImg as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        try Data("img".utf8).write(to: URL(fileURLWithPath: stardewImg))
+
+        let stardewAssess = GameUpdateCatalog.assess(
+            titleID: stardewTID,
+            isMarkedOlder: true,
+            hasMacBuild: false,
+            macAppPath: "",
+            hasIOSBuild: true,
+            hasReadableSourceInputs: false,
+            outDir: outDir,
+            gameName: "Stardew Valley",
+            appVersion: "1.5.1",
+            gitSpecificChanged: false,
+            seedRoot: seedRoot,
+            repoPath: repo
+        )
+        XCTAssertFalse(stardewAssess.canFastRefreshIOS)
+        XCTAssertTrue(stardewAssess.canSeedRefreshIOS)
+        XCTAssertTrue(stardewAssess.needsShaderRebuildIOS)
+        XCTAssertFalse(stardewAssess.missingOriginalPackage)
+
+        let balatroAssess = GameRefreshAssessment(
+            heroState: .generalSync(fast: true),
+            hasSpecificUpdate: false,
+            versionLabel: "1.5.1",
+            canFastRefreshMac: false,
+            canFastRefreshIOS: true,
+            needsMissingImgGuideIOS: false,
+            missingOriginalPackage: false,
+            hasUsableSeed: true
+        )
+
+        var balatro = LibraryGame(titleID: balatroTID, name: "Balatro")
+        balatro.iosAppPath = shellRoot
+        balatro.hasShellFramework = true
+        balatro.outputDirectory = outDir
+
+        var stardew = LibraryGame(titleID: stardewTID, name: "Stardew Valley")
+        stardew.iosAppPath = shellRoot
+        stardew.hasShellFramework = true
+        stardew.outputDirectory = outDir
+
+        let library = GameLibrary(file: temporary.appendingPathComponent("library-pathb.json"))
+        library.applicationFolders = []
+        library.upsert(balatro)
+        library.upsert(stardew)
+        library.selectedID = stardew.id
+
+        let toolsAge = ToolsAge(
+            older: [balatro.id, stardew.id],
+            assessments: [balatro.id: balatroAssess, stardew.id: stardewAssess]
+        )
+
+        // 1. BatchRefreshSheet: mixed selection exposes "onlyFast" containing only Balatro (never Stardew)
+        let batchView = BatchRefreshSheet(
+            library: library,
+            toolsAge: toolsAge,
+            stores: stores,
+            appVersion: "1.5.1",
+            onConfirmed: {},
+            close: {}
+        )
+        let host = NSHostingView(rootView: batchView.environmentObject(stores.localizer).environmentObject(pad))
+        let win = OffscreenWindow(size: NSSize(width: 680, height: 600))
+        win.contentView = host
+        win.orderFront(nil)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        host.layoutSubtreeIfNeeded()
+        XCTAssertNotNil(pad.frame(of: "batchRefresh.onlyFast"), "Mixed pure-fast + shader-rebuild batch must offer fast-only action")
+        pad.focused = "batchRefresh.onlyFast"
+        pad.activate()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        XCTAssertEqual(stores.queue.entries.map(\.titleID), [balatroTID], "Fast-only must exclude shader-rebuild games")
+        stores.queue.prepareForRefreshBatch()
+
+        // Confirm all selected -> Balatro ordered first (pure fast), Stardew second (seed + rebuildsShaders)
+        pad.focused = "batchRefresh.confirm"
+        pad.activate()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        win.orderOut(nil)
+        XCTAssertEqual(stores.queue.entries.map(\.titleID), [balatroTID, stardewTID])
+        XCTAssertTrue(stores.queue.entries[0].fastRefresh)
+        XCTAssertFalse(stores.queue.entries[0].rebuildsShaders)
+        XCTAssertTrue(stores.queue.entries[1].fastRefresh)
+        XCTAssertTrue(stores.queue.entries[1].rebuildsShaders)
+        XCTAssertEqual(stores.queue.entries[1].inputSummary { $0 }, "queue.seedRebuildSummary")
+        stores.queue.prepareForRefreshBatch()
+
+        // 2. Single-game hero button & note for Stardew Path B
+        let launcher = LauncherView(
+            stores: stores,
+            library: library,
+            performStartupChecks: false,
+            olderTools: [stardew.id],
+            toolsAssessments: [stardew.id: stardewAssess],
+            artworkStore: artwork
+        )
+        XCTAssertEqual(launcher.heroRefreshNote(for: stardew), stores.localizer.t("library.refresh.noteShaderRebuild"))
+        launcher.enqueueSingleGameRefresh(stardew, assessment: stardewAssess, externalIOSImgPath: nil)
+        XCTAssertEqual(stores.queue.entries.count, 1)
+        XCTAssertTrue(stores.queue.entries[0].fastRefresh)
+        XCTAssertTrue(stores.queue.entries[0].rebuildsShaders)
+    }
 }

@@ -49,6 +49,17 @@ final class GameUpdateCatalogTests: XCTestCase {
         return out.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private func engineShaderLibTool() throws -> String {
+        let toolURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("engine/dm/tools/shader_lib.py")
+        XCTAssertTrue(fm.fileExists(atPath: toolURL.path), "Expected synced engine shader_lib.py at \(toolURL.path)")
+        return toolURL.path
+    }
+
     private func makeMockRepo(chain: String = "a5e7fb6e4fa4") throws -> String {
         let repo = path("repo-\(UUID().uuidString)")
         let headerDir = repo + "/dm/gfx/nvn"
@@ -63,7 +74,8 @@ final class GameUpdateCatalogTests: XCTestCase {
         tid: String,
         chain: String = "a5e7fb6e4fa4",
         romfsIdentity: String = "DMROMFSID1 test size=1 index=1",
-        withMetalSources: Bool = false
+        withMetalSources: Bool = false,
+        inputsDigest: String = "deadbeef0001"
     ) throws {
         let seedDir = BuildSeedCache.seedDirectory(for: tid, seedRoot: seedRoot)
         try fm.createDirectory(atPath: seedDir + "/ExeFS", withIntermediateDirectories: true)
@@ -74,9 +86,17 @@ final class GameUpdateCatalogTests: XCTestCase {
             try fm.createDirectory(atPath: seedDir + "/metal-sources", withIntermediateDirectories: true)
         }
         try Data("bin".utf8).write(to: URL(fileURLWithPath: seedDir + "/ExeFS/main"))
-        try Data("c1".utf8).write(to: URL(fileURLWithPath: seedDir + "/shader/tables/c1_full.tsv"))
-        try Data("cb".utf8).write(to: URL(fileURLWithPath: seedDir + "/shader/tables/cb_extent.tsv"))
-        try Data("msl".utf8).write(to: URL(fileURLWithPath: seedDir + "/shader/ios/b-" + chain + ".img"))
+
+        let tableHeader = "# chain b-\(chain) inputs \(inputsDigest) fixture\n"
+        try Data(tableHeader.utf8).write(to: URL(fileURLWithPath: seedDir + "/shader/tables/c1_full.tsv"))
+        try Data(tableHeader.utf8).write(to: URL(fileURLWithPath: seedDir + "/shader/tables/cb_extent.tsv"))
+
+        let libDir = seedDir + "/shader/ios/b-" + chain
+        try fm.createDirectory(atPath: libDir, withIntermediateDirectories: true)
+        try Data("metallib".utf8).write(to: URL(fileURLWithPath: libDir + "/0000000000000001_b.metallib"))
+        let stamp = "game\t\(tid.lowercased())\ninputs\t\(inputsDigest)\n"
+        try Data(stamp.utf8).write(to: URL(fileURLWithPath: libDir + "/inputs.tsv"))
+        _ = try runPython(try engineShaderLibTool(), args: ["pack", libDir])
 
         let record = BuildSeedRecord(
             titleID: tid,
@@ -199,7 +219,7 @@ final class GameUpdateCatalogTests: XCTestCase {
         let localImg = outDir + "/games/Sample Game/Sample Game.img"
         try fm.createDirectory(atPath: (localImg as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
         try Data("stub".utf8).write(to: URL(fileURLWithPath: localImg))
-        let pathBFast = GameUpdateCatalog.assess(
+        let pathBRebuildWithLocalImg = GameUpdateCatalog.assess(
             titleID: tidSpecific150,
             isMarkedOlder: true,
             hasMacBuild: false,
@@ -213,10 +233,13 @@ final class GameUpdateCatalogTests: XCTestCase {
             seedRoot: seedRoot,
             repoPath: repo
         )
-        XCTAssertEqual(pathBFast.heroState, .specificFast(version: "1.5.0"))
-        XCTAssertTrue(pathBFast.canFastRefreshIOS)
-        XCTAssertFalse(pathBFast.needsMissingImgGuideIOS)
-        XCTAssertFalse(pathBFast.missingOriginalPackage)
+        XCTAssertEqual(pathBRebuildWithLocalImg.heroState, .specificFull(version: "1.5.0"))
+        XCTAssertFalse(pathBRebuildWithLocalImg.canFastRefreshIOS)
+        XCTAssertTrue(pathBRebuildWithLocalImg.canSeedRefreshIOS)
+        XCTAssertTrue(pathBRebuildWithLocalImg.needsShaderRebuildIOS)
+        XCTAssertEqual(pathBRebuildWithLocalImg.shaderRebuildReasonIOS, .chainChanged)
+        XCTAssertFalse(pathBRebuildWithLocalImg.needsMissingImgGuideIOS)
+        XCTAssertFalse(pathBRebuildWithLocalImg.missingOriginalPackage)
 
         let generalFast = GameUpdateCatalog.assess(
             titleID: tidUnlisted,

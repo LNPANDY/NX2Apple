@@ -491,12 +491,14 @@ extension View {
     var entries: [QueueEntry] = []
 
     if game.isReady {
-        let canFastMac = assessment.canFastRefreshMac
-        if canFastMac || !assessment.missingOriginalPackage {
+        let useSeedMac = assessment.canSeedRefreshMac
+        let rebuildMac = assessment.needsShaderRebuildMac
+        if useSeedMac || !assessment.missingOriginalPackage {
             entries.append(RefreshQueueBuilder.makeEntry(
                 game: game,
                 target: BuildTarget.mac,
-                fastRefresh: canFastMac,
+                fastRefresh: useSeedMac,
+                rebuildsShaders: rebuildMac,
                 externalImgPath: nil,
                 batch: batch,
                 stores: stores,
@@ -505,12 +507,14 @@ extension View {
         }
     }
 
-    let fastIOS = !forceFullIOSRebuild && (assessment.canFastRefreshIOS || externalIOSImgPath != nil)
-    if fastIOS || !assessment.missingOriginalPackage {
+    let useSeedIOS = !forceFullIOSRebuild && (assessment.canSeedRefreshIOS || externalIOSImgPath != nil)
+    let rebuildIOS = useSeedIOS && (assessment.needsShaderRebuildIOS || !assessment.canFastRefreshIOS)
+    if useSeedIOS || !assessment.missingOriginalPackage {
         entries.append(RefreshQueueBuilder.makeEntry(
             game: game,
             target: BuildTarget.ios,
-            fastRefresh: fastIOS,
+            fastRefresh: useSeedIOS,
+            rebuildsShaders: rebuildIOS,
             externalImgPath: externalIOSImgPath,
             batch: batch,
             stores: stores,

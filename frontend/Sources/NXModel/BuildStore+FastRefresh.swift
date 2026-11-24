@@ -275,6 +275,18 @@ extension BuildStore {
         let repoPath = repo.path
         let prefillMacAppPath = existingMacAppPath ?? macAppPath
         let initialInspection = BuildSeedCache.inspect(titleID: tid, seedRoot: seedRoot, repoPath: repoPath)
+        let initialPrecheck = RefreshPrecheck.evaluate(
+            titleID: tid,
+            hasMacBuild: isMac,
+            macAppPath: prefillMacAppPath,
+            hasIOSBuild: !isMac,
+            hasReadableSourceInputs: false,
+            outDir: resolvedOutDir,
+            gameName: gameName,
+            seedRoot: seedRoot,
+            repoPath: repoPath,
+            externalIOSImgPath: validExternalImg
+        )
         let adoptTool = engine + "/" + RepoLayout.buildSeedTool
         let needsAdopt = !initialInspection.isUsable
             && FileManager.default.fileExists(atPath: adoptTool)
@@ -293,7 +305,7 @@ extension BuildStore {
         let needsDriveScan = !isMac
             && validExternalImg == nil
             && syncCandidates.isEmpty
-            && initialInspection.path == .pathB
+            && initialPrecheck.needsShaderRebuildIOS
             && !driveFolder.isEmpty
 
         if needsAdopt || needsDriveScan {
@@ -340,11 +352,26 @@ extension BuildStore {
                     )
                     : syncCandidates
 
+                let currentPrecheck = needsAdopt
+                    ? RefreshPrecheck.evaluate(
+                        titleID: tid,
+                        hasMacBuild: isMac,
+                        macAppPath: prefillMacAppPath,
+                        hasIOSBuild: !isMac,
+                        hasReadableSourceInputs: false,
+                        outDir: resolvedOutDir,
+                        gameName: gameName,
+                        seedRoot: seedRoot,
+                        repoPath: repoPath,
+                        externalIOSImgPath: validExternalImg
+                    )
+                    : initialPrecheck
+
                 var matchedDriveImg: String?
                 if !isMac,
                    validExternalImg == nil,
                    finalCandidates.isEmpty,
-                   inspection.path == .pathB,
+                   currentPrecheck.needsShaderRebuildIOS,
                    !driveFolder.isEmpty {
                     matchedDriveImg = RomfsImageIdentity.scanExternalDriveForMatchingImage(
                         driveFolder: driveFolder,
