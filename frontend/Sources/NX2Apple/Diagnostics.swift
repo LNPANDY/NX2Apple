@@ -322,7 +322,7 @@ extension LauncherStores {
     func diagnostics(game: LibraryGame? = nil, _ done: @escaping (String) -> Void) {
         let repo = self.repo.isRepo ? self.repo.path : "", python = dependencies.pythonPath.isEmpty ? Toolchain.findPython().path : dependencies.pythonPath, dotnet = dependencies.dotnetPath
         let checked = dependencies.checked, rows = checked ? dependencies.deps.map(Diagnostics.dependency) : []
-        let controllers = SteamLinkGamepads.shared.diagnostics
+        let controllers = SteamLinkGamepads.shared.diagnostics + HIDGamepads.shared.diagnostics
         let nxkit = Diagnostics.nxkitLine(build.nxkitSelectable ? build.nxkitInUse : nil), nxkitRecord = game.flatMap { build.nxkitRecord($0.titleID) }
         let command = build.lastBuildCommand, log = build.logTail, xcrun = deviceStore.xcrun
         let (sel, usesEngineStore) = (engineSync.selection, engineSync.usesEngineStore)
