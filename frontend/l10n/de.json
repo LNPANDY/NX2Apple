@@ -1920,6 +1920,7 @@
   "library.chip.notBuilt": "Nicht gebaut",
   "library.chip.olderIOS": "Älterer iOS-Build",
   "library.chip.tuned": "Optimiert",
+  "library.chip.tunedAvailable": "Spezial-Engine verfügbar",
   "library.chooseFolder": "Ordner ändern …",
   "library.clearSearch": "Suche löschen",
   "library.collection": "Deine Sammlung",

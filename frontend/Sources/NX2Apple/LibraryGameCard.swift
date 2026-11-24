@@ -5,6 +5,38 @@ import NXModel
 import NXLauncher
 
 struct LibraryGameCard: View {
+    struct TunedBadge: Equatable {
+        let title: String
+        let help: String
+        let isBuilt: Bool
+        let fixedWidth: CGFloat?
+    }
+
+    static func tunedBadge(built: EngineUpstreamKind?, available: [EngineUpstreamKind], t: (String) -> String) -> TunedBadge? {
+        if let built, built.group == .gameTuned {
+            return TunedBadge(
+                title: built.displayName,
+                help: String(format: t("library.tunedBuilt.help"), built.displayName),
+                isBuilt: true,
+                fixedWidth: DSTag.engineWidth
+            )
+        }
+        if !available.isEmpty {
+            let names = available.map(\.displayName).joined(separator: ", ")
+            return TunedBadge(
+                title: t("library.chip.tunedAvailable"),
+                help: String(format: t("library.tuned.help"), names),
+                isBuilt: false,
+                fixedWidth: nil
+            )
+        }
+        return nil
+    }
+
+    static func tunedBadge(for state: LibraryArtworkState, t: (String) -> String) -> TunedBadge? {
+        tunedBadge(built: state.builtTunedEngine, available: state.tunedEngines, t: t)
+    }
+
     let title: String
     let image: NSImage?
     let focus: UnitPoint
@@ -40,23 +72,12 @@ struct LibraryGameCard: View {
                 // the chip above the clip, inset from the top and leading edge, clear of the corner radius
                 .overlay(alignment: .topLeading) { LibraryArtworkChip(state: state).padding(DS.Interaction.chipInset) }
                 .overlay(alignment: .topTrailing) {
-                    // Built with a game-tuned engine, or lists each available game-tuned engine by full name.
-                    if let built = state.builtTunedEngine {
-                        let help = String(format: loc.t("library.tunedBuilt.help"), built.displayName)
-                        DSTag(built.displayName, emphasized: true, width: DSTag.engineWidth)
-                            .help(help)
-                            .accessibilityLabel(help)
+                    // Built with a game-tuned engine, or shows a unified pill when one or more tuned engines are available.
+                    if let badge = Self.tunedBadge(for: state, t: { loc.t($0) }) {
+                        DSTag(badge.title, emphasized: true, width: badge.fixedWidth)
+                            .help(badge.help)
+                            .accessibilityLabel(badge.help)
                             .padding(DS.Interaction.chipInset)
-                    } else if state.hasTunedEngine {
-                        VStack(alignment: .trailing, spacing: DS.Space.xxs) {
-                            ForEach(state.tunedEngines, id: \.self) { engine in
-                                let help = String(format: loc.t("library.tuned.help"), engine.displayName)
-                                DSTag(engine.displayName, emphasized: true, width: DSTag.engineWidth)
-                                    .help(help)
-                                    .accessibilityLabel(help)
-                            }
-                        }
-                        .padding(DS.Interaction.chipInset)
                     } else if state.isNxkitGeneric {
                         // nxkit built it without a game profile (v0lumehi/nxkit#54): the same quiet tag in the same corner
                         DSTag(loc.t("nxkit.generic.badge"), emphasized: true)

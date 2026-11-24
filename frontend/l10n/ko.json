@@ -1919,6 +1919,7 @@
   "library.chip.notBuilt": "빌드 안 됨",
   "library.chip.olderIOS": "이전 iOS 빌드",
   "library.chip.tuned": "전용 튜닝",
+  "library.chip.tunedAvailable": "전용 튜닝 있음",
   "library.chooseFolder": "폴더 변경…",
   "library.clearSearch": "검색 지우기",
   "library.collection": "내 컬렉션",

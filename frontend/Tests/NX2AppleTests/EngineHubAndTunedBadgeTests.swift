@@ -167,6 +167,135 @@ import XCTest
         XCTAssertNotEqual(driver.state.games.first?.builtTunedEngineName, "MNG")
     }
 
+    func testAvailableTunedBadgesShowUnifiedLabelWhilePreservingBuiltEngineAttribution() throws {
+        // 1. All 10 languages define a non-empty, semicolon-free unified label.
+        XCTAssertEqual(L10n.string("library.chip.tunedAvailable", .en), "Tuned available")
+        XCTAssertEqual(L10n.string("library.chip.tunedAvailable", .zh), "有特调")
+        for lang in Lang.all {
+            let text = L10n.string("library.chip.tunedAvailable", lang)
+            XCTAssertFalse(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, "\(lang.code) missing library.chip.tunedAvailable")
+            XCTAssertFalse(text.contains(";") || text.contains("\u{FF1B}"), "\(lang.code) contains semicolon")
+        }
+
+        // 2. Desktop LibraryGameCard distinguishes built-with-tuned from available-tuned.
+        let builtState = LibraryArtworkState(mac: true, ios: false, attention: .none, macUpstream: .macNativeGames, tunedEngines: [.macNativeGames])
+        let builtBadgeEN = try XCTUnwrap(LibraryGameCard.tunedBadge(for: builtState, t: { L10n.string($0, .en) }))
+        XCTAssertEqual(builtBadgeEN.title, "MacNativeGames")
+        XCTAssertTrue(builtBadgeEN.isBuilt)
+
+        let generalState = LibraryArtworkState(mac: true, ios: false, attention: .none, macUpstream: .nxnative, tunedEngines: [.kidWithSword, .macNativeGames])
+        let availBadgeEN = try XCTUnwrap(LibraryGameCard.tunedBadge(for: generalState, t: { L10n.string($0, .en) }))
+        XCTAssertEqual(availBadgeEN.title, "Tuned available")
+        XCTAssertFalse(availBadgeEN.isBuilt)
+        XCTAssertTrue(availBadgeEN.help.contains("Kid with Sword"))
+        XCTAssertTrue(availBadgeEN.help.contains("MacNativeGames"))
+        let availBadgeZH = try XCTUnwrap(LibraryGameCard.tunedBadge(for: generalState, t: { L10n.string($0, .zh) }))
+        XCTAssertEqual(availBadgeZH.title, "有特调")
+
+        let plainState = LibraryArtworkState(mac: true, ios: false, attention: .none, macUpstream: .nxnative, tunedEngines: [])
+        XCTAssertNil(LibraryGameCard.tunedBadge(for: plainState, t: { L10n.string($0, .en) }))
+
+        // 3. Desktop Hero metadata badge keeps real built provenance and uses unified label for available tuned.
+        let kwsApp = temporary.appendingPathComponent("Ocarina.app", isDirectory: true)
+        try FileManager.default.createDirectory(at: kwsApp.appendingPathComponent("Contents/MacOS"), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: kwsApp.appendingPathComponent("Contents/MacOS/Game"), withDestinationURL: URL(fileURLWithPath: "/usr/bin/true"))
+        try FileManager.default.createSymbolicLink(at: kwsApp.appendingPathComponent("Contents/MacOS/dmhost"), withDestinationURL: URL(fileURLWithPath: "/usr/bin/true"))
+        let kwsPlist: [String: Any] = [
+            "CFBundlePackageType": "APPL",
+            "CFBundleExecutable": "Game",
+            "CFBundleIdentifier": "org.nxnative.0400486024dec000",
+            "CFBundleName": "Ocarina of Time",
+            "DMTitleID": "0400486024DEC000",
+            "DMUpstream": "kidwithsword",
+        ]
+        try PropertyListSerialization.data(fromPropertyList: kwsPlist, format: .xml, options: 0)
+            .write(to: kwsApp.appendingPathComponent("Contents/Info.plist"))
+
+        var heroBuilt = LibraryGame(titleID: "0400486024DEC000", name: "Ocarina of Time")
+        heroBuilt.appPath = kwsApp.path
+        let heroBuiltBadge = try XCTUnwrap(LauncherView.tunedMetadataBadge(for: heroBuilt, t: { L10n.string($0, .en) }))
+        XCTAssertEqual(heroBuiltBadge.title, "Kid with Sword")
+        XCTAssertTrue(heroBuiltBadge.isBuilt)
+
+        let heroAvail = LibraryGame(titleID: "01006F8002326000", name: "Animal Crossing: New Horizons")
+        let heroAvailBadgeEN = try XCTUnwrap(LauncherView.tunedMetadataBadge(for: heroAvail, t: { L10n.string($0, .en) }))
+        XCTAssertEqual(heroAvailBadgeEN.title, "Tuned available")
+        XCTAssertFalse(heroAvailBadgeEN.isBuilt)
+        let heroAvailBadgeZH = try XCTUnwrap(LauncherView.tunedMetadataBadge(for: heroAvail, t: { L10n.string($0, .zh) }))
+        XCTAssertEqual(heroAvailBadgeZH.title, "有特调")
+
+        // 4. SupportedGamesSheet & ConsoleSupportedGamesPage use unified label instead of engine names.
+        let acnhSupported = SupportedGame(titleID: "01006F8002326000", name: "Animal Crossing: New Horizons", edition: .switch1, version: "2.0.6", notes: "")
+        XCTAssertEqual(SupportedGamesSheet.tunedBadgeTitle(for: acnhSupported, t: { L10n.string($0, .en) }), "Tuned available")
+        XCTAssertEqual(SupportedGamesSheet.tunedBadgeTitle(for: acnhSupported, t: { L10n.string($0, .zh) }), "有特调")
+        let mk8Supported = SupportedGame(titleID: "0100152000022000", name: "Mario Kart 8 Deluxe", edition: .switch1, version: "3.0.3", notes: "")
+        XCTAssertNil(SupportedGamesSheet.tunedBadgeTitle(for: mk8Supported, t: { L10n.string($0, .en) }))
+
+        // 5. ConsoleView.gameTags and live ConsoleGameTile / ConsoleArtColumn render unified label for available-tuned and keep built provenance.
+        let driver = MockConsoleDriver(scenario: .full, animated: false)
+        let consoleEN = ConsoleView(driver: driver, lang: .en)
+        let cAvail = ConsoleGame(
+            id: "c-avail",
+            title: "Animal Crossing: New Horizons",
+            version: "2.0.6",
+            platforms: [.mac],
+            status: .ready,
+            builtTunedEngineName: nil,
+            tunedEngineNames: ["MacNativeGames"]
+        )
+        let cBuilt = ConsoleGame(
+            id: "c-built",
+            title: "Ocarina of Time",
+            version: "1.1.1",
+            platforms: [.mac],
+            status: .ready,
+            builtTunedEngineName: "Kid with Sword",
+            tunedEngineNames: ["Kid with Sword", "MacNativeGames"]
+        )
+        let availTags = consoleEN.gameTags(cAvail)
+        XCTAssertEqual(availTags.filter(\.emphasized).map(\.title), ["Tuned available"])
+        let builtTags = consoleEN.gameTags(cBuilt)
+        XCTAssertEqual(builtTags.filter(\.emphasized).map(\.title), ["Kid with Sword"])
+
+        func renderedTexts<V: View>(_ view: V) -> Set<String> {
+            NSApplication.shared.setActivationPolicy(.accessory)
+            let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+            let previous = NSApplication.shared.accessibilityAttributeValue(enhanced)
+            NSApplication.shared.accessibilitySetValue(true, forAttribute: enhanced)
+            defer { NSApplication.shared.accessibilitySetValue(previous ?? false, forAttribute: enhanced) }
+            let window = OffscreenWindow(size: NSSize(width: 720, height: 320))
+            let host = NSHostingView(rootView: view.environmentObject(Localizer(.en)))
+            window.contentView = host
+            window.orderFront(nil)
+            defer { window.contentView = nil; window.orderOut(nil); window.close() }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+            host.layoutSubtreeIfNeeded()
+            var found: Set<String> = []
+            func visit(_ node: NSObject) {
+                for selName in ["accessibilityLabel", "accessibilityTitle", "accessibilityValue"] {
+                    let sel = NSSelectorFromString(selName)
+                    if node.responds(to: sel), let value = node.perform(sel)?.takeUnretainedValue() as? String {
+                        found.insert(value)
+                    }
+                }
+                let childrenSel = NSSelectorFromString("accessibilityChildren")
+                if node.responds(to: childrenSel), let kids = node.perform(childrenSel)?.takeUnretainedValue() as? [NSObject] {
+                    kids.forEach(visit)
+                }
+            }
+            visit(window)
+            return found
+        }
+
+        let tileAvailTexts = renderedTexts(ConsoleGameTile(game: cAvail, selected: false, compact: false, lang: .en))
+        XCTAssertTrue(tileAvailTexts.contains("Tuned available"))
+        XCTAssertFalse(tileAvailTexts.contains("MacNativeGames"))
+
+        let tileBuiltTexts = renderedTexts(ConsoleGameTile(game: cBuilt, selected: false, compact: false, lang: .en))
+        XCTAssertTrue(tileBuiltTexts.contains("Kid with Sword"))
+        XCTAssertFalse(tileBuiltTexts.contains("Tuned available"))
+    }
+
     func testFixedPillWidthsFitAllEnginesAndLocalizedLabels() throws {
         func measure(_ text: String, size: CGFloat, weight: Font.Weight) throws -> CGFloat {
             let font = try XCTUnwrap(Typography.manropeFont(size: size, weight: weight))

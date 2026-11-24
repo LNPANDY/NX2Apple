@@ -1918,6 +1918,7 @@
   "library.chip.notBuilt": "未ビルド",
   "library.chip.olderIOS": "古い iOS ビルド",
   "library.chip.tuned": "専用版あり",
+  "library.chip.tunedAvailable": "専用版あり",
   "library.chooseFolder": "フォルダを変更…",
   "library.clearSearch": "検索をクリア",
   "library.collection": "コレクション",

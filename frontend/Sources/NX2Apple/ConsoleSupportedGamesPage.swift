@@ -169,8 +169,8 @@ import NXLauncher
                                 ForEach(platforms, id: \.self) { platform in
                                     ConsoleTag(title: platform, emphasized: false, compact: compact, width: ConsoleTag.platformWidth(compact: compact))
                                 }
-                                ForEach(tuned, id: \.self) { engine in
-                                    ConsoleTag(title: engine.displayName, emphasized: true, compact: compact, width: ConsoleTag.engineWidth(compact: compact))
+                                if let badge = SupportedGamesSheet.tunedBadgeTitle(for: game, t: t) {
+                                    ConsoleTag(title: badge, emphasized: true, compact: compact)
                                 }
                             }
                         }

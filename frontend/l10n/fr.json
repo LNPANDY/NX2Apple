@@ -1919,6 +1919,7 @@
   "library.chip.notBuilt": "Non compilés",
   "library.chip.olderIOS": "Ancienne version iOS",
   "library.chip.tuned": "Dédié",
+  "library.chip.tunedAvailable": "Moteur dédié disponible",
   "library.chooseFolder": "Changer de dossier…",
   "library.clearSearch": "Effacer la recherche",
   "library.collection": "Votre collection",

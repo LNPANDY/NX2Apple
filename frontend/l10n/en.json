@@ -1918,6 +1918,7 @@
   "library.chip.notBuilt": "Not Built",
   "library.chip.olderIOS": "Older iOS build",
   "library.chip.tuned": "Tuned",
+  "library.chip.tunedAvailable": "Tuned available",
   "library.chooseFolder": "Change folder…",
   "library.clearSearch": "Clear search",
   "library.collection": "Your collection",

@@ -301,6 +301,14 @@ extension LauncherView {
         .padding(.horizontal, 34).padding(.top, 8).padding(.bottom, 22)
     }
 
+    static func tunedMetadataBadge(for game: LibraryGame, t: (String) -> String) -> LibraryGameCard.TunedBadge? {
+        LibraryGameCard.tunedBadge(
+            built: game.playableMacBundle?.upstream,
+            available: EngineUpstream.tunedEngines(forTitleID: game.titleID),
+            t: t
+        )
+    }
+
     func libraryMetadataBadges(_ game: LibraryGame) -> some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 7) { metadataBadgeContent(game) }.fixedSize(horizontal: true, vertical: false)
@@ -316,18 +324,10 @@ extension LauncherView {
                     .help(loc.t("activity.totalTime"))
                     .accessibilityLabel("\(loc.t("activity.totalTime")) \(played)")
             }
-            if let built = game.playableMacBundle?.upstream, built.group == .gameTuned {
-                let help = String(format: loc.t("library.tunedBuilt.help"), built.displayName)
-                DSTag(built.displayName, emphasized: true, width: DSTag.engineWidth)
-                    .help(help)
-                    .accessibilityLabel(help)
-            } else {
-                ForEach(EngineUpstream.tunedEngines(forTitleID: game.titleID), id: \.self) { engine in
-                    let help = String(format: loc.t("library.tuned.help"), engine.displayName)
-                    DSTag(engine.displayName, emphasized: true, width: DSTag.engineWidth)
-                        .help(help)
-                        .accessibilityLabel(help)
-                }
+            if let badge = Self.tunedMetadataBadge(for: game, t: { loc.t($0) }) {
+                DSTag(badge.title, emphasized: true, width: badge.fixedWidth)
+                    .help(badge.help)
+                    .accessibilityLabel(badge.help)
             }
             if game.playableMacBundle?.upstream == .nxkit, NxkitBuildProfile.read(app: game.appPath) != nil {
                 // built without a game profile (v0lumehi/nxkit#54): a quiet tag, the row under the actions says what it means
