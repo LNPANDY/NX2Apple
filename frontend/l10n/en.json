@@ -2575,7 +2575,7 @@
   "seedCompress.prompt.estimatedSize": "Estimated after",
   "seedCompress.prompt.gamesTitle": "Games to compress (%d)",
   "seedCompress.prompt.later": "Not now",
-  "seedCompress.prompt.moreGames": "And %d more games",
+  "seedCompress.prompt.moreGames": "And %d more",
   "seedCompress.prompt.note": "Game packages and saves are untouched. You can also run this anytime in Settings.",
   "seedCompress.prompt.saveSummary": "%@ (about %d%% saved)",
   "seedCompress.prompt.subtitle": "Legacy shader source archives can be compressed with zstd to save disk space without changing fast refresh speed.",
