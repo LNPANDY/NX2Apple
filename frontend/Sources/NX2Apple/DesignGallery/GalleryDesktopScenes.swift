@@ -54,6 +54,8 @@ enum GalleryDesktopScene: String, CaseIterable {
     case mngDownloadOffered, mngDownloadingSettings
     // Mac fast shader build (--seen-shaders)
     case macSeenShaders
+    // Seed compression settings row in Settings > Tools > Storage
+    case seedCompressionStorage
 
     var title: String {
         switch self {
@@ -145,6 +147,7 @@ enum GalleryDesktopScene: String, CaseIterable {
         case .mngDownloadOffered: return "Engine not installed: Download offered"
         case .mngDownloadingSettings: return "Engine downloading from Settings"
         case .macSeenShaders: return "Builds: Mac fast shader build"
+        case .seedCompressionStorage: return "Settings: storage and seed compression"
         }
     }
 
@@ -155,7 +158,7 @@ enum GalleryDesktopScene: String, CaseIterable {
              .sendCopying, .sendCopied, .queueEveryState, .queueRunning, .transfersEveryState, .logOpen,
              .footerVerifying, .footerExporting, .footerInstalling, .footerRenewing, .footerSending, .mngRecommend, .mngRecommendInstalled, .engineDropdown, .macSeenShaders: return .builds
         case .appChecking, .appDownloading, .appPreparing, .appAvailable, .engineExperimental, .missingTool, .players, .libraryFolders,
-             .mngBlocked, .mngUpdateAvailable, .mngDropdownDisabled, .mngDownloadOffered, .mngDownloadingSettings: return .settings
+             .mngBlocked, .mngUpdateAvailable, .mngDropdownDisabled, .mngDownloadOffered, .mngDownloadingSettings, .seedCompressionStorage: return .settings
         case .nxkitIdle, .nxkitChecking, .nxkitWaiting, .nxkitUnreachable, .nxkitAppleSilicon, .nxkitBadSignature, .nxkitChecksum,
              .nxkitIncompatible, .nxkitIncomplete, .nxkitDownload, .nxkitUnpack, .nxkitCancelled: return .nxkit
         case .savesNoDevices, .savesNotConnected, .savesNotInstalled, .savesReading, .savesReady, .savesFailed, .savesTimedOut,
@@ -171,6 +174,7 @@ enum GalleryDesktopScene: String, CaseIterable {
         case .appChecking, .appDownloading, .appPreparing, .appAvailable, .players: return CGSize(width: 1280, height: 1500)
         case .logOpen, .transfersEveryState: return CGSize(width: 1280, height: 2000)
         case .macSeenShaders: return CGSize(width: 1280, height: 1120)
+        case .seedCompressionStorage: return CGSize(width: 1280, height: 1850)
         default: return nil
         }
     }
@@ -423,6 +427,23 @@ extension GalleryFixtures {
         case .engineExperimental:
             stores.engineSync.selection = EngineSelection(channel: .experimental, engineID: String(repeating: "e", count: 40), version: "1.6.0-beta", previousID: "")
             if stores.engineSync.bundle == nil { stores.engineSync.bundle = URL(fileURLWithPath: "/nonexistent/nx-gallery-engine") }
+            return launcher(GalleryLauncher(page: .settings, category: .tools))
+        case .seedCompressionStorage:
+            Self.releaseEngine(stores)
+            stores.defaults.set("/Volumes/Games/NX2Apple-shell", forKey: "shellRoot")
+            stores.defaults.set("/Volumes/Games/NX2Apple-nxkit", forKey: BuildCacheRoots.nxkitKey)
+            stores.defaults.set("/Volumes/Games/NX2Apple-build-seeds/build-seeds", forKey: BuildCacheRoots.seedKey)
+            let sampleScan = SeedScanResult(
+                seedRoot: "/Volumes/Games/NX2Apple-build-seeds/build-seeds",
+                zstdAvailable: true,
+                totalGames: 2,
+                totalFiles: 2,
+                uncompressedBytes: 1_280_000_000,
+                estimatedCompressedBytes: 102_400_000,
+                estimatedSavedBytes: 1_177_600_000,
+                games: []
+            )
+            stores.seedCompression.setGalleryState(phase: nil, scanState: .ready(hasAnySeeds: true, scan: sampleScan, zstdConfirmed: true))
             return launcher(GalleryLauncher(page: .settings, category: .tools))
         case .missingTool:
             stores.dependencies.deps = [Dep(id: "xcode", name: "Xcode", hint: "", present: true, installCmd: []),

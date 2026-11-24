@@ -97,6 +97,13 @@ package enum RepoLayout {
         return text.contains("'--from-seed'") || text.contains("\"--from-seed\"")
     }
 
+    /// Whether the checkout's `build_seed.py` supports `scan-uncompressed` and `compress-seeds`.
+    package static func supportsSeedCompression(_ dir: String) -> Bool {
+        let script = EngineLayout.root(dir) + "/" + buildSeedTool
+        guard let text = try? String(contentsOfFile: script, encoding: .utf8) else { return false }
+        return text.contains("scan-uncompressed") && text.contains("compress-seeds")
+    }
+
     /// Whether the checkout's build script takes `--seen-shaders` (partial Mac shader builds from `shader_seen.tsv`).
     package static func supportsSeenShaders(_ dir: String) -> Bool {
         guard let text = try? String(contentsOfFile: EngineLayout.root(dir) + "/" + buildScript, encoding: .utf8) else { return false }

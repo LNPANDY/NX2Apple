@@ -53,6 +53,11 @@ def _read_bytes(path):
         return f.read()
 
 
+def _expected_metal_sources_path(metal_sources_dir, chain):
+    ext = '.img.zst' if build_seed.zstd_available() else '.img'
+    return os.path.join(metal_sources_dir, f'b-{chain}{ext}')
+
+
 class ExtractMSLTests(unittest.TestCase):
     """1. Test romfs_image.extract_msl and CLI --extract-msl."""
 
@@ -254,29 +259,34 @@ class SaveSeedMtlCacheInteractionTests(unittest.TestCase):
         self.assertTrue(res['valid'], f'save_seed failed: {res["reason"]}')
 
         target_seed = os.path.join(seed_root, tid)
-        metal_sources_img = os.path.join(target_seed, 'metal-sources', f'b-{chain}.img')
-        self.assertTrue(os.path.isfile(metal_sources_img))
+        metal_sources_dir = os.path.join(target_seed, 'metal-sources')
+        metal_sources_archive = _expected_metal_sources_path(metal_sources_dir, chain)
+        self.assertTrue(os.path.isfile(metal_sources_archive), f'missing {metal_sources_archive}')
+        if metal_sources_archive.endswith('.img.zst'):
+            self.assertFalse(os.path.exists(os.path.join(metal_sources_dir, f'b-{chain}.img')))
+            with open(metal_sources_archive, 'rb') as zf:
+                self.assertEqual(zf.read(4), build_seed._ZSTD_MAGIC)
 
-        # Verify metal-sources content
-        view = shader_lib.view(metal_sources_img)
-        ms_names = set(romfs.os.listdir(view))
+        # Verify metal-sources content via build_seed._open_shader_lib_view (supports both .img.zst and .img)
+        with build_seed._open_shader_lib_view(metal_sources_archive, build_seed._Quota()) as view:
+            ms_names = set(romfs.os.listdir(view))
 
-        # .metal, .json, .tsv must be preserved
-        self.assertIn(f'{stem1}_b.metal', ms_names)
-        self.assertIn(f'{stem1}_b.json', ms_names)
-        self.assertIn(f'{stem2}_b.metal', ms_names)
-        self.assertIn(f'{stem2}_b.json', ms_names)
-        self.assertIn('inputs.tsv', ms_names)
+            # .metal, .json, .tsv must be preserved
+            self.assertIn(f'{stem1}_b.metal', ms_names)
+            self.assertIn(f'{stem1}_b.json', ms_names)
+            self.assertIn(f'{stem2}_b.metal', ms_names)
+            self.assertIn(f'{stem2}_b.json', ms_names)
+            self.assertIn('inputs.tsv', ms_names)
 
-        # Heavy main metallib payloads must be excluded!
-        self.assertNotIn(f'{stem1}_b.metallib', ms_names)
-        self.assertNotIn(f'{stem2}_b.metallib', ms_names)
+            # Heavy main metallib payloads must be excluded!
+            self.assertNotIn(f'{stem1}_b.metallib', ms_names)
+            self.assertNotIn(f'{stem2}_b.metallib', ms_names)
 
-        # 0-byte placeholders for *_bx.metallib and *_bf.metallib must exist
-        self.assertIn(f'{stem1}_bx.metallib', ms_names)
-        self.assertIn(f'{stem2}_bf.metallib', ms_names)
-        self.assertEqual(len((view / f'{stem1}_bx.metallib').read_bytes()), 0)
-        self.assertEqual(len((view / f'{stem2}_bf.metallib').read_bytes()), 0)
+            # 0-byte placeholders for *_bx.metallib and *_bf.metallib must exist
+            self.assertIn(f'{stem1}_bx.metallib', ms_names)
+            self.assertIn(f'{stem2}_bf.metallib', ms_names)
+            self.assertEqual(len((view / f'{stem1}_bx.metallib').read_bytes()), 0)
+            self.assertEqual(len((view / f'{stem2}_bf.metallib').read_bytes()), 0)
 
         # Execute dmsh_mtlcache.py exact stem-filtering regex & list comprehension
         output_re = re.compile(r'[0-9a-f]{16}_b\.metal')
@@ -494,7 +504,8 @@ class AdoptLegacyWorkTests(unittest.TestCase):
         self.assertTrue(os.path.isdir(os.path.join(seed_dir, 'shader', 'pkg')))
         self.assertTrue(os.path.isdir(os.path.join(seed_dir, 'shader', 'tables')))
         self.assertTrue(os.path.isdir(os.path.join(seed_dir, 'shader', 'ios')))
-        self.assertTrue(os.path.isfile(os.path.join(seed_dir, 'metal-sources', f'b-{self.chain}.img')))
+        ms_archive = _expected_metal_sources_path(os.path.join(seed_dir, 'metal-sources'), self.chain)
+        self.assertTrue(os.path.isfile(ms_archive), f'missing {ms_archive}')
 
 
 class PreparePrefillTests(unittest.TestCase):
@@ -566,6 +577,52 @@ class PreparePrefillTests(unittest.TestCase):
             _read_bytes(os.path.join(ios_dir, '0000000033334444_b.metallib')),
             ios_lib_bytes,
         )
+
+    def test_prepare_prefill_prefers_zst_over_legacy_img(self):
+        if not build_seed.zstd_available():
+            self.skipTest('zstd unavailable in test environment')
+        zst_seed = os.path.join(self.tmp, 'seed_zst')
+        ms_dir = os.path.join(zst_seed, 'metal-sources')
+        ios_dir = os.path.join(zst_seed, 'shader', 'ios')
+        os.makedirs(ms_dir, exist_ok=True)
+        os.makedirs(ios_dir, exist_ok=True)
+        shader_lib.write(
+            {'00000000cafebabe_b.metallib': b'IOS_METALLIB', 'inputs.tsv': b'inputs\tzst\n'},
+            os.path.join(ios_dir, f'b-{self.old_chain}.img'),
+        )
+        legacy_img = os.path.join(ms_dir, f'b-{self.old_chain}.img')
+        raw_src = os.path.join(self.tmp, 'zst_raw.img')
+        shader_lib.write(
+            {
+                '00000000deadbeef_b.metal': b'void legacy() {}\n',
+                'inputs.tsv': b'inputs\tlegacy\n',
+            },
+            legacy_img,
+        )
+        shader_lib.write(
+            {
+                '00000000cafebabe_b.metal': b'void zst_preferred() {}\n',
+                'inputs.tsv': b'inputs\tzst\n',
+            },
+            raw_src,
+        )
+        build_seed._zstd_compress_stream(raw_src, os.path.join(ms_dir, f'b-{self.old_chain}.img.zst'))
+
+        tmp_staging = os.path.join(self.tmp, 'prefill_zst_staging')
+        env_val, summary = build_seed.prepare_prefill(
+            seed_dir=zst_seed,
+            prefill_sources=[],
+            tmp_dir=tmp_staging,
+            gfx_api='nvn',
+            target_chain='88889999aaaabbbb',
+        )
+        self.assertTrue(env_val)
+        self.assertEqual(summary['chains'], [f'b-{self.old_chain}'])
+        mac_img = os.path.join(summary['prefill_mac'], f'b-{self.old_chain}.img')
+        self.assertTrue(os.path.isfile(mac_img))
+        names = set(romfs.os.listdir(shader_lib.view(mac_img)))
+        self.assertIn('00000000cafebabe_b.metal', names)
+        self.assertNotIn('00000000deadbeef_b.metal', names)
 
 
 class ContractChecksTests(unittest.TestCase):
@@ -669,7 +726,8 @@ class ContractChecksTests(unittest.TestCase):
             self.assertTrue(res['has_metal_sources'])
             self.assertTrue(res['has_shader_ios'])
             self.assertEqual(res['seed']['romfs_identity'], rid)
-            self.assertTrue(os.path.isfile(os.path.join(seed_root, tid, 'metal-sources', f'b-{chain}.img')))
+            ms_archive = _expected_metal_sources_path(os.path.join(seed_root, tid, 'metal-sources'), chain)
+            self.assertTrue(os.path.isfile(ms_archive), f'missing {ms_archive}')
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 

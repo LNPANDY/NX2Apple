@@ -22,6 +22,8 @@ import NXModel
     let deviceStore: DeviceStore
     let appUpdates: AppUpdateStore
     let build: BuildStore
+    let seedCompression: SeedCompressionStore
+    let seedAutoPromptHost = SeedAutoPromptHost()
     /// The one build queue (#943), kept in Application Support so it survives a restart. A test suite of defaults keeps it in memory.
     let queue: BuildQueueStore
     /// The transfer queue (#1036): game data on its way to devices, beside any build.
@@ -129,6 +131,22 @@ import NXModel
             cancelRunning: { build.cancelTransfer($0) })
         self.transfers = transfers
         build.transfers = transfers
+        self.seedCompression = SeedCompressionStore(
+            runner: runner,
+            repo: repo,
+            python: dependencies,
+            defaults: defaults,
+            seedRoot: { build.seedCacheRoot },
+            seedEnvironment: { build.seedEnvironment },
+            dotnetPath: { dependencies.dotnetPath },
+            buildRunning: { build.running },
+            canAutoPrompt: { [seedAutoPromptHost] in
+                !build.running && !queue.active && !transfers.entries.contains(where: \.active)
+                    && devices.shellCopy == nil && !devices.shellWaiting
+                    && !updates.showUpdateSheet && updates.uninstallPlan == nil
+                    && seedAutoPromptHost.isReady()
+            }
+        )
         // A device that comes back continues the transfers that waited for it. The list is read again every few seconds while one waits.
         transferWatch = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
             .sink { [weak transfers, weak devices] _ in
@@ -295,6 +313,10 @@ import NXModel
 /// A store that a closure reaches before it exists: the closures of the stores created first read it, the app fills it in last.
 @MainActor private final class Later<T: AnyObject> {
     weak var value: T?
+}
+
+@MainActor final class SeedAutoPromptHost {
+    var isReady: () -> Bool = { false }
 }
 
 protocol RunningPreflightApp: AnyObject {

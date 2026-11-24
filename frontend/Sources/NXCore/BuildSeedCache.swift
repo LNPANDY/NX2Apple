@@ -432,4 +432,175 @@ package enum BuildSeedCache {
         }
         return .replace
     }
+
+    // MARK: - metal-sources (.img.zst / .img) compatibility
+
+    /// Storage format of a `metal-sources` shader source entry.
+    package enum MetalSourceKind: String, Equatable, Sendable {
+        /// Stream-compressed RomFS image (`b-<chain>.img.zst`), preferred.
+        case compressedArchive = "img.zst"
+        /// Legacy uncompressed RomFS image (`b-<chain>.img`).
+        case archive = "img"
+        /// Loose directory (`b-<chain>/`).
+        case directory = "dir"
+    }
+
+    /// Resolved entry inside `<seedDir>/metal-sources`.
+    package struct MetalSourceEntry: Equatable, Sendable {
+        package var chain: String
+        package var program: String
+        package var kind: MetalSourceKind
+        package var path: String
+        package var relativePath: String
+        package var sizeBytes: Int64
+
+        package init(
+            chain: String,
+            program: String = "",
+            kind: MetalSourceKind,
+            path: String,
+            relativePath: String,
+            sizeBytes: Int64
+        ) {
+            self.chain = chain
+            self.program = program
+            self.kind = kind
+            self.path = path
+            self.relativePath = relativePath
+            self.sizeBytes = sizeBytes
+        }
+    }
+
+    /// Resolves `b-<chain>` inside `<seedDir>/metal-sources`, preferring `.img.zst` over `.img` and loose folders.
+    package static func resolveMetalSource(
+        in seedDir: String,
+        chain: String,
+        isMultiProgram: Bool = false,
+        fm: FileManager = .default
+    ) -> MetalSourceEntry? {
+        guard !seedDir.isEmpty, !isSymlink(seedDir, fm: fm),
+              let norm = normalizeChain(chain), !norm.isEmpty else { return nil }
+        let metalDir = seedDir + "/metal-sources"
+        guard !isSymlink(metalDir, fm: fm) else { return nil }
+        var metalIsDir: ObjCBool = false
+        guard fm.fileExists(atPath: metalDir, isDirectory: &metalIsDir), metalIsDir.boolValue else { return nil }
+
+        let prefixes = isMultiProgram ? ["", "p0"] : [""]
+        let tag = "b-" + norm
+        for prog in prefixes {
+            let parent = prog.isEmpty ? metalDir : (metalDir + "/" + prog)
+            if !prog.isEmpty {
+                guard !isSymlink(parent, fm: fm) else { continue }
+                var parentIsDir: ObjCBool = false
+                guard fm.fileExists(atPath: parent, isDirectory: &parentIsDir), parentIsDir.boolValue else { continue }
+            }
+            let relBase = prog.isEmpty ? tag : (prog + "/" + tag)
+            let candidates: [(MetalSourceKind, String, String, Bool)] = [
+                (.compressedArchive, parent + "/" + tag + ".img.zst", relBase + ".img.zst", false),
+                (.archive, parent + "/" + tag + ".img", relBase + ".img", false),
+                (.directory, parent + "/" + tag, relBase, true),
+            ]
+            for (kind, path, rel, expectDir) in candidates {
+                guard !isSymlink(path, fm: fm) else { continue }
+                var isDir: ObjCBool = false
+                guard fm.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue == expectDir else { continue }
+                let size = expectDir ? 0 : regularFileSize(path, fm: fm)
+                return MetalSourceEntry(chain: norm, program: prog, kind: kind, path: path, relativePath: rel, sizeBytes: size)
+            }
+        }
+        return nil
+    }
+
+    /// Lists all `b-*` entries under `<seedDir>/metal-sources` (top-level and `p<N>/`), preferring `.img.zst` when both exist.
+    package static func metalSourceEntries(
+        in seedDir: String,
+        preferCompressed: Bool = true,
+        fm: FileManager = .default
+    ) -> [MetalSourceEntry] {
+        guard !seedDir.isEmpty, !isSymlink(seedDir, fm: fm) else { return [] }
+        let metalDir = seedDir + "/metal-sources"
+        guard !isSymlink(metalDir, fm: fm) else { return [] }
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: metalDir, isDirectory: &isDir), isDir.boolValue else { return [] }
+
+        var byKey: [String: MetalSourceEntry] = [:]
+        var orderedKeys: [String] = []
+
+        func scanFolder(_ dir: String, program: String) {
+            guard let names = try? fm.contentsOfDirectory(atPath: dir) else { return }
+            for name in names.sorted() {
+                if name.hasPrefix(".") || name.contains(".tmp") || name.hasSuffix(".part") { continue }
+                let full = dir + "/" + name
+                guard !isSymlink(full, fm: fm) else { continue }
+                var entryDir: ObjCBool = false
+                guard fm.fileExists(atPath: full, isDirectory: &entryDir) else { continue }
+
+                if program.isEmpty && entryDir.boolValue && isProgramFolderName(name) {
+                    scanFolder(full, program: name)
+                    continue
+                }
+
+                guard name.hasPrefix("b-") else { continue }
+                let kind: MetalSourceKind
+                let rawTag: String
+                if !entryDir.boolValue && name.hasSuffix(".img.zst") {
+                    kind = .compressedArchive
+                    rawTag = String(name.dropLast(8))
+                } else if !entryDir.boolValue && name.hasSuffix(".img") {
+                    kind = .archive
+                    rawTag = String(name.dropLast(4))
+                } else if entryDir.boolValue {
+                    kind = .directory
+                    rawTag = name
+                } else {
+                    continue
+                }
+                guard let chain = normalizeChain(rawTag), !chain.isEmpty else { continue }
+                let rel = program.isEmpty ? name : (program + "/" + name)
+                let size = entryDir.boolValue ? 0 : regularFileSize(full, fm: fm)
+                let item = MetalSourceEntry(chain: chain, program: program, kind: kind, path: full, relativePath: rel, sizeBytes: size)
+                let key = program + "|" + chain
+                if let existing = byKey[key] {
+                    if preferCompressed && priority(kind) < priority(existing.kind) {
+                        byKey[key] = item
+                    }
+                } else {
+                    byKey[key] = item
+                    orderedKeys.append(key)
+                }
+            }
+        }
+
+        scanFolder(metalDir, program: "")
+        return orderedKeys.compactMap { byKey[$0] }
+    }
+
+    /// Returns true if `<seedDir>/metal-sources` contains at least one `.img.zst`, `.img`, or `b-*` directory.
+    package static func hasMetalSources(in seedDir: String, fm: FileManager = .default) -> Bool {
+        !metalSourceEntries(in: seedDir, fm: fm).isEmpty
+    }
+
+    private static func priority(_ kind: MetalSourceKind) -> Int {
+        switch kind {
+        case .compressedArchive: return 0
+        case .archive: return 1
+        case .directory: return 2
+        }
+    }
+
+    private static func isProgramFolderName(_ name: String) -> Bool {
+        guard name.hasPrefix("p"), name.count >= 2 else { return false }
+        return name.dropFirst().allSatisfy(\.isNumber)
+    }
+
+    private static func isSymlink(_ path: String, fm: FileManager) -> Bool {
+        (try? fm.destinationOfSymbolicLink(atPath: path)) != nil
+    }
+
+    private static func regularFileSize(_ path: String, fm: FileManager) -> Int64 {
+        guard let attrs = try? fm.attributesOfItem(atPath: path),
+              (attrs[.type] as? FileAttributeType) == .typeRegular,
+              let size = attrs[.size] as? NSNumber else { return 0 }
+        return size.int64Value
+    }
 }

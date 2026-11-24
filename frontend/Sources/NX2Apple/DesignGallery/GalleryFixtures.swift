@@ -229,6 +229,17 @@ import NXLauncher
             root = AnyView(launcher(.settings, category: .controls))
         case .settingsTools:
             Self.releaseEngine(stores)
+            let sampleScan = SeedScanResult(
+                seedRoot: "/Users/Shared/nxnative/build-seeds",
+                zstdAvailable: true,
+                totalGames: 2,
+                totalFiles: 2,
+                uncompressedBytes: 1_280_000_000,
+                estimatedCompressedBytes: 102_400_000,
+                estimatedSavedBytes: 1_177_600_000,
+                games: []
+            )
+            stores.seedCompression.setGalleryState(phase: nil, scanState: .ready(hasAnySeeds: true, scan: sampleScan, zstdConfirmed: true))
             root = AnyView(launcher(.settings, category: .tools))
         case .settingsEngineError:
             Self.releaseEngine(stores)
@@ -270,7 +281,7 @@ import NXLauncher
 
     /// Settings > Tools as the released app shows it: the app's own engine (EngineSyncStore), not a checkout. The tree is never
     /// read: the rows only ask whether there is one.
-    private static func releaseEngine(_ stores: LauncherStores) {
+    static func releaseEngine(_ stores: LauncherStores) {
         if stores.engineSync.bundle == nil { stores.engineSync.bundle = URL(fileURLWithPath: "/nonexistent/nx-gallery-engine") }
         stores.engineSync.selection = EngineSelection(channel: .stable, engineID: String(repeating: "c", count: 40), version: "1.5.0", previousID: "")
     }
