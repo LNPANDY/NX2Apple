@@ -10,6 +10,7 @@ import NXModel
         game: LibraryGame,
         target: String,
         fastRefresh: Bool,
+        rebuildsShaders: Bool = false,
         externalImgPath: String? = nil,
         batch: UUID,
         stores: LauncherStores,
@@ -45,6 +46,7 @@ import NXModel
             destinationName: destName
         )
         entry.fastRefresh = fastRefresh
+        entry.rebuildsShaders = fastRefresh && rebuildsShaders
         entry.locksTarget = true
         entry.existingAppPath = (isMac && !game.appPath.isEmpty) ? game.appPath : nil
         entry.externalImgPath = isMac ? nil : externalImgPath
@@ -52,9 +54,10 @@ import NXModel
     }
 
     static func orderedEntries(_ entries: [QueueEntry]) -> [QueueEntry] {
-        let fast = entries.filter(\.fastRefresh)
+        let pureFast = entries.filter { $0.fastRefresh && !$0.rebuildsShaders }
+        let seedRebuild = entries.filter { $0.fastRefresh && $0.rebuildsShaders }
         let full = entries.filter { !$0.fastRefresh }
-        return fast + full
+        return pureFast + seedRebuild + full
     }
 }
 
@@ -73,6 +76,10 @@ struct BatchRefreshSheet: View {
         let hasIOS: Bool
         let canFastMac: Bool
         let canFastIOS: Bool
+        let canSeedMac: Bool
+        let canSeedIOS: Bool
+        let needsShaderRebuildMac: Bool
+        let needsShaderRebuildIOS: Bool
         let disabledMac: Bool
         /// The iPhone and iPad side cannot be refreshed: its package is missing, or the engine builds for the Mac only (nxkit).
         let disabledIOS: Bool
@@ -94,6 +101,25 @@ struct BatchRefreshSheet: View {
             hasIOS && assessment.hasUsableSeed && assessment.needsMissingImgGuideIOS && externalIOSImgPath == nil
         }
 
+        func shaderRebuildHint(_ t: (String) -> String) -> String? {
+            if hasMac && hasIOS {
+                if needsShaderRebuildMac && needsShaderRebuildIOS {
+                    return t("batchRefresh.shaderRebuildHint")
+                }
+                if needsShaderRebuildMac {
+                    return String(format: t("batchRefresh.platformShaderRebuildHint"), t("batchRefresh.platformMac"))
+                }
+                if needsShaderRebuildIOS {
+                    return String(format: t("batchRefresh.platformShaderRebuildHint"), t("batchRefresh.platformIOS"))
+                }
+                return nil
+            }
+            if (hasMac && needsShaderRebuildMac) || (hasIOS && needsShaderRebuildIOS) {
+                return t("batchRefresh.shaderRebuildHint")
+            }
+            return nil
+        }
+
         var enabledTargets: [String] {
             var list: [String] = []
             if hasMac && !disabledMac { list.append(BuildTarget.mac) }
@@ -105,8 +131,11 @@ struct BatchRefreshSheet: View {
     private struct PlannedItem {
         let game: LibraryGame
         let target: String
-        let fastRefresh: Bool
+        let usesSeed: Bool
+        let rebuildsShaders: Bool
         let externalImgPath: String?
+
+        var isPureFast: Bool { usesSeed && !rebuildsShaders }
     }
 
     @ObservedObject var library: GameLibrary
@@ -163,9 +192,13 @@ struct BatchRefreshSheet: View {
 
             let extImg = externalDriveImages[game.id]
             let canFastMac = hasMac && assessment.canFastRefreshMac
-            let canFastIOS = hasIOS && (assessment.canFastRefreshIOS || (assessment.needsMissingImgGuideIOS && extImg != nil))
-            let disabledMac = hasMac && !canFastMac && assessment.missingOriginalPackage
-            let missingIOSPackage = hasIOS && !canFastIOS && assessment.missingOriginalPackage
+            let canFastIOS = hasIOS && assessment.canFastRefreshIOS
+            let canSeedMac = hasMac && (assessment.canFastRefreshMac || assessment.canSeedRefreshMac)
+            let canSeedIOS = hasIOS && (assessment.canFastRefreshIOS || assessment.canSeedRefreshIOS || (assessment.needsMissingImgGuideIOS && extImg != nil))
+            let needsShaderRebuildMac = hasMac && assessment.needsShaderRebuildMac
+            let needsShaderRebuildIOS = hasIOS && (assessment.needsShaderRebuildIOS || (assessment.needsMissingImgGuideIOS && extImg != nil && !assessment.canFastRefreshIOS))
+            let disabledMac = hasMac && !canSeedMac && assessment.missingOriginalPackage
+            let missingIOSPackage = hasIOS && !canSeedIOS && assessment.missingOriginalPackage
             let disabledIOS = missingIOSPackage || (hasIOS && stores.build.isMacOnlyUpstreamSelected)
 
             return CandidateRow(
@@ -175,6 +208,10 @@ struct BatchRefreshSheet: View {
                 hasIOS: hasIOS,
                 canFastMac: canFastMac,
                 canFastIOS: canFastIOS,
+                canSeedMac: canSeedMac,
+                canSeedIOS: canSeedIOS,
+                needsShaderRebuildMac: needsShaderRebuildMac,
+                needsShaderRebuildIOS: needsShaderRebuildIOS,
                 disabledMac: disabledMac,
                 disabledIOS: disabledIOS,
                 missingIOSPackage: missingIOSPackage,
@@ -202,7 +239,8 @@ struct BatchRefreshSheet: View {
                 list.append(PlannedItem(
                     game: row.game,
                     target: BuildTarget.mac,
-                    fastRefresh: row.canFastMac,
+                    usesSeed: row.canSeedMac,
+                    rebuildsShaders: row.needsShaderRebuildMac,
                     externalImgPath: nil
                 ))
             }
@@ -210,7 +248,8 @@ struct BatchRefreshSheet: View {
                 list.append(PlannedItem(
                     game: row.game,
                     target: BuildTarget.ios,
-                    fastRefresh: row.canFastIOS,
+                    usesSeed: row.canSeedIOS,
+                    rebuildsShaders: row.needsShaderRebuildIOS,
                     externalImgPath: row.externalIOSImgPath
                 ))
             }
@@ -219,11 +258,11 @@ struct BatchRefreshSheet: View {
     }
 
     private var selectedFastCount: Int {
-        plannedItems.filter(\.fastRefresh).count
+        plannedItems.filter(\.isPureFast).count
     }
 
     private var selectedFullCount: Int {
-        plannedItems.filter { !$0.fastRefresh }.count
+        plannedItems.filter { !$0.isPureFast }.count
     }
 
     private var totalSelectedCount: Int {
@@ -395,6 +434,8 @@ struct BatchRefreshSheet: View {
                             warning(loc.t("batchRefresh.missingImg"))
                         } else if row.showsMissingPackageHint {
                             warning(loc.t("batchRefresh.missingPackage"))
+                        } else if let shaderHint = row.shaderRebuildHint(loc.t) {
+                            warning(shaderHint)
                         }
                     }
                 }
@@ -609,14 +650,15 @@ struct BatchRefreshSheet: View {
     }
 
     private func confirm(onlyFast: Bool) {
-        let chosen = onlyFast ? plannedItems.filter(\.fastRefresh) : plannedItems
+        let chosen = onlyFast ? plannedItems.filter(\.isPureFast) : plannedItems
         guard !chosen.isEmpty else { return }
         let batch = UUID()
         let rawEntries = chosen.map { item in
             RefreshQueueBuilder.makeEntry(
                 game: item.game,
                 target: item.target,
-                fastRefresh: item.fastRefresh,
+                fastRefresh: item.usesSeed,
+                rebuildsShaders: item.rebuildsShaders,
                 externalImgPath: item.externalImgPath,
                 batch: batch,
                 stores: stores,

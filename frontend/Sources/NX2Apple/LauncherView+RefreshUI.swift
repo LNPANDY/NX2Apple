@@ -82,9 +82,13 @@ extension LauncherView {
     @ViewBuilder func heroSingleRefreshButton(_ game: LibraryGame, compact: Bool) -> some View {
         let assessment = toolsAge.assessments[game.id]
         let (hasMac, hasIOS) = resolvedRefreshTargets(for: game)
-        let isFast = assessment.map {
-            (hasMac && $0.canFastRefreshMac) || (hasIOS && ($0.canFastRefreshIOS || $0.needsMissingImgGuideIOS))
+        let hasAnyFast = assessment.map {
+            (hasMac && $0.canFastRefreshMac) || (hasIOS && $0.canFastRefreshIOS)
         } ?? false
+        let hasAnyShaderRebuild = assessment.map {
+            (hasMac && $0.needsShaderRebuildMac) || (hasIOS && $0.needsShaderRebuildIOS)
+        } ?? false
+        let isFast = hasAnyFast && !hasAnyShaderRebuild
         let title = singleRefreshButtonTitle(assessment: assessment, hasMac: hasMac, hasIOS: hasIOS, isFast: isFast)
         let symbol = isFast ? "bolt.fill" : "arrow.clockwise"
         let isProbing = toolsAge.singleRefreshProbingGameID != nil
@@ -145,8 +149,13 @@ extension LauncherView {
     func heroRefreshNote(for game: LibraryGame) -> String? {
         if let assessment = toolsAge.assessments[game.id] {
             guard assessment.heroState != .upToDate else { return nil }
+            let (hasMac, hasIOS) = resolvedRefreshTargets(for: game)
+            let needsRebuild = (hasMac && assessment.needsShaderRebuildMac) || (hasIOS && assessment.needsShaderRebuildIOS)
             if !assessment.hasUsableSeed && assessment.missingOriginalPackage {
                 return loc.t("library.refresh.noteNeedRomOnce")
+            }
+            if needsRebuild {
+                return loc.t("library.refresh.noteShaderRebuild")
             }
             switch assessment.heroState {
             case .specificFast(let version):
@@ -222,12 +231,14 @@ extension LauncherView {
         let hasIOS = game.hasIOSBuild(shellRoot: stores.build.shellCachePath)
 
         if hasMac {
-            let fastMac = assessment?.canFastRefreshMac ?? false
-            if fastMac || assessment?.missingOriginalPackage != true {
+            let useSeedMac = assessment?.canSeedRefreshMac == true
+            let rebuildMac = assessment?.needsShaderRebuildMac == true
+            if useSeedMac || assessment?.missingOriginalPackage != true {
                 entries.append(RefreshQueueBuilder.makeEntry(
                     game: game,
                     target: BuildTarget.mac,
-                    fastRefresh: fastMac,
+                    fastRefresh: useSeedMac,
+                    rebuildsShaders: rebuildMac,
                     externalImgPath: nil,
                     batch: batch,
                     stores: stores,
@@ -237,12 +248,14 @@ extension LauncherView {
         }
 
         if hasIOS {
-            let fastIOS = (assessment?.canFastRefreshIOS ?? false) || externalIOSImgPath != nil
-            if fastIOS || assessment?.missingOriginalPackage != true {
+            let useSeedIOS = (assessment?.canSeedRefreshIOS == true) || externalIOSImgPath != nil
+            let rebuildIOS = useSeedIOS && ((assessment?.needsShaderRebuildIOS == true) || (externalIOSImgPath != nil && assessment?.canFastRefreshIOS != true))
+            if useSeedIOS || assessment?.missingOriginalPackage != true {
                 entries.append(RefreshQueueBuilder.makeEntry(
                     game: game,
                     target: BuildTarget.ios,
-                    fastRefresh: fastIOS,
+                    fastRefresh: useSeedIOS,
+                    rebuildsShaders: rebuildIOS,
                     externalImgPath: externalIOSImgPath,
                     batch: batch,
                     stores: stores,
