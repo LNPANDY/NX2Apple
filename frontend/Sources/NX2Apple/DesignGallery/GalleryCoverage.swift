@@ -198,7 +198,7 @@ enum GalleryCoverage {
         add("LibraryGame.Primary", ["play": [.desktop(D.heroPlay)], "openOnDevice": [.desktop(D.heroOnDevice)], "build": [.libraryGames]])
         add("LibraryArtworkState.Attention", ["none": [.desktop(D.cardEveryState)], "notBuilt": [.desktop(D.cardEveryState)],
                                               "missingData": [.desktop(D.cardEveryState), .libraryGames], "fixFiles": [.desktop(D.cardEveryState)],
-                                              "building": [.desktop(D.cardEveryState)]])
+                                              "building": [.desktop(D.cardEveryState)], "queued": [.desktop(D.cardEveryState)]])
         add("HeroRefreshState", ["upToDate": [.desktop(D.heroPlay)], "specificFast": [.desktop(D.heroRefreshFast)],
                                  "specificFull": [.desktop(D.heroRefreshFull)], "generalSync": [.libraryEngineUpdate]])
         add("ArtworkSlot", ["hero": [.desktop(D.artworkHero)], "thumbnail": [.desktop(D.artworkThumbnail)]])

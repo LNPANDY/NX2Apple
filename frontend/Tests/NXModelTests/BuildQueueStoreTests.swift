@@ -96,6 +96,33 @@ import NXCore
         XCTAssertEqual(started, ["A"])
     }
 
+    func testEnqueueDuringExternalBuildStartsAfterItFinishesWithoutAnotherPress() {
+        busy = true
+        let q = store()
+        q.enqueue([entry("A")])
+        q.enqueue([entry("A")])
+        XCTAssertEqual(q.entries.count, 1)
+        XCTAssertEqual(q.queued.map(\.titleID), ["A"])
+        XCTAssertTrue(started.isEmpty)
+        busy = false
+        q.processNext()
+        XCTAssertEqual(started, ["A"])
+        XCTAssertEqual(q.running?.titleID, "A")
+    }
+
+    func testStoppedExternalOperationPausesWaitingQueue() {
+        busy = true
+        let q = store()
+        q.enqueue([entry("A")])
+        XCTAssertTrue(q.isAdvancing)
+        busy = false
+        q.pauseForStoppedExternalOperation()
+        XCTAssertTrue(q.paused)
+        XCTAssertFalse(q.active)
+        q.processNext()
+        XCTAssertTrue(started.isEmpty)
+    }
+
     func testMoveControlsStopAtTheBoundariesAndLeaveTheRunningEntryAlone() {
         let q = store()
         q.enqueue([entry("A"), entry("B"), entry("C")])

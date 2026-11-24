@@ -195,6 +195,7 @@ import NXCore
                 entries.append(entry)
             }
         }
+        if running == nil && busy() && !paused && !awaitingResume && hasWaiting { active = true }
         persist()
         if active { processNext() }
     }
@@ -288,6 +289,14 @@ import NXCore
         var ended: [UUID] = []
         for entry in entries where entry.packagePending == false && !ended.contains(entry.batch) { ended.append(entry.batch) }
         for batch in ended { batchEnded(batch) }
+    }
+
+    /// Pauses waiting entries when a build the queue did not start is stopped by the player.
+    package func pauseForStoppedExternalOperation() {
+        guard running == nil, hasWaiting else { return }
+        paused = true
+        active = false
+        persist()
     }
 
     // MARK: Running

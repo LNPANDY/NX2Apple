@@ -25,20 +25,81 @@ extension LauncherView {
         launching && game.primary == .play && (launchingGameID == nil || launchingGameID == game.id)
     }
 
+    struct HeroPrimaryDescriptor {
+        let title: String
+        let symbol: String
+        let enabled: Bool
+    }
+
+    static func heroPrimaryDescriptor(
+        for game: LibraryGame,
+        macStarting: Bool,
+        launching: Bool,
+        running: Bool,
+        isBuilding: Bool,
+        isQueued: Bool,
+        canEnqueue: Bool,
+        deviceName: @autoclosure () -> String,
+        t: (String) -> String
+    ) -> HeroPrimaryDescriptor {
+        if macStarting {
+            return HeroPrimaryDescriptor(title: t("library.launching"), symbol: "play.fill", enabled: false)
+        }
+        switch game.primary {
+        case .play:
+            return HeroPrimaryDescriptor(title: t("library.play"), symbol: "play.fill", enabled: !launching)
+        case .openOnDevice:
+            return HeroPrimaryDescriptor(
+                title: String(format: t("dev.open"), deviceName()),
+                symbol: "iphone",
+                enabled: !launching
+            )
+        case .build:
+            if isBuilding {
+                return HeroPrimaryDescriptor(title: t("library.building"), symbol: "hammer.fill", enabled: false)
+            }
+            if isQueued {
+                return HeroPrimaryDescriptor(title: t("library.queued"), symbol: "hammer.fill", enabled: false)
+            }
+            if running {
+                let queueable = game.hasQueueableSources && canEnqueue
+                return HeroPrimaryDescriptor(
+                    title: t(queueable ? "library.addToBuildQueue" : "library.setUpBuild"),
+                    symbol: "hammer.fill",
+                    enabled: !launching && queueable
+                )
+            }
+            return HeroPrimaryDescriptor(title: t("library.setUpBuild"), symbol: "hammer.fill", enabled: !launching)
+        }
+    }
+
+    func heroPrimaryDescriptor(for game: LibraryGame) -> HeroPrimaryDescriptor {
+        Self.heroPrimaryDescriptor(
+            for: game,
+            macStarting: isLaunchingMacGame(game),
+            launching: launching,
+            running: m.running,
+            isBuilding: isBuildingGame(game),
+            isQueued: isQueuedGame(game),
+            canEnqueue: buildQueue.canEnqueue(game.titleID, target: effectiveLibraryQueueTarget(for: game)),
+            deviceName: devices.deviceName(game.installedDevice),
+            t: loc.t
+        )
+    }
+
     @ViewBuilder func heroPrimary(_ game: LibraryGame) -> some View {
         let macStarting = isLaunchingMacGame(game)
-        let title = macStarting ? loc.t("library.launching")
-            : (game.primary == .play ? loc.t("library.play")
-                : (game.primary == .openOnDevice ? String(format: loc.t("dev.open"), devices.deviceName(game.installedDevice))
-                    : loc.t("library.setUpBuild")))
-        let symbol = game.primary == .play ? "play.fill" : (game.primary == .openOnDevice ? "iphone" : "hammer.fill")
+        let descriptor = heroPrimaryDescriptor(for: game)
+        let actionEnabled = descriptor.enabled && artworkEditor == nil
         let button = Button { primaryAction(game) } label: {
-            LauncherHeroActionLabel(title: title, symbol: symbol, loading: macStarting)
+            LauncherHeroActionLabel(title: descriptor.title, symbol: descriptor.symbol, loading: macStarting)
         }
-        .buttonStyle(LauncherActionButtonStyle()).fixedSize(horizontal: false, vertical: true).launcherHover(enabled: artworkEditor == nil && !launching)
-        .disabled(launching || (m.running && !game.isReady) || artworkEditor != nil)
-        .keyboardShortcut(keyboardCard == nil && libraryInputAvailable ? KeyboardShortcut(.return, modifiers: []) : nil)
-        .padTarget("hero.play", scope: "main", focusColor: LauncherPalette.onCream, enabled: !launching && (!m.running || game.isReady) && artworkEditor == nil) { if !launching && !profileHelpOpen && artworkEditor == nil && (!m.running || game.isReady) { primaryAction(game) } }
+        .buttonStyle(LauncherActionButtonStyle()).fixedSize(horizontal: false, vertical: true).launcherHover(enabled: actionEnabled)
+        .disabled(!actionEnabled)
+        .keyboardShortcut(keyboardCard == nil && libraryInputAvailable && actionEnabled ? KeyboardShortcut(.return, modifiers: []) : nil)
+        .padTarget("hero.play", scope: "main", focusColor: LauncherPalette.onCream, enabled: actionEnabled) {
+            if !profileHelpOpen && actionEnabled { primaryAction(game) }
+        }
         button.id(game.id)
     }
 
@@ -173,6 +234,13 @@ extension LauncherView {
             return
         }
         guard game.isReady else {
+            guard !isBuildingGame(game), !isQueuedGame(game) else { return }
+            if m.running {
+                guard game.hasQueueableSources,
+                      buildQueue.canEnqueue(game.titleID, target: effectiveLibraryQueueTarget(for: game)) else { return }
+                enqueueBuilds([game])
+                return
+            }
             configureBuild(game)
             return
         }

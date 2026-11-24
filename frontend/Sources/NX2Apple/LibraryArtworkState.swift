@@ -38,13 +38,14 @@ final class LibraryArtworkStateCache {
         let sourceFolder: String
         let titleID: String
         let building: Bool
+        let queued: Bool
         let onConnectedDevice: Bool
         let macBuildUpstreams: [String]
         let preferredMacUpstream: String?
         /// nxkit's launcher.json (its date and size): a rebuild into the same app path changes the No game profile tag.
         let nxkitList: NxkitBuildProfile.Stamp?
 
-        init(_ game: LibraryGame, building: Bool, onConnectedDevice: Bool) {
+        init(_ game: LibraryGame, building: Bool, queued: Bool, onConnectedDevice: Bool) {
             appPath = game.appPath
             ipaPath = game.ipaPath
             iosAppPath = game.iosAppPath
@@ -57,6 +58,7 @@ final class LibraryArtworkStateCache {
             sourceFolder = game.sourceFolder
             titleID = game.titleID
             self.building = building
+            self.queued = queued
             self.onConnectedDevice = onConnectedDevice
             macBuildUpstreams = game.sortedMacBuilds.map(\.upstream.rawValue)
             preferredMacUpstream = game.preferredMacUpstream
@@ -67,25 +69,27 @@ final class LibraryArtworkStateCache {
     private let lock = NSLock()
     private var entries: [UUID: (key: Key, state: LibraryArtworkState)] = [:]
 
-    func state(for game: LibraryGame, building: Bool = false, onConnectedDevice: Bool = false) -> LibraryArtworkState {
-        let key = Key(game, building: building, onConnectedDevice: onConnectedDevice)
+    func state(for game: LibraryGame, building: Bool = false, queued: Bool = false, onConnectedDevice: Bool = false) -> LibraryArtworkState {
+        let key = Key(game, building: building, queued: queued, onConnectedDevice: onConnectedDevice)
         lock.lock()
         if let cached = entries[game.id], cached.key == key {
             lock.unlock()
             return cached.state
         }
         lock.unlock()
-        let computed = LibraryArtworkState(game, building: building, onConnectedDevice: onConnectedDevice)
+        let computed = LibraryArtworkState(game, building: building, queued: queued, onConnectedDevice: onConnectedDevice)
         lock.lock()
         entries[game.id] = (key, computed)
         lock.unlock()
         return computed
     }
 
-    func states(for games: [LibraryGame], buildingID: UUID?, connectedTitleIDs: Set<String> = []) -> [UUID: LibraryArtworkState] {
+    func states(for games: [LibraryGame], buildingID: UUID?, queuedTitleIDs: Set<String> = [], connectedTitleIDs: Set<String> = []) -> [UUID: LibraryArtworkState] {
         Dictionary(uniqueKeysWithValues: games.map {
-            let onDevice = connectedTitleIDs.contains($0.titleID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased())
-            return ($0.id, state(for: $0, building: buildingID == $0.id, onConnectedDevice: onDevice))
+            let normalizedID = $0.titleID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            let onDevice = connectedTitleIDs.contains(normalizedID)
+            let isQueued = queuedTitleIDs.contains(normalizedID)
+            return ($0.id, state(for: $0, building: buildingID == $0.id, queued: isQueued, onConnectedDevice: onDevice))
         })
     }
 
@@ -99,7 +103,7 @@ final class LibraryArtworkStateCache {
 
 /// Only desktop-observable availability. An iOS artifact does not prove installation on a device.
 struct LibraryArtworkState: Equatable {
-    enum Attention: Equatable { case none, notBuilt, missingData, fixFiles, building }
+    enum Attention: Equatable { case none, notBuilt, missingData, fixFiles, building, queued }
     let mac: Bool
     let ios: Bool
     let attention: Attention
@@ -129,6 +133,7 @@ struct LibraryArtworkState: Equatable {
         case .missingData: return "ios.ui.missingDataChip"
         case .fixFiles: return "ios.ui.fixGameFilesChip"
         case .building: return "library.building"
+        case .queued: return "library.queued"
         case .none: return mac && ios ? "library.chip.both" : (ios ? "library.chip.iosOnly" : nil)
         }
     }
@@ -137,7 +142,7 @@ struct LibraryArtworkState: Equatable {
         return mac && ios ? "laptopcomputer.and.iphone" : "iphone"
     }
     var color: Color {
-        if attention == .none || attention == .building { return DS.Color.textPrimary }   // a property or a running build: neutral
+        if attention == .none || attention == .building || attention == .queued { return DS.Color.textPrimary }   // a property, running, or queued build: neutral
         return DS.Color.statusWarning   // needs attention
     }
     init(mac: Bool, ios: Bool, attention: Attention, macUpstream: EngineUpstreamKind? = nil, tunedEngines: [EngineUpstreamKind] = [], builtMacUpstreams: [EngineUpstreamKind] = []) {
@@ -148,7 +153,7 @@ struct LibraryArtworkState: Equatable {
         self.tunedEngines = tunedEngines
         self.builtMacUpstreams = builtMacUpstreams
     }
-    init(_ game: LibraryGame, building: Bool = false, onConnectedDevice: Bool = false, exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) {
+    init(_ game: LibraryGame, building: Bool = false, queued: Bool = false, onConnectedDevice: Bool = false, exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) {
         var missingMacData = false
         var detectedUpstream: EngineUpstreamKind? = nil
         if game.appPath.isEmpty { mac = false }
@@ -168,6 +173,7 @@ struct LibraryArtworkState: Equatable {
         ios = game.hasIOSBuild || onConnectedDevice
         if mac { attention = .none }
         else if building { attention = .building }
+        else if queued { attention = .queued }
         else if missingMacData { attention = .missingData }
         else if !game.appPath.isEmpty {
             attention = !exists(game.appPath) || GameLibrary.onUnmountedVolume(game.appPath) ? .missingData : .fixFiles

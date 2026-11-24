@@ -29,6 +29,9 @@ import XCTest
         XCTAssertEqual(LibraryArtworkState(game).attention, .notBuilt)
         XCTAssertTrue(LibraryArtworkState(game).monochrome)
         XCTAssertEqual(LibraryArtworkState(game, building: true).attention, .building)
+        XCTAssertEqual(LibraryArtworkState(game, queued: true).attention, .queued)
+        XCTAssertEqual(LibraryArtworkState(game, queued: true).chipKey, "library.queued")
+        XCTAssertEqual(LibraryArtworkState(game, building: true, queued: true).attention, .building)
         let app = try macApp(in: root)
         game.appPath = app.path
         let mac = LibraryArtworkState(game)
@@ -39,6 +42,7 @@ import XCTest
         game.inputs["base"] = ["/missing-source.nsp"]
         XCTAssertFalse(LibraryArtworkState(game).monochrome, "Original inputs are not required to play an existing build")
         XCTAssertFalse(LibraryArtworkState(game, building: true).monochrome, "A still-playable existing build stays available")
+        XCTAssertFalse(LibraryArtworkState(game, queued: true).monochrome, "A still-playable existing build stays available")
         let ipa = root.appendingPathComponent("Export.ipa")
         try Data().write(to: ipa)
         game.ipaPath = ipa.path

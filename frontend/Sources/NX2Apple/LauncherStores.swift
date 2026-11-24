@@ -184,7 +184,17 @@ import NXModel
                         }
                         return
                     }
-                    guard queue.running != nil else { return }
+                    guard queue.running != nil else {
+                        if queue.isAdvancing {
+                            if build.queueOutcome.stopped {
+                                queue.pauseForStoppedExternalOperation()
+                            } else {
+                                if queue.hasWaiting { self?.settleFinishedBuild() }
+                                queue.processNext()
+                            }
+                        }
+                        return
+                    }
                     let batchID = queue.running?.batch
                     self?.settleFinishedBuild()
                     let outcome = build.queueOutcome

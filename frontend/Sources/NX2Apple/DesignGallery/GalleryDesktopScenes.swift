@@ -279,7 +279,7 @@ extension GalleryFixtures {
 
         switch scene {
         case .cardEveryState:
-            // 0 Mac, 1 iPhone only, 2 both, 3 building, 4 files to fix, 5 not built, the rest without their files
+            // 0 Mac, 1 iPhone only, 2 both, 3 building, 4 files to fix, 5 not built, 6 queued, the rest without their files
             _ = makeMacApp(for: 0, in: library)
             let ipa = file("Game.ipa")
             edit(1) { $0.ipaPath = ipa }
@@ -290,8 +290,10 @@ extension GalleryFixtures {
             edit(4) { $0.appPath = broken.path }
             let base = file("base.nsp")
             edit(5) { $0.inputs["base"] = [base] }
+            edit(6) { $0.inputs["base"] = [base] }
             build.buildingGame = true   // the building card's game: a build runs for it
             build.running = true
+            stores.queue.enqueue([QueueEntry(game: library.games[6], engineID: stores.engineSync.selection.engineID, target: BuildTarget.mac)])
             return launcher(GalleryLauncher(allGames: true, activeBuildID: library.games[3].id))
         case .heroPlay:
             _ = makeMacApp(for: 0, in: library)
