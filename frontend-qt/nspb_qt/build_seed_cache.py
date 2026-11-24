@@ -7,12 +7,114 @@ from __future__ import annotations
 import json
 import os
 import re
+import stat
 import sys
 from pathlib import Path
 from typing import Any
 
 TRAILER_MAGIC = b'DMMSLTR1'
 FOOTER_SIZE = 64
+_REPARSE_ATTR = getattr(stat, 'FILE_ATTRIBUTE_REPARSE_POINT', 0x0400)
+
+
+def _is_symlink_or_reparse(path: Path) -> bool:
+    """Return True for symlinks or Windows directory reparse points (junctions)."""
+    try:
+        if path.is_symlink():
+            return True
+        st = os.lstat(path)
+        if stat.S_ISLNK(st.st_mode):
+            return True
+        if stat.S_ISDIR(st.st_mode) and bool(int(getattr(st, 'st_file_attributes', 0) or 0) & _REPARSE_ATTR):
+            return True
+    except OSError:
+        return False
+    return False
+
+
+def metal_sources_archives(seed_dir: str | Path) -> list[Path]:
+    """Discover metal-sources shader archives safely, preferring .img.zst over .img per base name."""
+    metal_dir = Path(seed_dir) / 'metal-sources'
+    if not metal_dir.exists() or _is_symlink_or_reparse(metal_dir) or not metal_dir.is_dir():
+        return []
+    try:
+        metal_real = os.path.realpath(metal_dir)
+    except OSError:
+        return []
+
+    by_key: dict[str, tuple[int, Path]] = {}
+    stack: list[tuple[Path, str]] = [(metal_dir, '')]
+    visited: set[tuple[Any, ...]] = set()
+    try:
+        mst = os.lstat(metal_dir)
+        visited.add(('ino', getattr(mst, 'st_dev', 0), mst.st_ino) if mst.st_ino else ('path', os.path.normcase(metal_real)))
+    except OSError:
+        return []
+
+    while stack:
+        cur, rel = stack.pop()
+        try:
+            with os.scandir(cur) as it:
+                entries = sorted(it, key=lambda e: e.name)
+        except OSError:
+            continue
+        for entry in entries:
+            name = entry.name
+            if name.startswith('.') or '.tmp' in name or name.endswith('.part'):
+                continue
+            ep = Path(entry.path)
+            if _is_symlink_or_reparse(ep):
+                continue
+            ent_rel = f'{rel}/{name}' if rel else name
+            if entry.is_dir(follow_symlinks=False):
+                try:
+                    lst = os.lstat(ep)
+                    key = ('ino', getattr(lst, 'st_dev', 0), lst.st_ino) if lst.st_ino else ('path', os.path.normcase(os.path.realpath(ep)))
+                except OSError:
+                    continue
+                if key in visited:
+                    continue
+                visited.add(key)
+                stack.append((ep, ent_rel))
+            elif entry.is_file(follow_symlinks=False) and name.startswith('b-'):
+                try:
+                    if os.path.commonpath([metal_real, os.path.realpath(ep)]) != metal_real:
+                        continue
+                except ValueError:
+                    continue
+                if name.endswith('.img.zst'):
+                    stem = ent_rel[:-8]
+                    prio = 2
+                elif name.endswith('.img'):
+                    stem = ent_rel[:-4]
+                    prio = 1
+                else:
+                    continue
+                prev = by_key.get(stem)
+                if prev is None or prio > prev[0]:
+                    by_key[stem] = (prio, ep)
+
+    return [by_key[k][1] for k in sorted(by_key)]
+
+
+def resolve_metal_sources_archive(metal_dir: str | Path, chain: str) -> Path | None:
+    """Return b-<chain>.img.zst if present and non-symlink, else b-<chain>.img, else None."""
+    c = normalize_chain(chain)
+    if not c:
+        return None
+    base = Path(metal_dir)
+    if not base.is_dir() or _is_symlink_or_reparse(base):
+        return None
+    for suffix in ('.img.zst', '.img'):
+        cand = base / f'b-{c}{suffix}'
+        if cand.exists() and not _is_symlink_or_reparse(cand) and cand.is_file():
+            return cand
+    return None
+
+
+def has_metal_sources(seed_dir: str | Path) -> bool:
+    """Return True if seed_dir/metal-sources contains .img.zst or .img archives."""
+    return bool(metal_sources_archives(seed_dir))
 
 
 def default_seed_root() -> Path:
@@ -115,6 +217,7 @@ def inspect_seed(
         'gfx_api': '',
         'seed_data': {},
         'romfs_identity': None,
+        'has_metal_sources': False,
         'reason': None,
     }
 
@@ -188,6 +291,7 @@ def inspect_seed(
     else:
         chain_match = bool(seed_chain)
 
+    result['has_metal_sources'] = has_metal_sources(seed_dir)
     result['valid'] = True
     result['chain_match'] = chain_match
     result['path_type'] = 'A' if chain_match else 'B'
@@ -243,6 +347,8 @@ def prefill_candidates(
                 has_sub = (
                     any(p.glob('*.metallib'))
                     or any(p.glob('*.metal'))
+                    or any(p.glob('b-*.img.zst'))
+                    or any(p.glob('*/b-*.img.zst'))
                     or any(p.glob('b-*.img'))
                     or any(p.glob('*/b-*.img'))
                     or (p / 'inputs.tsv').is_file()

@@ -49,11 +49,13 @@ from . import inputs
 from . import library as lib
 from . import platform_util as pu
 from . import refresh_flow as rf
+from . import seed_compression as sc
 from . import style
 from .app_update import APP_VERSION
 from .build_notes import TEXT, TITLE, stale_reason
 from .i18n import Lang
 from .model import Dep, DepState, Model
+from .seed_compression_dialog import SeedCompressionDialog
 from .sheets import (
     CheatsDialog,
     DefenderPromptDialog,
@@ -179,6 +181,7 @@ def _cleanup_destroyed_window(
         w._img_probing = False
         w._assess_gen += 1
         w._img_probe_gen += 1
+        w._seed_compress_scan_gen += 1
     b = bridge_ref()
     if b is not None:
         b.mark_dead()
@@ -227,6 +230,13 @@ class MainWindow(QMainWindow):
         self._dep_row_widgets: dict[str, dict] = {}
         self._onboarding_checked = False
         self._onboarding_dialog: OnboardingDialog | None = None
+        self._perform_startup_checks = perform_startup_checks
+        self._seed_compress_checked = False
+        self._seed_compress_scan_gen = 0
+        self._seed_compress_scanning = False
+        self._seed_compress_summary: sc.SeedScanSummary | None = None
+        self._seed_compress_notice_kind: str = ''
+        self._seed_compress_dialog: SeedCompressionDialog | None = None
         self._window_closed = False
         self._assess_gen = 0
         self._assess_sig: tuple | None = None
@@ -2946,6 +2956,38 @@ class MainWindow(QMainWindow):
         grp.add_row(r_cache)
         grp.add_divider()
 
+        # Row 2.6: Fast Refresh Seed Compression (seedCompress.settings.*)
+        r_seed = QWidget()
+        rsd_lay = QHBoxLayout(r_seed)
+        rsd_lay.setContentsMargins(18, 12, 18, 12)
+        rsd_lay.setSpacing(12)
+        self.seed_compress_dot = _dot(style.NEUTRAL_DOT)
+        rsd_lay.addWidget(self.seed_compress_dot)
+        sd_col = QVBoxLayout()
+        sd_col.setSpacing(2)
+        self.seed_compress_title_lbl = QLabel(self.m.t('seedCompress.settings.title'))
+        self.seed_compress_title_lbl.setObjectName('rowTitle')
+        self.seed_compress_status_lbl = QLabel(self.m.t('seedCompress.settings.statusEmpty'))
+        self.seed_compress_status_lbl.setObjectName('muted')
+        self.seed_compress_status_lbl.setWordWrap(True)
+        self.seed_compress_notice_lbl = QLabel('')
+        self.seed_compress_notice_lbl.setWordWrap(True)
+        self.seed_compress_notice_lbl.hide()
+        sd_col.addWidget(self.seed_compress_title_lbl)
+        sd_col.addWidget(self.seed_compress_status_lbl)
+        sd_col.addWidget(self.seed_compress_notice_lbl)
+        rsd_lay.addLayout(sd_col, 1)
+
+        self.seed_compress_rescan_btn = QPushButton(self.m.t('seedCompress.settings.rescanButton'))
+        self.seed_compress_rescan_btn.clicked.connect(self._on_seed_compress_rescan_clicked)
+        rsd_lay.addWidget(self.seed_compress_rescan_btn)
+
+        self.seed_compress_btn = QPushButton(self.m.t('seedCompress.settings.compressButton'))
+        self.seed_compress_btn.clicked.connect(self._on_seed_compress_clicked)
+        rsd_lay.addWidget(self.seed_compress_btn)
+        grp.add_row(r_seed)
+        grp.add_divider()
+
         # Row 2.8: Windows Security exclusions (Windows / NSPB_SHOW_DEFENDER_ROW=1)
         self.defender_row_widget = QWidget()
         rdef_lay = QHBoxLayout(self.defender_row_widget)
@@ -3052,6 +3094,144 @@ class MainWindow(QMainWindow):
         )
         self.cache_status_lbl.show()
         self._refresh_all()
+
+    def _seed_compress_game_names(self) -> dict[str, str]:
+        return {
+            g.title_id.upper(): g.name
+            for g in getattr(self.m.library, 'games', [])
+            if getattr(g, 'title_id', '') and getattr(g, 'name', '')
+        }
+
+    def _refresh_seed_compress_row(self) -> None:
+        t = self.m.t
+        self.seed_compress_title_lbl.setText(t('seedCompress.settings.title'))
+        self.seed_compress_rescan_btn.setText(t('seedCompress.settings.rescanButton'))
+        self.seed_compress_btn.setText(t('seedCompress.settings.compressButton'))
+        summary = self._seed_compress_summary
+        if summary is None:
+            _set_dot(self.seed_compress_dot, style.NEUTRAL_DOT)
+            self.seed_compress_status_lbl.setText(t('seedCompress.settings.statusEmpty'))
+        elif summary.total_games > 0:
+            _set_dot(self.seed_compress_dot, style.AMBER)
+            self.seed_compress_status_lbl.setText(
+                t(
+                    'seedCompress.settings.statusFound',
+                    summary.total_games,
+                    sc.format_bytes(summary.uncompressed_bytes),
+                )
+            )
+        elif summary.total_seed_games > 0:
+            _set_dot(self.seed_compress_dot, style.GREEN)
+            self.seed_compress_status_lbl.setText(t('seedCompress.settings.statusAllCompressed'))
+        else:
+            _set_dot(self.seed_compress_dot, style.NEUTRAL_DOT)
+            self.seed_compress_status_lbl.setText(t('seedCompress.settings.statusEmpty'))
+
+        notice_kind = getattr(self, '_seed_compress_notice_kind', '')
+        if notice_kind == 'zstd_missing':
+            self.seed_compress_notice_lbl.setText(t('seedCompress.settings.zstdMissing'))
+            self.seed_compress_notice_lbl.setStyleSheet(f'color: {style.AMBER}; font-size: 12px;')
+            self.seed_compress_notice_lbl.show()
+        elif notice_kind == 'none':
+            self.seed_compress_notice_lbl.setText(t('seedCompress.settings.noneNotice'))
+            self.seed_compress_notice_lbl.setStyleSheet(f'color: {style.MUTED}; font-size: 12px;')
+            self.seed_compress_notice_lbl.show()
+        else:
+            self.seed_compress_notice_lbl.hide()
+
+        busy = bool(self.m.running or self._seed_compress_scanning)
+        self.seed_compress_rescan_btn.setEnabled(not busy)
+        self.seed_compress_btn.setEnabled(not busy)
+
+    def _start_seed_compress_scan(self, *, open_after: bool, auto_prompt: bool) -> None:
+        if self._window_closed:
+            return
+        self._seed_compress_scan_gen += 1
+        gen = self._seed_compress_scan_gen
+        self._seed_compress_scanning = True
+        self._refresh_seed_compress_row()
+
+        eng_path = self.m.engine_path
+        py_exe = self.m.python_path or None
+        names = self._seed_compress_game_names()
+        bridge_ref = weakref.ref(self._assess_bridge)
+        win_ref = weakref.ref(self)
+
+        def _worker() -> None:
+            summary = sc.scan_uncompressed(
+                engine_path=eng_path,
+                python_exe=py_exe,
+                game_names=names,
+            )
+            b = bridge_ref()
+            if b is not None:
+                def _deliver() -> None:
+                    w = win_ref()
+                    if w is not None:
+                        w._handle_seed_compress_scan_done(
+                            gen,
+                            summary,
+                            open_after=open_after,
+                            auto_prompt=auto_prompt,
+                        )
+                b.safe_emit(_deliver)
+
+        threading.Thread(target=_worker, daemon=True, name='seed-zstd-scan').start()
+
+    def _handle_seed_compress_scan_done(
+        self,
+        gen: int,
+        summary: sc.SeedScanSummary,
+        *,
+        open_after: bool,
+        auto_prompt: bool,
+    ) -> None:
+        if self._window_closed or gen != self._seed_compress_scan_gen:
+            return
+        self._seed_compress_scanning = False
+        self._seed_compress_summary = summary
+
+        if auto_prompt:
+            if (
+                summary.total_games > 0
+                and summary.zstd_available
+                and not self.m.running
+                and not sc.is_prompt_dismissed(self.m)
+                and not (self._onboarding_dialog is not None and self._onboarding_dialog.isVisible())
+            ):
+                self._open_seed_compression_dialog(summary, auto_prompt=True)
+        elif open_after:
+            if not summary.zstd_available:
+                self._seed_compress_notice_kind = 'zstd_missing'
+            elif summary.total_games == 0:
+                self._seed_compress_notice_kind = 'none'
+            else:
+                self._seed_compress_notice_kind = ''
+                self._open_seed_compression_dialog(summary, auto_prompt=False)
+        self._refresh_seed_compress_row()
+
+    def _open_seed_compression_dialog(self, summary: sc.SeedScanSummary, *, auto_prompt: bool) -> None:
+        if self._seed_compress_dialog is not None and self._seed_compress_dialog.isVisible():
+            self._seed_compress_dialog.raise_()
+            self._seed_compress_dialog.activateWindow()
+            return
+        dlg = SeedCompressionDialog(self.m, summary, auto_prompt=auto_prompt, parent=self)
+        self._seed_compress_dialog = dlg
+        dlg.exec()
+        self._seed_compress_dialog = None
+        if dlg.did_compress and not self._window_closed:
+            self._seed_compress_notice_kind = ''
+            self._start_seed_compress_scan(open_after=False, auto_prompt=False)
+
+    def _on_seed_compress_rescan_clicked(self) -> None:
+        self._seed_compress_notice_kind = ''
+        self._start_seed_compress_scan(open_after=False, auto_prompt=False)
+
+    def _on_seed_compress_clicked(self) -> None:
+        if self.m.running or self._seed_compress_scanning:
+            return
+        self._seed_compress_notice_kind = ''
+        self._start_seed_compress_scan(open_after=True, auto_prompt=False)
 
     def _on_defender_clicked(self) -> None:
         dlg = DefenderPromptDialog(self.m, mode='manual', parent=self)
@@ -3254,6 +3434,22 @@ class MainWindow(QMainWindow):
         self._onboarding_checked = True
         if self.should_show_onboarding(self.m):
             QTimer.singleShot(0, self._open_onboarding)
+        else:
+            self._maybe_check_seed_compression()
+
+    def _maybe_check_seed_compression(self) -> None:
+        if (
+            not self._perform_startup_checks
+            or self._seed_compress_checked
+            or self._window_closed
+            or not self.m.deps_checked
+            or self.m.running
+        ):
+            return
+        if self._onboarding_dialog is not None and self._onboarding_dialog.isVisible():
+            return
+        self._seed_compress_checked = True
+        self._start_seed_compress_scan(open_after=False, auto_prompt=True)
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -3483,6 +3679,7 @@ class MainWindow(QMainWindow):
         self.cache_move_btn.setText(t('shellCache.move'))
         self.cache_default_btn.setText(t('shellCache.useDefault'))
         self.cache_default_btn.setVisible(not self.m.shell_cache_is_default)
+        self._refresh_seed_compress_row()
         self.diag_title_lbl.setText(t('diag.title'))
         self.diag_note_lbl.setText(t('diag.note'))
         self.diag_btn.setText(t('diag.copy'))
@@ -3992,6 +4189,7 @@ class MainWindow(QMainWindow):
 
         self.build_btn.style().unpolish(self.build_btn)
         self.build_btn.style().polish(self.build_btn)
+        self._refresh_seed_compress_row()
         self._refresh_queue_card()
 
     def _append_log(self, s: str) -> None:
