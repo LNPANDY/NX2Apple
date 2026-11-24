@@ -2312,6 +2312,7 @@
   "players.default": "플레이어 1",
   "players.group": "플레이어",
   "players.name": "이름",
+  "players.nameNote": "여기서 시작한 게임은 플레이어 이름을 내 이름으로 씁니다. 플레이어 1은 이름을 바꾸기 전까지 게임의 기본 이름을 씁니다.",
   "players.new": "새 플레이어…",
   "players.newNote": "새 플레이어는 모든 게임을 빈 저장 데이터로 시작합니다. 클라우드 저장은 첫 번째 플레이어에게만 적용됩니다.",
   "players.newTitle": "새 플레이어",
