@@ -15,6 +15,7 @@ struct LauncherView: View {
     @ObservedObject private var buildQueue: BuildQueueStore
     @ObservedObject private var engine: EngineSyncStore   // the engine: the sync banner, and the checks that follow a sync
     @ObservedObject var playSessions: PlaySessionStore
+    @ObservedObject var librarySelection: LibrarySelectionStore
     @StateObject var library: GameLibrary
     @State var buildLogOpen = false
     @State var allBuildStepsOpen = false
@@ -118,7 +119,7 @@ struct LauncherView: View {
         _updates = ObservedObject(wrappedValue: stores.appUpdates); _devices = ObservedObject(wrappedValue: stores.deviceStore)
         _buildDependencies = ObservedObject(wrappedValue: stores.dependencies)
         _buildQueue = ObservedObject(wrappedValue: stores.queue)
-        _repo = ObservedObject(wrappedValue: stores.repo); _engine = ObservedObject(wrappedValue: stores.engineSync); _playSessions = ObservedObject(wrappedValue: stores.playSessions)
+        _repo = ObservedObject(wrappedValue: stores.repo); _engine = ObservedObject(wrappedValue: stores.engineSync); _playSessions = ObservedObject(wrappedValue: stores.playSessions); _librarySelection = ObservedObject(wrappedValue: stores.librarySelection)
         let library = library ?? GameLibrary()
         _library = StateObject(wrappedValue: library)
         _recorder = StateObject(wrappedValue: recorder ?? BuildRecorder(stores: stores, library: library, activeBuildID: activeBuildID))
@@ -171,6 +172,7 @@ struct LauncherView: View {
         )
         if after.selectedID != library.selectedID { library.selectedID = after.selectedID }
         if after.focused != padFocus.focused { padFocus.focused = after.focused }
+        reconcilePinnedSelection(for: filter, states: states)
     }
 
     var filteredGames: [LibraryGame] {
@@ -361,16 +363,20 @@ struct LauncherView: View {
             guard let route else { return }
             page = route.page
             if route.page == .builds { buildEditorOpen = true }
-            if let id = route.game { library.selectedID = id }
+            if let id = route.game {
+                if route.page == .library { showInLibrary(id) } else { library.selectedID = id }
+            }
             DispatchQueue.main.async { BuildNotifier.shared.route = nil }
         }
         .onChange(of: loc.lang) { _ in if performStartupChecks { fetchArtwork() } }   // the banners in the new language
         .onChange(of: library.games) { _ in
+            revalidatePinnedSelection()
             if performStartupChecks { library.syncSharedApp(root: m.shellCachePath, fallbackDevice: stores.deviceStore.installDevice) }
             refreshArtwork()
             readSignatures()
             if performStartupChecks { fetchArtwork(); library.fillMissingTitleNames() }
         }
+        .onReceive(library.played) { _ in librarySelection.clearPin() }
         .onChange(of: m.savedKeys) { _ in
             if performStartupChecks {
                 library.discover()
@@ -606,13 +612,6 @@ struct LauncherView: View {
             let list = SupportedGames.list(engineRoot: root, includeMacNativeGames: includeMNG)
             DispatchQueue.main.async { supportedGames = list }
         }
-    }
-
-    /// Supported games > Show in library: the page, the filter and the selection go to that game.
-    func showInLibrary(_ id: UUID) {
-        page = .library
-        if let game = library.games.first(where: { $0.id == id }), !libraryFilter.includes(game) { setLibraryFilter(.owned) }
-        library.selectedID = id
     }
 
     func newBuild() {

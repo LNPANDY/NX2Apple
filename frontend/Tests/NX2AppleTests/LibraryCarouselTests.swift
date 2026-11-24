@@ -9,7 +9,12 @@ import XCTest
 @MainActor final class LibraryCarouselTests: IsolatedDefaultsTestCase {
     private func settle(_ seconds: Double = 0.4) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
 
-    private func host(games count: Int, allGames: Bool = false) throws -> (GameLibrary, PadFocus, [LibraryGame], OffscreenWindow) {
+    private func host(
+        games count: Int,
+        allGames: Bool = false,
+        search: String? = nil,
+        stores: LauncherStores? = nil
+    ) throws -> (GameLibrary, LauncherStores, PadFocus, [LibraryGame], OffscreenWindow) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: root) }
@@ -17,20 +22,27 @@ import XCTest
         for index in games.indices { games[index].lastPlayed = Date(timeIntervalSince1970: 1_800_000_000 - Double(index) * 60) }
         let file = root.appendingPathComponent("library.json")
         try JSONEncoder().encode(games).write(to: file)
-        let library = GameLibrary(file: file), stores = LauncherStores(defaults: testDefaults), pad = PadFocus()
+        let library = GameLibrary(file: file), resolvedStores = stores ?? LauncherStores(defaults: testDefaults), pad = PadFocus()
         let window = OffscreenWindow(size: NSSize(width: 1280, height: 800))
-        window.contentView = NSHostingView(rootView: LauncherView(stores: stores, library: library, performStartupChecks: false, padFocus: pad,
+        window.contentView = NSHostingView(rootView: LauncherView(stores: resolvedStores, library: library, performStartupChecks: false, search: search, padFocus: pad,
                                                                   allGamesOpen: allGames))
         window.orderFront(nil)
         addTeardownBlock { MainActor.assumeIsolated { window.orderOut(nil); window.contentView = nil; window.close() } }
         settle()
-        return (library, pad, games, window)
+        return (library, resolvedStores, pad, games, window)
     }
 
     private func ids(_ pad: PadFocus) -> Set<String> { Set(pad.frames["main", default: []].map(\.id)) }
 
+    private func orderedRowCardIDs(_ pad: PadFocus) -> [UUID] {
+        pad.frames["main", default: []]
+            .filter { $0.id.hasPrefix("card.") }
+            .sorted { $0.frame.minX < $1.frame.minX }
+            .compactMap { UUID(uuidString: String($0.id.dropFirst(5))) }
+    }
+
     func testAShortLibraryFitsTheRowWithoutShowAll() throws {
-        let (_, pad, games, _) = try host(games: 6)
+        let (_, _, pad, games, _) = try host(games: 6)
         let ids = ids(pad)
         XCTAssertEqual(ids.filter { $0.hasPrefix("card.") }.count, games.count, "every game is in the row")
         XCTAssertFalse(ids.contains("library.showAll"))
@@ -39,7 +51,7 @@ import XCTest
     }
 
     func testALongLibraryShowsTheMostRecentAndOffersShowAll() throws {
-        let (_, pad, games, _) = try host(games: 14)
+        let (_, _, pad, games, _) = try host(games: 14)
         let ids = ids(pad)
         let cards = ids.filter { $0.hasPrefix("card.") }
         XCTAssertEqual(cards.count, LauncherView.recentLimit)
@@ -50,7 +62,7 @@ import XCTest
     }
 
     func testShowAllOpensTheGridAndChoosingAGameReturnsWithItAsTheHero() throws {
-        let (library, pad, games, _) = try host(games: 14)
+        let (library, stores, pad, games, _) = try host(games: 14)
         pad.show(default: "library.showAll"); pad.activate(); settle()
         var ids = ids(pad)
         XCTAssertTrue(ids.contains("allGames.back"))
@@ -59,14 +71,16 @@ import XCTest
         pad.focused = "card." + games[7].id.uuidString; settle(0.1)
         pad.activate(); settle()
         XCTAssertEqual(library.selectedID, games[7].id)
+        XCTAssertEqual(stores.librarySelection.pinnedID, games[7].id)
         ids = self.ids(pad)
         XCTAssertFalse(ids.contains("allGames.back"), "back in the library")
         XCTAssertTrue(ids.contains("hero.play"))
+        XCTAssertEqual(orderedRowCardIDs(pad).first, games[7].id, "chosen game is pinned first in the Recently played row")
     }
 
     /// Notices share one slot under the top bar: the skipped files notice keeps its Details and its dismiss.
     func testSkippedFilesShowAsANoticeUnderTheTopBar() throws {
-        let (library, pad, _, _) = try host(games: 3)
+        let (library, _, pad, _, _) = try host(games: 3)
         library.skippedItems = [SkippedLibraryItem(path: "/Volumes/G/a.rar", name: "a.rar", rootPath: "/Volumes/G", reason: .unextractedArchiveOrSplit)]
         settle()
         let details = try XCTUnwrap(pad.frame(of: "library.skippedBanner"))
@@ -99,10 +113,96 @@ import XCTest
     }
 
     func testBackLeavesAllGames() throws {
-        let (_, pad, _, _) = try host(games: 14, allGames: true)
+        let (_, _, pad, _, _) = try host(games: 14, allGames: true)
         XCTAssertTrue(ids(pad).contains("allGames.back"))
         pad.show(default: "allGames.back"); pad.activate(); settle()
         XCTAssertFalse(ids(pad).contains("allGames.back"))
         XCTAssertTrue(ids(pad).contains("library.showAll"))
+    }
+
+    func testPinSelectionFromAllGamesReplacingInRowSelectionAndLaunchClearsPin() throws {
+        let (library, stores, pad, games, _) = try host(games: 14)
+        let originalPlayed10 = games[10].lastPlayed
+        let originalPlayed11 = games[11].lastPlayed
+
+        // 1. Choose game 10 (outside top-10) from All games: pinned first without mutating persistent lastPlayed
+        pad.show(default: "library.showAll"); pad.activate(); settle()
+        pad.focused = "card." + games[10].id.uuidString; settle(0.1)
+        pad.activate(); settle()
+        XCTAssertEqual(stores.librarySelection.pinnedID, games[10].id)
+        XCTAssertEqual(library.selectedID, games[10].id)
+        var rowOrder = orderedRowCardIDs(pad)
+        XCTAssertEqual(rowOrder.count, LauncherView.recentLimit)
+        XCTAssertEqual(rowOrder.first, games[10].id)
+        XCTAssertEqual(rowOrder[1], games[0].id)
+        XCTAssertEqual(library.games.first(where: { $0.id == games[10].id })?.lastPlayed, originalPlayed10)
+
+        // 2. Selecting another card directly inside the row only changes Hero/selection without reordering cards
+        pad.focused = "card." + games[1].id.uuidString; settle(0.2)
+        XCTAssertEqual(library.selectedID, games[1].id)
+        XCTAssertEqual(stores.librarySelection.pinnedID, games[10].id)
+        XCTAssertEqual(orderedRowCardIDs(pad), rowOrder)
+
+        // 3. Choose game 11 from All games: replaces pin; game 10 disappears back to its persistent rank
+        pad.focused = "library.showAll"; settle(0.1)
+        pad.activate(); settle()
+        pad.focused = "card." + games[11].id.uuidString; settle(0.1)
+        pad.activate(); settle()
+        XCTAssertEqual(stores.librarySelection.pinnedID, games[11].id)
+        rowOrder = orderedRowCardIDs(pad)
+        XCTAssertEqual(rowOrder.first, games[11].id)
+        XCTAssertFalse(rowOrder.contains(games[10].id))
+        XCTAssertEqual(library.games.first(where: { $0.id == games[11].id })?.lastPlayed, originalPlayed11)
+
+        // 4. Actually playing a game clears the temporary pin and falls back to persistent play order
+        library.recordPlayed(games[5].id, at: Date(timeIntervalSince1970: 1_900_000_000))
+        settle()
+        XCTAssertNil(stores.librarySelection.pinnedID)
+        rowOrder = orderedRowCardIDs(pad)
+        XCTAssertEqual(rowOrder.first, games[5].id)
+        XCTAssertFalse(rowOrder.contains(games[11].id))
+    }
+
+    func testChoosingFromSearchPinsSelectionAndRemovingOrFilteringClearsStalePin() throws {
+        let (library, stores, pad, games, _) = try host(games: 14, search: "Game 13")
+        pad.focused = "card." + games[13].id.uuidString; settle(0.1)
+        pad.activate(); settle()
+        XCTAssertEqual(stores.librarySelection.pinnedID, games[13].id)
+        XCTAssertEqual(orderedRowCardIDs(pad).first, games[13].id)
+
+        // Removing the pinned game revalidates and clears the stale pin
+        library.remove(games[13].id); settle()
+        XCTAssertNil(stores.librarySelection.pinnedID)
+        XCTAssertEqual(orderedRowCardIDs(pad).first, games[0].id)
+
+        // Pinning an unbuilt game then switching platform filter to Mac in All games clears the incompatible pin
+        pad.show(default: "library.showAll")
+        pad.focused = "library.showAll"; settle(0.1)
+        pad.activate(); settle()
+        pad.focused = "card." + games[11].id.uuidString; settle(0.1)
+        pad.activate(); settle()
+        XCTAssertEqual(stores.librarySelection.pinnedID, games[11].id)
+
+        pad.focused = "library.showAll"; settle(0.1)
+        pad.activate(); settle()
+        pad.focused = "library.filter"; settle(0.1)
+        pad.activate(); settle()   // .owned -> .mac
+        XCTAssertNil(stores.librarySelection.pinnedID, "switching platform filter clears an incompatible temporary pin")
+    }
+
+    func testRowScrollerScrollToStartResetsOffsetWhenAttached() {
+        let row = RowScroller()
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+        let doc = NSView(frame: NSRect(x: 0, y: 0, width: 1200, height: 200))
+        scroll.documentView = doc
+        row.attach(scroll)
+        scroll.contentView.setBoundsOrigin(NSPoint(x: 320, y: 0))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        settle(0.05)
+        XCTAssertTrue(row.canBack)
+
+        row.scrollToStart()
+        XCTAssertEqual(scroll.contentView.bounds.minX, 0, accuracy: 0.5)
+        XCTAssertFalse(row.canBack)
     }
 }

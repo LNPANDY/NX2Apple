@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import NXCore
 import NXModel
@@ -141,6 +142,7 @@ final class GameLibrary: ObservableObject {
     @Published private(set) var scanning = false
     @Published var skippedItems: [SkippedLibraryItem] = []
     @Published var dismissedSkippedPaths: Set<String> = []
+    let played = PassthroughSubject<UUID, Never>()
     /// The keys saved in Settings: their header_key finds packages whose name has no title ID (#1012). The launcher sets it.
     var keysFile: () -> String = { "" }
     /// Test hook run at the start of each background folder scan pass.

@@ -11,8 +11,16 @@ extension LauncherView {
     /// The row's length: a quick scan, the grid has the rest.
     static let recentLimit = 10
 
-    /// The games of the row: the most recently played first, then by name (a build does not record its date).
-    var recentGames: [LibraryGame] { Array(LibrarySort.recent.ordered(library.games, lang: loc.lang).prefix(Self.recentLimit)) }
+    /// The games of the row: optional temporary pinned selection first, then the persistent Recently played order (deduplicated).
+    var recentGames: [LibraryGame] {
+        let ordered = LibrarySort.recent.ordered(library.games, lang: loc.lang)
+        return LibraryPinOrder.arrange(
+            ordered: ordered,
+            pinnedID: librarySelection.pinnedID,
+            limit: Self.recentLimit,
+            id: \.id
+        )
+    }
     /// Show all is offered only when the row cannot hold every game.
     var hasMoreThanRecent: Bool { library.games.count > Self.recentLimit }
     /// The grid is up: Show all, or a search (the results are a grid too).
@@ -29,10 +37,39 @@ extension LauncherView {
         if padFocus.visible { padFocus.focusAfterScroll(library.selectedID.map { "card." + $0.uuidString } ?? "library.showAll") }
     }
 
-    /// A game chosen in the grid: the hero shows it, back in the library.
+    /// A game chosen in the grid: pins it to the front of the Recently played row, makes it the hero, and returns to the library.
     func chooseFromAllGames(_ game: LibraryGame) {
         library.selectedID = game.id
+        librarySelection.pin(game.id)
+        rowScroller.scrollToStart()
         closeAllGames()
+    }
+
+    /// Supported games > Show in library (or Activity Log / build completion): goes to the Library page and pins the game first.
+    func showInLibrary(_ id: UUID) {
+        page = .library
+        if let game = library.games.first(where: { $0.id == id }), !libraryFilter.includes(game) { setLibraryFilter(.owned) }
+        library.selectedID = id
+        if library.games.contains(where: { $0.id == id }) {
+            librarySelection.pin(id)
+            rowScroller.scrollToStart()
+        }
+        if allGamesOpen || !search.isEmpty || searching { closeAllGames() }
+    }
+
+    /// Check-Read-Revalidate: clears the temporary pin if the pinned game was removed or is missing after a library rescan.
+    func revalidatePinnedSelection() {
+        librarySelection.revalidate(validIDs: Set(library.games.map(\.id)))
+    }
+
+    /// Keeps the temporary pin consistent with platform filtering in All games.
+    func reconcilePinnedSelection(for filter: LibraryFilter, states: [UUID: LibraryArtworkState]) {
+        guard let pinned = librarySelection.pinnedID else { return }
+        guard let game = library.games.first(where: { $0.id == pinned }),
+              filter.includes(game, state: states[pinned]) else {
+            librarySelection.clearPin()
+            return
+        }
     }
 
     /// Everything the library tells the player outside a sheet, for the one notice slot under the top bar. `hero` adds what
@@ -144,6 +181,11 @@ extension LauncherView {
                     }
                     .onChange(of: keyboardCard) { id in
                         if let id { withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) { proxy.scrollTo("card." + id.uuidString, anchor: .center) } }
+                    }
+                    .onChange(of: librarySelection.pinVersion) { _ in
+                        rowScroller.scrollToStart()
+                        if let first = games.first { proxy.scrollTo("card." + first.id.uuidString, anchor: .leading) }
+                        DispatchQueue.main.async { rowScroller.scrollToStart() }
                     }
                 }
                 .overlay(alignment: .topLeading) {
