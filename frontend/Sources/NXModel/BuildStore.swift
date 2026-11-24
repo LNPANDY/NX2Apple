@@ -340,6 +340,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     let installCancel = LockedFlag()
     var installPhaseActive = false
     package var fastRefreshActive = false
+    package var lastRunWasFastRefresh = false
     package var fastRefreshTitleID: String? = nil {
         didSet {
             if fastRefreshTitleID != oldValue {

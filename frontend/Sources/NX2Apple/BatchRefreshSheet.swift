@@ -47,8 +47,9 @@ import NXModel
         )
         entry.fastRefresh = fastRefresh
         entry.rebuildsShaders = fastRefresh && rebuildsShaders
+        entry.upstream = .nxnative
         entry.locksTarget = true
-        entry.existingAppPath = (isMac && !game.appPath.isEmpty) ? game.appPath : nil
+        entry.existingAppPath = isMac ? game.nxnativeMacBuildForRefresh?.appPath : nil
         entry.externalImgPath = isMac ? nil : externalImgPath
         entry.archivePath = (isMac || game.archivePath.isEmpty) ? nil : game.archivePath
         return entry
@@ -59,6 +60,85 @@ import NXModel
         let seedRebuild = entries.filter { $0.fastRefresh && $0.rebuildsShaders }
         let full = entries.filter { !$0.fastRefresh }
         return pureFast + seedRebuild + full
+    }
+
+    static func refreshPlatforms(for game: LibraryGame, shellRoot: String) -> (hasMac: Bool, hasIOS: Bool) {
+        let hasMac = game.nxnativeMacBuildForRefresh != nil
+        let hasIOS = game.hasIOSBuild(shellRoot: shellRoot)
+        if hasMac || hasIOS {
+            return (hasMac, hasIOS)
+        }
+        guard game.sortedMacBuilds.isEmpty else {
+            return (false, false)
+        }
+        return game.lastTarget == BuildTarget.mac ? (true, false) : (false, true)
+    }
+
+    static func singleGameEntries(
+        for game: LibraryGame,
+        assessment: GameRefreshAssessment?,
+        externalIOSImgPath: String?,
+        stores: LauncherStores,
+        libraryFolder: String
+    ) -> [QueueEntry] {
+        let batch = UUID()
+        var entries: [QueueEntry] = []
+        let hasMac = game.nxnativeMacBuildForRefresh != nil
+        let hasIOS = game.hasIOSBuild(shellRoot: stores.build.shellCachePath)
+
+        if hasMac {
+            let useSeedMac = assessment?.canSeedRefreshMac == true
+            let rebuildMac = assessment?.needsShaderRebuildMac == true
+            if useSeedMac || assessment?.missingOriginalPackage != true {
+                entries.append(makeEntry(
+                    game: game,
+                    target: BuildTarget.mac,
+                    fastRefresh: useSeedMac,
+                    rebuildsShaders: rebuildMac,
+                    externalImgPath: nil,
+                    batch: batch,
+                    stores: stores,
+                    libraryFolder: libraryFolder
+                ))
+            }
+        }
+
+        if hasIOS {
+            let useSeedIOS = (assessment?.canSeedRefreshIOS == true) || externalIOSImgPath != nil
+            let rebuildIOS = useSeedIOS && ((assessment?.needsShaderRebuildIOS == true) || (externalIOSImgPath != nil && assessment?.canFastRefreshIOS != true))
+            if useSeedIOS || assessment?.missingOriginalPackage != true {
+                entries.append(makeEntry(
+                    game: game,
+                    target: BuildTarget.ios,
+                    fastRefresh: useSeedIOS,
+                    rebuildsShaders: rebuildIOS,
+                    externalImgPath: externalIOSImgPath,
+                    batch: batch,
+                    stores: stores,
+                    libraryFolder: libraryFolder
+                ))
+            }
+        }
+
+        if !hasMac && !hasIOS {
+            guard game.sortedMacBuilds.isEmpty else { return [] }
+            let m = stores.build
+            if !game.inputs["base", default: []].isEmpty || game.inputs[GameLibrary.folderInput] != nil {
+                var fallbackEntry = QueueEntry(
+                    game: game,
+                    engineID: stores.engineSync.selection.engineID,
+                    target: m.target,
+                    batch: batch,
+                    packageAfter: m.target != BuildTarget.mac && !m.exportsOneGame && !m.exportsFramework,
+                    exportIPA: (m.target != BuildTarget.mac && m.exportsShell) ? true : nil,
+                    exportFramework: m.exportsFramework ? true : nil
+                )
+                fallbackEntry.upstream = .nxnative
+                entries.append(fallbackEntry)
+            }
+        }
+
+        return orderedEntries(entries)
     }
 }
 
@@ -181,15 +261,9 @@ struct BatchRefreshSheet: View {
                 return nil
             }
 
-            var hasMac = game.isReady
-            var hasIOS = game.hasIOSBuild(shellRoot: stores.build.shellCachePath)
-            if !hasMac && !hasIOS {
-                if game.lastTarget == BuildTarget.mac {
-                    hasMac = true
-                } else {
-                    hasIOS = true
-                }
-            }
+            let platforms = RefreshQueueBuilder.refreshPlatforms(for: game, shellRoot: stores.build.shellCachePath)
+            let hasMac = platforms.hasMac
+            let hasIOS = platforms.hasIOS
 
             let extImg = externalDriveImages[game.id]
             let canFastMac = hasMac && assessment.canFastRefreshMac

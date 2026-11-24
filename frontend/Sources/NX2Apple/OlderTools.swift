@@ -43,7 +43,9 @@ final class ToolsAge: ObservableObject {
     ) {
         generation += 1
         let mine = generation
-        let builds = games.map { (id: $0.id, titleID: $0.titleID, commit: $0.toolsCommit) }
+        let builds = games.map { game in
+            (id: game.id, titleID: game.titleID, commit: Self.nxnativeRefreshCommit(for: game, shellRoot: shellRoot))
+        }
         DispatchQueue.global(qos: .utility).async {
             let fm = FileManager.default
             let engineHead = Self.head(repo: repo)
@@ -62,12 +64,14 @@ final class ToolsAge: ObservableObject {
             assessmentsMap.reserveCapacity(games.count)
             for game in games {
                 let isMarkedOlder = result.contains(game.id)
-                let hasMac = Self.hasMacBuildOffThread(game)
+                let nxMac = game.nxnativeMacBuildForRefresh
+                let hasMac = nxMac != nil
                 let hasIOS = Self.hasIOSBuildOffThread(game, shellRoot: shellRoot, fm: fm)
                 let hasInputs = Self.hasReadableSourceInputs(game, fm: fm)
                 let outDir = Self.resolvedOutputDirectory(for: game, libraryFolder: libraryFolder)
+                let commit = Self.nxnativeRefreshCommit(for: game, shellRoot: shellRoot, fm: fm)
                 let gitSpecificChanged = Self.specificChangeFlag(
-                    commit: game.toolsCommit,
+                    commit: commit,
                     titleID: game.titleID,
                     head: engineHead,
                     lookupDiff: lookupDiff
@@ -76,7 +80,7 @@ final class ToolsAge: ObservableObject {
                     titleID: game.titleID,
                     isMarkedOlder: isMarkedOlder,
                     hasMacBuild: hasMac,
-                    macAppPath: game.appPath,
+                    macAppPath: nxMac?.appPath ?? "",
                     hasIOSBuild: hasIOS,
                     hasReadableSourceInputs: hasInputs,
                     outDir: outDir,
@@ -104,8 +108,8 @@ final class ToolsAge: ObservableObject {
               current.range(of: pattern, options: .regularExpression) != nil else { return [] }
         let fm = FileManager.default
         return Set(games.compactMap { game in
-            if !game.appPath.isEmpty,
-               let app = try? MacGameBundle.read(URL(fileURLWithPath: game.appPath)),
+            if let macPath = game.nxnativeMacBuildForRefresh?.appPath,
+               let app = try? MacGameBundle.read(URL(fileURLWithPath: macPath)),
                app.titleID == game.titleID,
                let chain = app.shaderChain, chain != current,
                chain.range(of: pattern, options: .regularExpression) != nil {
@@ -173,10 +177,22 @@ final class ToolsAge: ObservableObject {
         return nil
     }
 
+    nonisolated private static func nxnativeRefreshCommit(for game: LibraryGame, shellRoot: String, fm: FileManager = .default) -> String {
+        if let nxMac = game.nxnativeMacBuildForRefresh {
+            return nxMac.toolsCommit.isEmpty ? game.toolsCommit : nxMac.toolsCommit
+        }
+        if hasIOSBuildOffThread(game, shellRoot: shellRoot, fm: fm) {
+            return game.toolsCommit
+        }
+        // Only third-party tuned Mac build exists without nxnative or iOS build: never treat it as an outdated nxnative build.
+        if !game.sortedMacBuilds.isEmpty {
+            return ""
+        }
+        return game.toolsCommit
+    }
+
     nonisolated private static func hasMacBuildOffThread(_ game: LibraryGame) -> Bool {
-        guard !game.appPath.isEmpty,
-              let app = try? MacGameBundle.read(URL(fileURLWithPath: game.appPath)) else { return false }
-        return app.titleID == game.titleID
+        game.nxnativeMacBuildForRefresh != nil
     }
 
     nonisolated private static func hasIOSBuildOffThread(_ game: LibraryGame, shellRoot: String = "", fm: FileManager) -> Bool {
@@ -204,8 +220,8 @@ final class ToolsAge: ObservableObject {
             }
             return parent
         }
-        if !game.appPath.isEmpty {
-            return (game.appPath as NSString).deletingLastPathComponent
+        if let macPath = game.nxnativeMacBuildForRefresh?.appPath ?? game.sortedMacBuilds.first?.appPath ?? (game.appPath.isEmpty ? nil : game.appPath) {
+            return (macPath as NSString).deletingLastPathComponent
         }
         if !game.ipaPath.isEmpty {
             return (game.ipaPath as NSString).deletingLastPathComponent

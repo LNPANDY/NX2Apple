@@ -7,15 +7,21 @@ import Foundation
 /// writes zip64 records when a file, an offset or the count passes the 32-bit fields. The bundle ID is the script's default
 /// without a team suffix, `org.nxnative.<title ID>`: its own app, apart from the shared app and its saves.
 package enum OneGameIPA {
-    /// `<folder>/<title ID>.ipa`, next to the game's build folder.
-    package static func path(folder: String, titleID: String) -> String { folder + "/" + titleID + ".ipa" }
+    /// `<folder>/<title ID>.ipa` for `nxnative`, or `<folder>/<title ID>-<engine>.ipa` for other engines.
+    package static func path(folder: String, titleID: String, upstream: EngineUpstreamKind = .nxnative) -> String {
+        let base = folder + "/" + titleID
+        return upstream == .nxnative ? (base + ".ipa") : (base + "-\(upstream.rawValue).ipa")
+    }
 
-    /// Team-scoped bundle ID (`org.nxnative.<tid>.<teamID>`) matching patch 0047 for personal Apple developer teams
+    /// Team-scoped bundle ID (`org.nxnative.<tid>.<teamID>` or `org.nxnative.<tid>.<variant>.<teamID>`)
     /// when driving an external `nxnative` fork without NX2Apple's private patches.
-    package static func personalBundleID(titleID: String, teamID: String) -> String? {
+    package static func personalBundleID(titleID: String, teamID: String, upstream: EngineUpstreamKind = .nxnative) -> String? {
         let tid = titleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let team = teamID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !tid.isEmpty, !team.isEmpty, team != "0000000000" else { return nil }
+        if upstream.isNxnativeVariant {
+            return "org.nxnative.\(tid).\(upstream.rawValue).\(team)"
+        }
         return "org.nxnative.\(tid).\(team)"
     }
 

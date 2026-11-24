@@ -85,12 +85,13 @@ import NXLauncher
     private func record() {
         guard build.done, build.buildingGame, let id = activeBuildID else { return }
         if build.runningTarget == BuildTarget.mac {
-            library.recordCompletedApp(path: build.macAppPath, commit: buildCommit, for: id)
+            library.recordCompletedApp(path: build.macAppPath, commit: buildCommit, for: id, isFastRefresh: build.lastRunWasFastRefresh)
         } else if !build.installedAppPath.isEmpty {
             library.recordCompletedIOS(archive: build.archivePath, app: build.installedAppPath, device: build.installedOn, commit: buildCommit, ipa: build.exportedIPAPath, for: id)
             if !build.exportedIPAPath.isEmpty, var game = library.games.first(where: { $0.id == id }) {
                 if (build.exportedIPAPath as NSString).lastPathComponent.lowercased() != "nx2apple.ipa" {
                     game.ipaPath = build.exportedIPAPath
+                    game.ipaBuilds[build.buildUpstream.rawValue] = build.exportedIPAPath
                 } else {
                     game.shellIPAExists = true
                 }
@@ -99,6 +100,7 @@ import NXLauncher
         } else if !build.exportedIPAPath.isEmpty, var game = library.games.first(where: { $0.id == id }) {
             if (build.exportedIPAPath as NSString).lastPathComponent.lowercased() != "nx2apple.ipa" {
                 game.ipaPath = build.exportedIPAPath
+                game.ipaBuilds[build.buildUpstream.rawValue] = build.exportedIPAPath
             } else {
                 game.shellIPAExists = true
             }

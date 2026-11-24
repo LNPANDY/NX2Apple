@@ -511,7 +511,7 @@ extension View {
     let batch = UUID()
     var entries: [QueueEntry] = []
 
-    if game.isReady {
+    if game.nxnativeMacBuildForRefresh != nil {
         let useSeedMac = assessment.canSeedRefreshMac
         let rebuildMac = assessment.needsShaderRebuildMac
         if useSeedMac || !assessment.missingOriginalPackage {

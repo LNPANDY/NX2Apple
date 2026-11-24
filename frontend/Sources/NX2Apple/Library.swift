@@ -39,6 +39,9 @@ struct LibraryGame: Codable, Identifiable, Equatable {
     var hasShellFramework = false
     var installedViaShellReceipt = false
     var shellIPAExists = false
+    var macBuilds: [String: LibraryMacBuild] = [:]
+    var ipaBuilds: [String: String] = [:]
+    var preferredMacUpstream: String? = nil
 
     /// An empty path means there is no Mac build. It is not read, because URL(fileURLWithPath:) would make it the current folder.
     /// Reads the bundle on every call: a caller that needs both `isReady` and `playVersion` reads it once here.
@@ -100,6 +103,9 @@ extension LibraryGame {
         hasShellFramework = try c.decodeIfPresent(Bool.self, forKey: .hasShellFramework) ?? false
         installedViaShellReceipt = try c.decodeIfPresent(Bool.self, forKey: .installedViaShellReceipt) ?? false
         shellIPAExists = try c.decodeIfPresent(Bool.self, forKey: .shellIPAExists) ?? false
+        macBuilds = (try? c.decodeIfPresent([String: LibraryMacBuild].self, forKey: .macBuilds)) ?? [:]
+        ipaBuilds = (try? c.decodeIfPresent([String: String].self, forKey: .ipaBuilds)) ?? [:]
+        preferredMacUpstream = try c.decodeIfPresent(String.self, forKey: .preferredMacUpstream)
     }
 }
 
@@ -155,6 +161,8 @@ final class GameLibrary: ObservableObject {
     private let artworkStateCache = LibraryArtworkStateCache()
     private var activeObserver: NSObjectProtocol?
     let artworkDirectory: URL   // where this library's artwork lives: the store's, or a temporary one in tests
+    let defaults: UserDefaults
+    let persistsDefaultsPreference: Bool
     private struct Snapshot: Codable {
         let games: [LibraryGame]
         let folder: String
@@ -163,7 +171,9 @@ final class GameLibrary: ObservableObject {
 
     /// `artwork` defaults to the store's folder for the app's own library, and to an `artwork` folder beside any other `file`: a library
     /// kept elsewhere (a test's) never reads, copies into or deletes from the player's artwork.
-    init(file: URL? = nil, volumes: String = "/Volumes", artwork: URL? = nil) {
+    init(file: URL? = nil, volumes: String = "/Volumes", artwork: URL? = nil, defaults: UserDefaults? = nil) {
+        self.persistsDefaultsPreference = defaults != nil || file == nil
+        self.defaults = defaults ?? .standard
         artworkDirectory = artwork ?? file.map { $0.deletingLastPathComponent().appendingPathComponent("artwork", isDirectory: true) } ?? ArtworkStore.shared.directory
         self.file = file ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("NS Port Builder/library.json")
@@ -177,6 +187,7 @@ final class GameLibrary: ObservableObject {
             }
             catch { self.error = error.localizedDescription }
         }
+        migrateLegacyBuildsIfNeeded()
         pruneMissingPaths(volumes: volumes)
         selectedID = defaultSelectedID()
         activeObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
@@ -213,15 +224,10 @@ final class GameLibrary: ObservableObject {
     /// when something changed; run on load and after a scan, never from a view.
     func pruneMissingPaths(volumes: String = "/Volumes") {
         let fm = FileManager.default
-        func gone(_ path: String, plist: Bool = false) -> Bool {
-            !path.isEmpty && !Self.onUnmountedVolume(path, volumes: volumes) && !fm.fileExists(atPath: plist ? path + "/Info.plist" : path)
-        }
-        var changed = false
+        var changed = pruneMultiBuilds(volumes: volumes, persist: false)
         for index in games.indices {
-            let game = games[index]
-            if gone(game.appPath) { games[index].appPath = ""; changed = true }
-            if gone(game.ipaPath) { games[index].ipaPath = ""; changed = true }
-            if gone(game.iosAppPath, plist: true) {
+            let path = games[index].iosAppPath
+            if !path.isEmpty && !Self.onUnmountedVolume(path, volumes: volumes) && !fm.fileExists(atPath: path + "/Info.plist") {
                 games[index].iosAppPath = ""
                 if !games[index].installedViaShellReceipt { games[index].installedDevice = "" }
                 changed = true
@@ -504,12 +510,7 @@ final class GameLibrary: ObservableObject {
                         } else { self.upsert(source) }
                     }
                     for url in apps {
-                        guard let info = try? MacGameBundle.read(url) else { continue }
-                        if let existing = self.games.first(where: { $0.titleID == info.titleID }), existing.isReady {
-                            self.learnTitleNames(existing, from: info, at: url)
-                            continue
-                        }
-                        _ = try? self.addApp(url)
+                        _ = try? self.mergeDiscoveredApp(url)
                     }
                     let knownIDs = Self.knownBaseTitleIDSet(from: self.games.map(\.titleID) + sources.map(\.titleID))
                     self.applySkippedItems(Self.resolveSkippedItems(rawSkipped, knownBaseTitleIDs: knownIDs))
@@ -536,13 +537,19 @@ final class GameLibrary: ObservableObject {
 
     @discardableResult func addApp(_ url: URL) throws -> UUID {
         let app = try MacGameBundle.read(url)
-        var game = games.first { $0.titleID == app.titleID } ?? LibraryGame(titleID: app.titleID, name: app.name)
-        game.name = app.name
-        if !app.titleNames.isEmpty { game.titleNames = app.titleNames }   // an older app has none: keep what TitleNameLookup read
-        game.appPath = url.standardizedFileURL.path
-        upsert(game)
-        selectedID = game.id
-        return game.id
+        let id = try mergeDiscoveredApp(url)
+        if var game = games.first(where: { $0.id == id }) {
+            let upstream = app.upstream
+            game.macBuilds[upstream.rawValue] = LibraryMacBuild(
+                upstream: upstream, appPath: url.standardizedFileURL.path,
+                toolsCommit: game.macBuilds[upstream.rawValue]?.toolsCommit ?? "",
+                lastUpdated: game.macBuilds[upstream.rawValue]?.lastUpdated
+            )
+            game.syncActiveBuilds(defaults: preferenceDefaults)
+            upsert(game)
+        }
+        selectedID = id
+        return id
     }
 
     @MainActor @discardableResult func rememberInputs(_ model: BuildStore) -> UUID? {
@@ -554,8 +561,11 @@ final class GameLibrary: ObservableObject {
             }
             game.lastTarget = model.target
             if !model.effectiveOutputFolder.isEmpty,
-               let existing = MacAppOutput.existing(in: URL(fileURLWithPath: model.effectiveOutputFolder), titleID: titleID, preferred: game.appPath) {
-                game.appPath = existing.path
+               let existing = MacAppOutput.existing(in: URL(fileURLWithPath: model.effectiveOutputFolder), titleID: titleID, upstream: .nxnative, preferred: game.macBuild(for: .nxnative)?.appPath ?? "") {
+                game.macBuilds[EngineUpstreamKind.nxnative.rawValue] = LibraryMacBuild(
+                    upstream: .nxnative, appPath: existing.path, toolsCommit: game.macBuild(for: .nxnative)?.toolsCommit ?? ""
+                )
+                game.syncActiveBuilds(defaults: preferenceDefaults)
             }
             upsert(game)
             selectedID = game.id
@@ -573,41 +583,44 @@ final class GameLibrary: ObservableObject {
         game.outputDirectory = model.outDir
         if !model.gameDir.isEmpty { game.sourceFolder = model.gameDir }
         game.lastTarget = model.target
-        // An existing output is linked only after validating its metadata and executables.
+        // An existing output is linked only after validating its metadata and executables for the active build engine.
         let dir = model.outDir.isEmpty ? model.inputFolder : model.outDir
-        if let existing = MacAppOutput.existing(in: URL(fileURLWithPath: dir), titleID: model.gameTitleID, preferred: game.appPath) {
-            game.appPath = existing.path
+        let buildUpstream = model.buildUpstream
+        if let existing = MacAppOutput.existing(in: URL(fileURLWithPath: dir), titleID: model.gameTitleID, upstream: buildUpstream, preferred: game.macBuild(for: buildUpstream)?.appPath ?? "") {
+            game.macBuilds[buildUpstream.rawValue] = LibraryMacBuild(
+                upstream: buildUpstream, appPath: existing.path, toolsCommit: game.macBuild(for: buildUpstream)?.toolsCommit ?? ""
+            )
+            game.syncActiveBuilds(defaults: preferenceDefaults)
         }
         upsert(game)
         return game.id
     }
 
-    func recordCompletedApp(path: String, commit: String = "", for id: UUID) {
+    func recordCompletedApp(path: String, commit: String = "", for id: UUID, isFastRefresh: Bool = false) {
         guard var game = games.first(where: { $0.id == id }),
               let app = try? MacGameBundle.read(URL(fileURLWithPath: path)),
               app.titleID == game.titleID || game.titleID.hasPrefix("/") else { return }
-        // An entry keyed by its path (the base package's name carried no title ID) now learns the real one. If the
-        // library already lists that game, this build replaces it: what the user set on the old entry carries over.
         if game.titleID != app.titleID, let old = games.first(where: { $0.id != id && $0.titleID == app.titleID }) {
-            game.artworkPath = old.artworkPath
-            game.artwork = old.artwork
             carryArtwork(of: old.id, to: id)
-            game.launchOptions = old.launchOptions
-            game.mods = old.mods
-            game.iosAppPath = old.iosAppPath
-            game.installedDevice = old.installedDevice
-            game.ipaPath = old.ipaPath
-            game.archivePath = old.archivePath
-            if game.customName.isEmpty { game.customName = old.customName }   // the player's name for it (Manage > Rename)
-            if game.titleNames.isEmpty { game.titleNames = old.titleNames }   // until the new app's own names replace them below
+            game.mergeCarriedState(from: old)
             if selectedID == old.id { selectedID = game.id }
             games.removeAll { $0.id == old.id }
         }
+        let upstream = app.upstream
         game.titleID = app.titleID
-        game.appPath = path
         game.name = app.name
         if !app.titleNames.isEmpty { game.titleNames = app.titleNames }
-        game.toolsCommit = commit   // empty for a checkout without git: nothing to compare, rather than an older build's commit
+        game.macBuilds[upstream.rawValue] = LibraryMacBuild(upstream: upstream, appPath: path, toolsCommit: commit, lastUpdated: Date())
+        if !isFastRefresh {
+            if let preferenceDefaults {
+                DefaultBuildPreference.set(upstream, titleID: app.titleID, defaults: preferenceDefaults)
+            }
+            game.preferredMacUpstream = upstream.rawValue
+        }
+        if upstream == .nxnative || game.macBuilds.count == 1 {
+            game.toolsCommit = commit
+        }
+        game.syncActiveBuilds(defaults: preferenceDefaults)
         upsert(game)
         if game.launchOptions[MacGameMode.optionEnv] == "1" {
             applyMacGameModeOption(enabled: true, for: game.id, appPath: path)
@@ -745,6 +758,9 @@ final class GameLibrary: ObservableObject {
     }
 
     func remove(_ id: UUID) {
+        if let preferenceDefaults, let removed = games.first(where: { $0.id == id }) {
+            DefaultBuildPreference.set(nil, titleID: removed.titleID, defaults: preferenceDefaults)
+        }
         games.removeAll { $0.id == id }
         invalidateArtworkStates(for: id)
         try? FileManager.default.removeItem(at: ArtworkStore.customDirectory(for: id, in: artworkDirectory))   // our copies, never the game's files

@@ -354,7 +354,7 @@ import XCTest
 
         XCTAssertTrue(store.done)
         XCTAssertFalse(store.macAppPath.isEmpty)
-        XCTAssertTrue(store.macAppPath.hasSuffix("TOTK.app"))
+        XCTAssertTrue(store.macAppPath.hasSuffix("TOTK [MacNativeGames].app"))
 
         let preservedRomFS = URL(fileURLWithPath: store.effectiveWorkDir).appendingPathComponent("extract/v1/RomFS/data.bin")
         let preservedAOC = URL(fileURLWithPath: store.effectiveWorkDir).appendingPathComponent("aoc/pack.bin")

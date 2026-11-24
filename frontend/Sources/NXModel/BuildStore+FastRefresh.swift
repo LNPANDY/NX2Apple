@@ -206,6 +206,7 @@ extension BuildStore {
             updatedImgPath = ""
         }
         send = .idle
+        lastRunWasFastRefresh = true
         activeBuildUpstream = .nxnative
         mngRun = false
         s2armRun = false
@@ -231,14 +232,21 @@ extension BuildStore {
             "--progress", "json"
         ]
 
+        let nxnativeExistingApp: String = {
+            let candidate = existingMacAppPath ?? macAppPath
+            guard !candidate.isEmpty,
+                  let bundle = try? MacGameBundle.read(URL(fileURLWithPath: candidate)),
+                  bundle.upstream == .nxnative else { return "" }
+            return candidate
+        }()
         let macOutput = isMac
-            ? MacAppOutput(workDir: URL(fileURLWithPath: workDir), key: tid, titleID: tid, preferred: existingMacAppPath ?? macAppPath)
+            ? MacAppOutput(workDir: URL(fileURLWithPath: workDir), key: tid, titleID: tid, upstream: .nxnative, preferred: nxnativeExistingApp)
             : nil
         oneGameIPAPath = ""
 
         var tempEnvURL: URL?
         if exportsOneGame {
-            oneGameIPAPath = OneGameIPA.path(folder: resolvedOutDir, titleID: tid)
+            oneGameIPAPath = OneGameIPA.path(folder: resolvedOutDir, titleID: tid, upstream: .nxnative)
             args += OneGameIPA.arguments(ipa: oneGameIPAPath)
         } else if isMac, let macOutput {
             macAppPath = ""
@@ -256,7 +264,8 @@ extension BuildStore {
                 seenRomfs.insert(path)
                 romfsCandidates.append(path)
             }
-            if let existingApp = existingMacAppPath ?? (FileManager.default.fileExists(atPath: macOutput.builderURL.path) ? macOutput.builderURL.path : nil) {
+            let prefillApp = !nxnativeExistingApp.isEmpty ? nxnativeExistingApp : (FileManager.default.fileExists(atPath: macOutput.builderURL.path) ? macOutput.builderURL.path : nil)
+            if let existingApp = prefillApp {
                 addRomfs(existingApp + "/Contents/Resources/romfs.img")
             }
             for img in RomFSArchive.reusableImages(root: resolvedOutDir, key: tid) {
@@ -287,12 +296,12 @@ extension BuildStore {
         }
 
         let repoPath = repo.path
-        let prefillMacAppPath = existingMacAppPath ?? macAppPath
+        let prefillMacAppPath = nxnativeExistingApp.isEmpty ? nil : nxnativeExistingApp
         let initialInspection = BuildSeedCache.inspect(titleID: tid, seedRoot: seedRoot, repoPath: repoPath)
         let initialPrecheck = RefreshPrecheck.evaluate(
             titleID: tid,
             hasMacBuild: isMac,
-            macAppPath: prefillMacAppPath,
+            macAppPath: nxnativeExistingApp,
             hasIOSBuild: !isMac,
             hasReadableSourceInputs: false,
             outDir: resolvedOutDir,
@@ -337,14 +346,14 @@ extension BuildStore {
                 var inspection = initialInspection
                 if needsAdopt {
                     var adoptArgs = [adoptTool, "adopt", "--seed-cache-dir", seedRoot, "--title-id", tid, "--work-dir", workDir]
-                    if let app = existingMacAppPath, FileManager.default.fileExists(atPath: app) {
-                        adoptArgs += ["--app-path", app]
+                    if !nxnativeExistingApp.isEmpty, FileManager.default.fileExists(atPath: nxnativeExistingApp) {
+                        adoptArgs += ["--app-path", nxnativeExistingApp]
                     }
                     let adoptCandidates = BuildSeedCache.prefillCandidates(
                         titleID: tid,
                         outDir: resolvedOutDir,
                         gameName: gameName,
-                        macAppPath: existingMacAppPath,
+                        macAppPath: prefillMacAppPath,
                         workDir: workDir,
                         archivePath: knownArchivePath
                     )
@@ -373,7 +382,7 @@ extension BuildStore {
                     ? RefreshPrecheck.evaluate(
                         titleID: tid,
                         hasMacBuild: isMac,
-                        macAppPath: prefillMacAppPath,
+                        macAppPath: nxnativeExistingApp,
                         hasIOSBuild: !isMac,
                         hasReadableSourceInputs: false,
                         outDir: resolvedOutDir,

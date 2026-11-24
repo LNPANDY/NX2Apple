@@ -613,8 +613,8 @@ import XCTest
         XCTAssertNotEqual(outPath, workPath)
         XCTAssertFalse(outPath.hasPrefix(workPath + "/"), "MNG -o (\(outPath)) must not live inside --work (\(workPath))")
         XCTAssertFalse(workPath.hasPrefix(outPath + "/"), "MNG --work (\(workPath)) must not live inside -o (\(outPath))")
-        XCTAssertTrue(store.macAppPath.hasSuffix("/TMNT.app"), store.macAppPath)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: outDir.appendingPathComponent("0100FE701475A000_stage").path))
+        XCTAssertTrue(store.macAppPath.hasSuffix("/TMNT [MacNativeGames].app"), store.macAppPath)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outDir.appendingPathComponent("0100FE701475A000_mng_stage").path))
     }
 
     func testApplyKnownTitleIDInvalidatesInFlightHeaderProbe() throws {

@@ -162,12 +162,20 @@ package struct MacGameBundle {
                 removeCached(bundleKey)
                 throw Invalid.notGame
             }
+            let bundleFallback: EngineUpstreamKind?
+            if bundleID == "org.nxnative.\(resolvedID.lowercased()).\(EngineUpstreamKind.kidWithSword.rawValue)" {
+                bundleFallback = .kidWithSword
+            } else if bundleID == "org.nxnative.\(resolvedID.lowercased()).\(EngineUpstreamKind.noLagKart.rawValue)" {
+                bundleFallback = .noLagKart
+            } else {
+                bundleFallback = nil
+            }
             upstream = BuiltUpstreamRegistry.lookup(
                 appPath: bundleKey,
                 titleID: resolvedID,
                 plistSize: plistSize,
                 plistModified: plistModified
-            ) ?? .nxnative
+            ) ?? bundleFallback ?? .nxnative
             upperID = resolvedID
         }
 

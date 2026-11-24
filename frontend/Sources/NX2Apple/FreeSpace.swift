@@ -92,6 +92,10 @@ enum BuildFolder {
         locations(for: game).first
     }
 
+    nonisolated static func locations(for game: LibraryGame, upstream: EngineUpstreamKind) -> [String] {
+        locations(for: game).filter { Self.upstream(forFolder: $0) == upstream }
+    }
+
     /// Parses a `<TitleID>_build` or `<TitleID>_<variant>_build` folder name into its 16-hex TitleID and engine kind.
     nonisolated static func parseFolderName(_ folderName: String) -> (titleID: String, upstream: EngineUpstreamKind)? {
         guard folderName.hasSuffix("_build") else { return nil }
@@ -125,7 +129,7 @@ enum BuildFolder {
     nonisolated static func protectedPaths(for game: LibraryGame) -> [String] {
         let out = game.outputDirectory.isEmpty
             ? game.inputs["base", default: []].first.map { ($0 as NSString).deletingLastPathComponent } ?? "" : game.outputDirectory
-        var paths = [game.appPath, game.ipaPath, game.iosAppPath, game.archivePath]
+        var paths = game.allMacAppPaths + game.allIPAPaths + [game.iosAppPath, game.archivePath]
         if !game.archivePath.isEmpty, let img = RomFSArchive.primaryImagePath(in: game.archivePath) {
             paths.append(img)
         }

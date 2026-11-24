@@ -155,7 +155,7 @@ import XCTest
         XCTAssertTrue(launch.arguments.contains("--platform"))
         XCTAssertTrue(launch.arguments.contains("ios"))
         let bidIdx = try XCTUnwrap(launch.arguments.firstIndex(of: "--bundle-id"))
-        XCTAssertEqual(launch.arguments[bidIdx + 1], "org.nxnative.0400486024dec000.MYTEAM42")
+        XCTAssertEqual(launch.arguments[bidIdx + 1], "org.nxnative.0400486024dec000.kidwithsword.MYTEAM42")
     }
 
     func testNoLagKartMacOnlyIsolatedWorkDirAndRegistryAttribution() throws {
@@ -457,8 +457,9 @@ import XCTest
         )
         XCTAssertTrue(waitUntil { !runner.launches.isEmpty && store.done && !store.running })
         XCTAssertEqual(store.activeBuildUpstream, .nxnative, "Fast refresh must reset activeBuildUpstream to .nxnative")
-        let refreshedBundle = try MacGameBundle.read(URL(fileURLWithPath: builtAppPath))
-        XCTAssertEqual(refreshedBundle.upstream, .nxnative, "Fast refresh must not keep previous No Lag Kart attribution")
+        XCTAssertNotEqual(store.macAppPath, builtAppPath, "Fast refresh must produce/refresh nxnative bundle without overwriting tuned bundle")
+        XCTAssertEqual(try MacGameBundle.read(URL(fileURLWithPath: store.macAppPath)).upstream, .nxnative)
+        XCTAssertEqual(try MacGameBundle.read(URL(fileURLWithPath: builtAppPath)).upstream, .noLagKart, "Existing tuned bundle must stay untouched")
     }
 
     func testUnifiedRecommendationAndBlockedReasonRespectMNGNUPGuard() throws {

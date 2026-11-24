@@ -363,7 +363,7 @@ import XCTest
         XCTAssertEqual(args[args.firstIndex(of: "--platform")! + 1], "mac")
         XCTAssertEqual(args[args.firstIndex(of: "--progress")! + 1], "json")
         XCTAssertEqual(args[args.firstIndex(of: "--work-dir")! + 1], temporary.path + "/Library/Caches/NX2Apple/nxkit/01007EF00011E000")
-        XCTAssertTrue(args[args.firstIndex(of: "-o")! + 1].hasSuffix("01007EF00011E000_build/01007EF00011E000.app"))
+        XCTAssertTrue(args[args.firstIndex(of: "-o")! + 1].hasSuffix("01007EF00011E000_nxkit_build/01007EF00011E000.app"))
         XCTAssertEqual(launch.environment?["NXB_NXKIT_HOST"], bundledFolder + "/nxkit-host", "the host beside the nxb that runs")
         XCTAssertEqual(store.lastBuildCommand.first, bundledFolder + "/nxb")
         XCTAssertTrue(store.log.text.contains(String(format: localizer.t("nxkit.logHeaderBundled"), "0.10.2", "e01c63121447")), "the log names the engine and version")
