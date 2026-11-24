@@ -249,4 +249,117 @@ private struct FixedCheatPicker: CheatFilePicker {
         #expect(!names.contains("Speed - off"))
         #expect(names.contains("Orphan Restore"))
     }
+
+    @Test func edizonZeroPlaceholdersBecomeHiddenLabelsAndDecodeFailuresBecomeBroken() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fw = root.appendingPathComponent("DmGame.framework", isDirectory: true)
+        let dm = fw.appendingPathComponent("dm", isDirectory: true)
+        try FileManager.default.createDirectory(at: dm, withIntermediateDirectories: true)
+        try Data("# BUILD_ID\t\(buildID)\n# MAIN_RX_END\t0x100000\n".utf8)
+            .write(to: dm.appendingPathComponent("main.fixups.tsv"))
+
+        let appFolder = root.appendingPathComponent("app", isDirectory: true)
+        let store = GameCheatsStore(titleID: titleID, appFolder: appFolder, frameworkURL: fw)
+        let rawText = """
+        [--SectionStart:ItemPoint Gain--]
+        00000000 00000000 00000000
+        [x2]
+        040F0000 00351EA0 8B080936
+        [--SectionEnd:ItemPoint Gain--]
+        00000000 00000000 00000000
+        [Truncated T0]
+        04000000 00001000
+        [Unknown FF0]
+        80000040
+        FF000000 00000001
+        [All Zero Regular]
+        00000000 00000000 00000000
+        [--SectionStart:Real Code--]
+        04000000 00180020 000003E7
+        """
+        _ = try store.saveCheatFile(data: Data(rawText.utf8), targetBuildID: buildID, gameTitle: "Orbit Fixture")
+        let snap = store.loadSnapshot(gameTitle: "Orbit Fixture")
+
+        #expect(snap.dataReadyCount == 2)
+        #expect(snap.totalActiveCount == 2)
+
+        let visible = snap.visibleEntries
+        #expect(visible.map(\.name) == ["x2", "Truncated T0", "Unknown FF0", "All Zero Regular", "--SectionStart:Real Code--"])
+        #expect(visible.map(\.isBroken) == [false, true, true, true, false])
+        #expect(visible.map(\.switchableOnIOS) == [true, false, false, false, true])
+        #expect(visible[2].triggerKeys.isEmpty)
+
+        // Broken entries cannot be persisted into <BID>.enabled.
+        let afterToggle = try store.setEntryEnabled(key: "Truncated T0", on: true, gameTitle: "Orbit Fixture")
+        #expect(afterToggle.visibleEntries.first(where: { $0.key == "Truncated T0" })?.enabled == false)
+        let summary = store.loadSummary(gameTitle: "Orbit Fixture")
+        #expect(summary.totalCount == 2)
+    }
+
+    @Test func importRejectsFileWithOnlySectionPlaceholdersAndDecodeFailures() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let gamesRoot = root.appendingPathComponent("Games", isDirectory: true)
+        let gameDir = gamesRoot.appendingPathComponent(titleID, isDirectory: true)
+        let fw = gameDir.appendingPathComponent("DmGame.framework", isDirectory: true)
+        let dm = fw.appendingPathComponent("dm", isDirectory: true)
+        try FileManager.default.createDirectory(at: dm, withIntermediateDirectories: true)
+        try Data("# BUILD_ID\t\(buildID)\n# MAIN_RX_END\t0x100000\n".utf8)
+            .write(to: dm.appendingPathComponent("main.fixups.tsv"))
+        try Data("bin".utf8).write(to: fw.appendingPathComponent("DmGame"))
+        let manifest = """
+        {
+          "schema": 1,
+          "title_id": "\(titleID)",
+          "name": "Orbit Fixture",
+          "display_version": "1.0.0",
+          "package_version": "65536",
+          "modules": ["main"],
+          "nro_count": 0,
+          "chain": "b-3f9a2c",
+          "loader": "FR",
+          "framework": "DmGame.framework",
+          "framework_executable": "DmGame",
+          "image_marker": "dmgame_image_marker",
+          "profile": "profile.tsv",
+          "shader_map": "dm/shader_map.tsv",
+          "launcher": "dm/launcher.json",
+          "romfs_marker": "fixture.marker",
+          "romfs_identity": "DMROMFSID1 fixture",
+          "min_os": "26.0"
+        }
+        """
+        try Data(manifest.utf8).write(to: gameDir.appendingPathComponent("game.manifest.json"))
+        try Data("{\"sections\":[]}".utf8).write(to: gameDir.appendingPathComponent("launcher.json"))
+
+        let appData = root.appendingPathComponent("appData", isDirectory: true)
+        let config = ShellHostConfig(
+            gamesRoot: gamesRoot,
+            appDataRoot: appData,
+            environment: HostEnvironment(chain: "b-3f9a2c"),
+            defaults: TestDefaults.keyed("cheats-bad-only-test"),
+            sideloadCertBacking: InMemoryCertBacking()
+        )
+        let badOnly = Data("""
+        [--SectionStart:Empty--]
+        00000000 00000000 00000000
+        [--SectionEnd:Empty--]
+        00000000 00000000 00000000
+        [Bad]
+        FF000000 00000001
+        """.utf8)
+        let model = ShellHostModel(
+            config: config,
+            cheatPicker: FixedCheatPicker(outcome: .picked(data: badOnly, fileName: "\(buildID).txt")),
+            shellSettings: ShellSettingsStore(defaults: TestDefaults.make("cheats-bad-only-shell"))
+        )
+        let outcome = await model.importCheatFileNow(for: titleID)
+        guard case .failed = outcome else {
+            Issue.record("Expected failed import for file with only section placeholders and malformed cheats, got \(outcome)")
+            return
+        }
+    }
 }

@@ -288,33 +288,24 @@ public struct CheatFuseGuard: Sendable {
         for dir in scanFolders {
             let names = ((try? fm.contentsOfDirectory(atPath: dir.path)) ?? []).sorted()
             for name in names where name.count >= 20 && name.lowercased().hasSuffix(".txt") && name.prefix(16).uppercased() == targetPrefix {
-                let path = dir.appendingPathComponent(name)
-                guard let text = try? String(contentsOf: path, encoding: .utf8) else { continue }
-                var inMaster = false
-                for rawLine in text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
-                    let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
-                    if trimmed.hasPrefix("{") && trimmed.contains("}") {
-                        inMaster = true
-                        continue
-                    }
-                    if trimmed.hasPrefix("[") {
-                        inMaster = false
-                        continue
-                    }
-                    if inMaster, containsEightHexWord(trimmed) {
-                        return true
-                    }
+                let fileURL = dir.appendingPathComponent(name)
+                guard GameCheatsStore.isWithinSizeLimit(fileURL),
+                      let data = try? Data(contentsOf: fileURL) else {
+                    return false
                 }
-                return false
-            }
-        }
-        return false
-    }
-
-    private func containsEightHexWord(_ line: String) -> Bool {
-        for token in line.split(whereSeparator: { $0 == " " || $0 == "\t" }) {
-            if token.count >= 8 && token.count % 8 == 0 && token.allSatisfy(\.isHexDigit) {
-                return true
+                let metaURL = fileURL.deletingPathExtension().appendingPathExtension("meta.tsv")
+                let fallbackMetaURL = folder.appendingPathComponent(targetPrefix + ".meta.tsv")
+                let meta: String? = {
+                    if GameCheatsStore.isWithinSizeLimit(metaURL), let text = try? String(contentsOf: metaURL, encoding: .utf8) {
+                        return text
+                    }
+                    if GameCheatsStore.isWithinSizeLimit(fallbackMetaURL), let text = try? String(contentsOf: fallbackMetaURL, encoding: .utf8) {
+                        return text
+                    }
+                    return nil
+                }()
+                return GameCheatsStore.parse(data, meta: meta, buildID: targetPrefix)
+                    .contains(where: { $0.isMaster && !$0.isBroken })
             }
         }
         return false

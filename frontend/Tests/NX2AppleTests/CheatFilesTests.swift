@@ -106,21 +106,21 @@ import NXModel
     }
 
     func testWordsAreEightHexDigitsAndAHeaderGluedToAWordIsSplitOff() {
-        let cheats = parse("[A]\n0400000000123456 00000001\nby someone\n[B] 04000000 00000008[C]\n04000000 00000009\n")
-        XCTAssertEqual(cheats.map(\.name), ["A", "B", "C"], "00000008[C] is a word and a header")
+        let cheats = parse("[A]\n0400000000123456 00000001\nby someone\n[B] 04000000 00000008 00000001[C]\n04000000 00000009 00000002\n")
+        XCTAssertEqual(cheats.map(\.name), ["A", "B", "C"], "00000001[C] is a word and a header")
         XCTAssertEqual(cheats.map(\.kind), [.cheat, .cheat, .cheat])
         XCTAssertEqual(cheats.map(\.broken), [false, false, false], "a glued word is whole words, prose alone on a line is ignored")
     }
 
     func testALineThatMixesWordsWithTextOrHoldsAPartialWordKeepsTheCheatOff() {
-        let cheats = parse("[A]\n04000000 0012 00000001\n[B]\n04000000 00000001 x\n[C]\njust some prose\n[D]\n04000000 00000001\n")
+        let cheats = parse("[A]\n04000000 0012 00000001\n[B]\n04000000 00000001 00000001 x\n[C]\njust some prose\n[D]\n04000000 00000001 00000001\n")
         XCTAssertEqual(cheats.map(\.broken), [true, true, true, false])
         XCTAssertEqual(cheats.map(\.kind), [.cheat, .cheat, .cheat, .cheat], "a cheat with only prose lines is a typo, not a label")
         XCTAssertEqual(cheats.map(\.switchable), [false, false, false, true])
     }
 
     func testAnUnclosedOrEmptyHeaderBelongsToNothingAndItsLinesAreIgnored() {
-        let cheats = parse("[A]\n04000000 00000001\n[Oops\n04000000 00000002\n[]\n04000000 00000003\n[B]\n04000000 00000004\n")
+        let cheats = parse("[A]\n04000000 00000001 00000001\n[Oops\n04000000 00000002 00000001\n[]\n04000000 00000003 00000001\n[B]\n04000000 00000004 00000001\n")
         XCTAssertEqual(cheats.map(\.name), ["A", "B"])
         XCTAssertEqual(cheats.map(\.broken), [false, false])
     }
@@ -143,6 +143,55 @@ import NXModel
         XCTAssertEqual(cheats.map(\.section), ["Items", "Items", "Items", ""])
         XCTAssertEqual(cheats.map(\.kind), [.label, .cheat, .label, .cheat])
         XCTAssertEqual(cheats.map(\.isSectionMarker), [true, false, true, false])
+    }
+
+    func testEdiZonSectionMarkersWithZeroPlaceholdersBecomeLabelsWhileRealCodeOnMarkerSurvives() {
+        let cheats = parse("""
+        [--SectionStart:ItemPoint Gain--]
+        00000000 00000000 00000000
+        [x2]
+        040F0000 00351EA0 8B080936
+        [--SectionEnd:ItemPoint Gain--]
+        00000000 00000000 00000000
+        [Skip inoccent town by cheat shop]
+        00000000 00000000 00000000
+        [--SectionStart:Real Code--]
+        04000000 00180020 000003E7
+        """)
+        XCTAssertEqual(cheats.map(\.kind), [.label, .cheat, .label, .cheat, .cheat])
+        XCTAssertEqual(cheats.map(\.isSectionMarker), [true, false, true, false, true])
+        XCTAssertEqual(cheats.map(\.broken), [false, false, false, true, false])
+        XCTAssertEqual(cheats.map(\.switchable), [false, true, false, false, true])
+        XCTAssertEqual(cheats.map(\.section), ["ItemPoint Gain", "ItemPoint Gain", "ItemPoint Gain", "", "Real Code"])
+        XCTAssertEqual(CheatsCapabilitySummary(cheats: cheats).totalActive, 2)
+    }
+
+    func testDecodeFailuresMarkBrokenExcludeFromSwitchesAndSummaryAndSkipBadMasterFuse() throws {
+        let cheats = parse("""
+        {Broken Master}
+        FF000000 00000001
+        [Truncated T0]
+        04000000 00001000
+        [Unknown FF0]
+        80000040
+        FF000000 00000001
+        [Invalid Width]
+        00000000 00000000 00000000
+        [Pair - on]
+        04000000 00180010 00000001
+        [Pair - off]
+        FF000000 00000001
+        """)
+        XCTAssertEqual(cheats.map(\.broken), [true, true, true, true, false, true])
+        XCTAssertEqual(cheats.map(\.switchable), [false, false, false, false, true, false])
+        XCTAssertFalse(cheats[5].pairOff, "a broken off-half must not be hidden as a valid pairOff")
+        XCTAssertNil(cheats[2].triggerCombo, "broken entry must not surface key combo pills")
+        XCTAssertEqual(CheatsCapabilitySummary(cheats: cheats).totalActive, 1)
+        XCTAssertEqual(CheatFiles.enabledText(cheats, on: Set(cheats.map(\.key))), "Pair - on\n")
+
+        let masterDir = CheatFiles(titleID: titleID, folder: temporary.appendingPathComponent("cheats-bad-master"))
+        try write("{Broken Master}\nFF000000 00000001\n", "\(build).txt", under: masterDir.folder)
+        XCTAssertNil(masterDir.armBeforeLaunch(buildID: build))
     }
 
     func testZingSectionMarkersGroupEntriesAndStayOutOfEnabled() {
@@ -626,13 +675,17 @@ import NXModel
         [Movement & Combat End]
         20000001
         [--SectionStart:Extras--]
+        00000000 00000000 00000000
         {Always unlimited stamina}
         04000000 00180010 00000001
+        {Broken Master}
+        FF000000 00000001
         [Always sunny]
         04000000 00180060 00000006
         [Broken by hand]
         04000000 00180060 0006 junk
         [--SectionEnd:Extras--]
+        00000000 00000000 00000000
         """, "CD57B23FA4BBAD65.txt", under: folder)
         try write("[Other]\n04000000 00180001 00000001\n", "FF773E90972D5440.txt", under: folder)
         try write("Infinite health\nMoon Jump\nAlways sunny\n", "CD57B23FA4BBAD65.enabled", under: folder)

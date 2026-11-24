@@ -111,6 +111,18 @@ struct CheatFuseGuardTests {
         #expect(fuse.armBeforeLaunch(buildID: buildID) == nil)
     }
 
+    @Test func brokenMasterDoesNotArmCrashGuard() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cheats = root.appendingPathComponent("cheats", isDirectory: true)
+        try write("{Broken Master}\nFF000000 00000001\n[Truncated]\n04000000 00001000\n",
+                  to: cheats.appendingPathComponent("\(buildID).txt"))
+
+        let fuse = CheatFuseGuard(titleID: titleID, folder: cheats)
+        #expect(fuse.armBeforeLaunch(buildID: buildID) == nil)
+        #expect(fuse.readArmed() == nil)
+    }
+
     @Test func sessionGenerationPreventsStaleDisarmFromTouchingNextSession() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: root) }

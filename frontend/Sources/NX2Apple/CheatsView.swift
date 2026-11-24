@@ -278,16 +278,20 @@ struct CheatsView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: DS.Space.xs) {
                         Text(cheat.name).font(DS.Font.body).lineLimit(2)
-                        if let combo = cheat.triggerCombo {
+                        if !cheat.broken, let combo = cheat.triggerCombo {
                             CheatTriggerKeyPill(combo: combo)
                         }
                     }
-                    if !cheat.broken {
+                    if cheat.broken {
+                        brokenCheatLabel
+                    } else {
                         CheatCapabilityTag(capability: cheat.capability)
                     }
                 }
                 Spacer(minLength: 8)
-                Text(loc.t("cheats.alwaysOn")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
+                if !cheat.broken {
+                    Text(loc.t("cheats.alwaysOn")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
+                }
             }
             .padding(.horizontal, 18).padding(.vertical, 6)
         case .cheat:
@@ -295,13 +299,12 @@ struct CheatsView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: DS.Space.xs) {
                         Text(cheat.name).font(DS.Font.body).lineLimit(2)
-                        if let combo = cheat.triggerCombo {
+                        if !cheat.broken, let combo = cheat.triggerCombo {
                             CheatTriggerKeyPill(combo: combo)
                         }
                     }
                     if cheat.broken {
-                        Label(loc.t("cheats.broken"), systemImage: "exclamationmark.triangle.fill").font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
-                            .labelStyle(CheatWarningLabel())
+                        brokenCheatLabel
                     } else if cheat.once {
                         Text(loc.t("cheats.once")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                     } else {
@@ -317,6 +320,13 @@ struct CheatsView: View {
             }
             .padding(.horizontal, 18).padding(.vertical, 5)
         }
+    }
+
+    private var brokenCheatLabel: some View {
+        Label(loc.t("cheats.broken"), systemImage: "exclamationmark.triangle.fill")
+            .font(DS.Font.callout)
+            .foregroundStyle(DS.Color.textSecondary)
+            .labelStyle(CheatWarningLabel())
     }
 
     /// Import, the folder, and the copy to the device.

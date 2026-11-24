@@ -258,18 +258,31 @@ package enum CheatStaticAnalyzer {
         package var keyMask: UInt64
         package var hasCodeWrite: Bool
         package var hasFixedHeapOffset: Bool
+        package var isBroken: Bool
 
         package init(
             capability: CheatCapability = .dataReady,
             keyMask: UInt64 = 0,
             hasCodeWrite: Bool = false,
-            hasFixedHeapOffset: Bool = false
+            hasFixedHeapOffset: Bool = false,
+            isBroken: Bool = false
         ) {
             self.capability = capability
             self.keyMask = keyMask
             self.hasCodeWrite = hasCodeWrite
             self.hasFixedHeapOffset = hasFixedHeapOffset
+            self.isBroken = isBroken
         }
+    }
+
+    /// Returns `true` when every instruction word sequence decodes cleanly without truncation or unsupported opcodes.
+    package static func hasValidOpcodes(_ words: [UInt32]) -> Bool {
+        var pc = 0
+        while pc < words.count {
+            guard let decoded = decodeOpcode(words: words, index: pc) else { return false }
+            pc += decoded.length
+        }
+        return true
     }
 
     /// Recognizes Zing single-word section markers: `20000000` (start) and `20000001` (end).
@@ -305,7 +318,11 @@ package enum CheatStaticAnalyzer {
             let wantMaster = (pass == 0)
             for idx in entries.indices {
                 let entry = entries[idx]
-                guard !entry.isLabel, !entry.isBroken, entry.isMaster == wantMaster else { continue }
+                if entry.isBroken {
+                    results[idx].isBroken = true
+                    continue
+                }
+                guard !entry.isLabel, entry.isMaster == wantMaster else { continue }
                 var dirty = wantMaster ? Set<Int>() : masterDirty
                 var keyMask: UInt64 = 0
                 var hasCodeWrite = false
@@ -360,7 +377,11 @@ package enum CheatStaticAnalyzer {
                     pc += decoded.length
                 }
 
-                if wantMaster && !failedDecode {
+                if failedDecode {
+                    results[idx] = Analysis(isBroken: true)
+                    continue
+                }
+                if wantMaster {
                     masterDirty.formUnion(dirty)
                 }
 
