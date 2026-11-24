@@ -22,6 +22,7 @@ enum GallerySheet: String, CaseIterable {
     case skippedItems, appUpdate, playerName, playerRename, buildSteps, sendSelectedDevice, shellCopy
     case cheats, invalidXcode
     case activityLog, activityLogEmpty
+    case seedCompressionPrompt, seedCompressionProgress, seedCompressionDone, seedCompressionDonePartial, seedCompressionDoneStopped
 
     var title: String {
         switch self {
@@ -75,6 +76,11 @@ enum GallerySheet: String, CaseIterable {
         case .invalidXcode: return "Chosen app is not Xcode"
         case .activityLog: return "Activity Log: a game open"
         case .activityLogEmpty: return "Activity Log: no play history"
+        case .seedCompressionPrompt: return "Seed compression: prompt"
+        case .seedCompressionProgress: return "Seed compression: progress"
+        case .seedCompressionDone: return "Seed compression: completed"
+        case .seedCompressionDonePartial: return "Seed compression: partial"
+        case .seedCompressionDoneStopped: return "Seed compression: stopped"
         }
     }
 
@@ -290,6 +296,8 @@ extension GalleryFixtures {
             return AnyView(DSSheet(title: t("xcodeChoice.invalid")) { EmptyView() } buttons: { DSSheetPrimaryButton(t("library.ok")) {} })
         case .confirmTestedValues:
             return confirm(t("launch.useTested"), subtitle: name, note: String(format: t("launch.useTestedMany"), 3), t("launch.useTested"), destructive: false)
+        case .seedCompressionPrompt, .seedCompressionProgress, .seedCompressionDone, .seedCompressionDonePartial, .seedCompressionDoneStopped:
+            return AnyView(seedCompressionGallerySheet(sheet, stores: stores, library: library))
         }
     }
 }
@@ -322,5 +330,110 @@ extension GalleryFixtures {
         return ActivityLogSheet(store: store, owned: { id in library.games.first { $0.titleID.uppercased() == id } },
                                 cover: { GameLibrary.artwork(for: $0, slot: .thumbnail, repo: "", banners: folder, maxPixel: ArtworkImages.cardPixels) },
                                 showInLibrary: { _ in }, now: now, initialExpandedID: games.first?.titleID.uppercased())
+    }
+
+    fileprivate func seedCompressionGallerySheet(_ sheet: GallerySheet, stores: LauncherStores, library: GameLibrary) -> some View {
+        let sampleGames = Array(library.games.prefix(6))
+        let scanGames: [SeedScanGame] = sampleGames.enumerated().map { idx, g in
+            let before = Int64((6 - idx) * 240_000_000)
+            return SeedScanGame(
+                titleID: g.titleID,
+                appName: g.name,
+                files: ["b-108c5f92c3c4.img"],
+                uncompressedBytes: before,
+                estimatedCompressedBytes: Int64(Double(before) * 0.08)
+            )
+        }
+        let totalBefore = scanGames.reduce(Int64(0)) { $0 + $1.uncompressedBytes }
+        let totalEstAfter = scanGames.reduce(Int64(0)) { $0 + $1.estimatedCompressedBytes }
+        switch sheet {
+        case .seedCompressionPrompt:
+            let scan = SeedScanResult(
+                seedRoot: "/Users/Shared/nxnative/build-seeds",
+                zstdAvailable: true,
+                totalGames: scanGames.count,
+                totalFiles: scanGames.count,
+                uncompressedBytes: totalBefore,
+                estimatedCompressedBytes: totalEstAfter,
+                estimatedSavedBytes: max(0, totalBefore - totalEstAfter),
+                games: scanGames
+            )
+            stores.seedCompression.setGalleryState(phase: .prompt(scan))
+        case .seedCompressionProgress:
+            let items: [SeedCompressionStore.ItemProgress] = scanGames.enumerated().map { idx, g in
+                let after = Int64(Double(g.uncompressedBytes) * 0.08)
+                switch idx {
+                case 0:
+                    return .init(titleID: g.titleID, appName: g.appName, beforeBytes: g.uncompressedBytes,
+                                 afterBytes: after, savedBytes: g.uncompressedBytes - after, filesCompressed: 1, status: .done)
+                case 1:
+                    return .init(titleID: g.titleID, appName: g.appName, beforeBytes: g.uncompressedBytes, status: .compressing)
+                case 2:
+                    return .init(titleID: g.titleID, appName: g.appName, beforeBytes: g.uncompressedBytes, status: .failed, error: "Insufficient disk space")
+                default:
+                    return .init(titleID: g.titleID, appName: g.appName, beforeBytes: g.uncompressedBytes, status: .waiting)
+                }
+            }
+            let done0 = items[0]
+            let running = SeedCompressionStore.RunningState(
+                totalGames: items.count,
+                totalBytes: totalBefore,
+                processedBytes: done0.beforeBytes + items[2].beforeBytes,
+                freedBytes: done0.savedBytes,
+                currentIndex: 2,
+                currentTitleID: items[1].titleID,
+                currentName: items[1].appName,
+                items: items,
+                stopping: false
+            )
+            stores.seedCompression.setGalleryState(phase: .running(running))
+        case .seedCompressionDone, .seedCompressionDonePartial, .seedCompressionDoneStopped:
+            let status: SeedCompressSummary.Status = sheet == .seedCompressionDone ? .completed
+                : (sheet == .seedCompressionDonePartial ? .partial : .stopped)
+            let count = sheet == .seedCompressionDoneStopped ? 2 : 4
+            let results: [SeedCompressItemResult] = scanGames.prefix(count).enumerated().map { idx, g in
+                if sheet == .seedCompressionDonePartial && idx == 2 {
+                    return SeedCompressItemResult(
+                        titleID: g.titleID,
+                        status: "error",
+                        beforeBytes: g.uncompressedBytes,
+                        afterBytes: g.uncompressedBytes,
+                        savedBytes: 0,
+                        filesCompressed: 0,
+                        error: "Verification mismatch"
+                    )
+                }
+                let after = Int64(Double(g.uncompressedBytes) * 0.08)
+                return SeedCompressItemResult(
+                    titleID: g.titleID,
+                    status: "completed",
+                    beforeBytes: g.uncompressedBytes,
+                    afterBytes: after,
+                    savedBytes: g.uncompressedBytes - after,
+                    filesCompressed: 1
+                )
+            }
+            let sumBefore = results.reduce(Int64(0)) { $0 + $1.beforeBytes }
+            let sumAfter = results.reduce(Int64(0)) { $0 + $1.afterBytes }
+            let completedCount = results.filter { $0.status == "completed" }.count
+            let failedCount = results.filter { $0.status == "error" }.count
+            let summary = SeedCompressSummary(
+                status: status,
+                completedGames: completedCount,
+                failedGames: failedCount,
+                beforeBytes: sumBefore,
+                afterBytes: sumAfter,
+                savedBytes: max(0, sumBefore - sumAfter),
+                elapsedSec: 12.4,
+                results: results
+            )
+            stores.seedCompression.setGalleryState(phase: .done(summary))
+        default:
+            break
+        }
+        let activeLang = self.lang
+        return SeedCompressionSheet(store: stores.seedCompression) { tid in
+            library.games.first { $0.titleID.uppercased() == tid }?.displayName(activeLang)
+        }
     }
 }

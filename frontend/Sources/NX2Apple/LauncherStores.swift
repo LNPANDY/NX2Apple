@@ -22,6 +22,7 @@ import NXModel
     let deviceStore: DeviceStore
     let appUpdates: AppUpdateStore
     let build: BuildStore
+    let seedCompression: SeedCompressionStore
     /// The one build queue (#943), kept in Application Support so it survives a restart. A test suite of defaults keeps it in memory.
     let queue: BuildQueueStore
     /// The transfer queue (#1036): game data on its way to devices, beside any build.
@@ -129,6 +130,21 @@ import NXModel
             cancelRunning: { build.cancelTransfer($0) })
         self.transfers = transfers
         build.transfers = transfers
+        self.seedCompression = SeedCompressionStore(
+            runner: runner,
+            repo: repo,
+            python: dependencies,
+            defaults: defaults,
+            seedRoot: { build.seedCacheRoot },
+            seedEnvironment: { build.seedEnvironment },
+            dotnetPath: { dependencies.dotnetPath },
+            buildRunning: { build.running },
+            canAutoPrompt: {
+                !build.running && !queue.active && !transfers.entries.contains(where: \.active)
+                    && devices.shellCopy == nil && !devices.shellWaiting
+                    && !updates.showUpdateSheet && updates.uninstallPlan == nil
+            }
+        )
         // A device that comes back continues the transfers that waited for it. The list is read again every few seconds while one waits.
         transferWatch = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
             .sink { [weak transfers, weak devices] _ in

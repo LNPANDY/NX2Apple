@@ -275,7 +275,7 @@ struct LauncherView: View {
                               if let game = library.games.first(where: { $0.titleID == titleID }), game.isReady, !launching { primaryAction(game) }
                           }, queuePlayEnabled: !launching, editingBuildResult: $editingBuildResult, onOpenSettings: { settingsCategory = .tools; page = .settings },
                           onChooseLibraryFolder: chooseLibraryFolder, onOpenControls: { controlsOpen = true }, onOpenControllers: { controllerSheet = true }, onRunSetup: onRunSetup, controlChanges: controls.changeCount,
-                          padMerge: Binding(get: { controls.padMerge }, set: { setPadMerge($0) }), buildFiles: stores.buildFiles, buildingID: m.running ? activeBuildID : nil, onBuildFileDetails: { freeSpaceFor = $0 }, settingsCategory: $settingsCategory)
+                          padMerge: Binding(get: { controls.padMerge }, set: { setPadMerge($0) }), buildFiles: stores.buildFiles, buildingID: m.running ? activeBuildID : nil, onBuildFileDetails: { freeSpaceFor = $0 }, seedCompression: stores.seedCompression, settingsCategory: $settingsCategory)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
@@ -356,7 +356,7 @@ struct LauncherView: View {
                 updates.checkForUpdate(silent: true)
                 m.checkNxkitUpdate(manual: false)   // nxkit (Beta) updates itself from signed releases, with "Update automatically" on (#1460)
                 _ = m.checkUpstreamUpdates()
-                BuildNotifier.shared.watch(m, library: library)   // BuildNotifications.swift
+                BuildNotifier.shared.watch(m, library: library); runSeedCompressionStartupCheck()   // BuildNotifications.swift
             }
         }
         .onReceive(BuildNotifier.shared.$route) { route in   // a clicked build notification
@@ -393,7 +393,7 @@ struct LauncherView: View {
         .onChange(of: repo.path) { _ in m.refreshUpstreamLocalVersion(for: .nxnative); refreshArtwork(); if performStartupChecks { checkTools(); library.fillMissingTitleNames() } }
         // A clone, pull or update check has finished (the automatic pull at launch among them): the checkout may have moved
         .onReceive(repo.$busy.removeDuplicates().dropFirst()) { busy in if !busy && performStartupChecks { checkTools() } }
-        .onReceive(engine.$syncing.removeDuplicates().dropFirst()) { syncing in if !syncing && performStartupChecks { checkTools() } }   // a sync made or moved the engine (its HEAD is what ToolsAge compares)
+        .onReceive(engine.$syncing.removeDuplicates().dropFirst()) { syncing in if !syncing && performStartupChecks { checkTools(); runSeedCompressionStartupCheck() } }   // a sync made or moved the engine (its HEAD is what ToolsAge compares)
         .onReceive(m.$running) { running in if running { editingBuildResult = false; completedFooterDismissed = false } }
         .onChange(of: library.selectedID) { _ in resignNote = nil }   // the last re-sign's note belongs to its game
         .onChange(of: heroGame?.id) { _ in profileHelpOpen = false; refreshHeroArtwork() }
@@ -469,7 +469,7 @@ struct LauncherView: View {
         }
         .onChange(of: supportedGames == nil) { closed in padFocus.scope = closed ? currentPadScope : "supported" }
         .activityLogSheet(isPresented: $activityLogOpen, store: playSessions, library: library, artwork: artwork, loc: loc, pad: padFocus, scope: { currentPadScope }, showInLibrary: showInLibrary)
-        .renameGameSheet($renaming, library: library, pad: padFocus, scope: { currentPadScope })
+        .renameGameSheet($renaming, library: library, pad: padFocus, scope: { currentPadScope }).seedCompressionSheet(stores.seedCompression, library: library, loc: loc, pad: padFocus, scope: { currentPadScope })
         .sheet(isPresented: $updates.showUpdateSheet) { UpdateSheet(updates: updates, build: m).environmentObject(padFocus) }
         .onChange(of: updates.showUpdateSheet) { _ in padFocus.scope = currentPadScope }
         .sheet(isPresented: Binding(get: { updates.uninstallPlan != nil }, set: { if !$0 { updates.uninstallPlan = nil } })) {
@@ -692,7 +692,7 @@ struct LauncherView: View {
             }
             return
         }
-        let sheetOpen = padFocus.scope != "main" || devices.shellCopy != nil || devices.shellWaiting || selectingGames || batchRefreshOpen || missingImgGuideFor != nil || controllerSheet || supportedGames != nil || activityLogOpen || skippedItemsOpen || optionsFor != nil || controlsOpen || savesFor != nil || cheatsFor != nil || freeSpaceFor != nil || stores.buildFiles.confirming != nil || deleting != nil || removing != nil || renaming != nil || artworkEditor != nil || cloudGate.isActive
+        let sheetOpen = padFocus.scope != "main" || stores.seedCompression.phase != nil || devices.shellCopy != nil || devices.shellWaiting || selectingGames || batchRefreshOpen || missingImgGuideFor != nil || controllerSheet || supportedGames != nil || activityLogOpen || skippedItemsOpen || optionsFor != nil || controlsOpen || savesFor != nil || cheatsFor != nil || freeSpaceFor != nil || stores.buildFiles.confirming != nil || deleting != nil || removing != nil || renaming != nil || artworkEditor != nil || cloudGate.isActive
         switch ManagePad.route(action, menuOpen: manageOpenFor != nil, sheetOpen: sheetOpen, hasGame: library.selected != nil && page == .library) {
         case .close: manageOpenFor = nil; return
         case .swallow: return
@@ -716,10 +716,8 @@ struct LauncherView: View {
         if deleting != nil && [.b, .x, .l, .r].contains(action) { if action == .b { deleting = nil }; return }
         if supportedGames != nil && [.b, .x, .l, .r].contains(action) { if action == .b { supportedGames = nil }; return }
         if activityLogOpen && [.b, .x, .l, .r].contains(action) { if action == .b { activityLogOpen = false }; return }
-        if skippedItemsOpen && [.b, .x, .l, .r].contains(action) {
-            if action == .b { skippedItemsOpen = false }
-            return
-        }
+        if stores.seedCompression.phase != nil && [.b, .x, .l, .r].contains(action) { if action == .b { handleSeedCompressionPadBack() }; return }
+        if skippedItemsOpen && [.b, .x, .l, .r].contains(action) { if action == .b { skippedItemsOpen = false }; return }
         if renaming != nil && [.b, .x, .l, .r].contains(action) { if action == .b { renaming = nil }; return }
         if action == .b {
             if devices.shellCopy != nil { devices.answerCopy(.skip) } else if devices.shellWaiting { devices.cancelWait() } else if batchRefreshOpen { batchRefreshOpen = false } else if missingImgGuideFor != nil { missingImgGuideFor = nil } else if optionsFor != nil { optionsFor = nil } else if controlsOpen { controlsCancelRequest += 1 }
@@ -783,7 +781,7 @@ struct LauncherView: View {
 
     /// The scope a controller acts in when no menu is open: the innermost sheet, else the window.
     private var currentPadScope: String {
-        dropdowns.custom != nil ? "engineDropdown" : (devices.shellCopy != nil || devices.shellWaiting) ? "shellCopy" : updates.showUpdateSheet ? "update" : updates.uninstallPlan != nil ? "uninstall" : cloudGate.isActive ? "cloudsave" : selectingGames ? "batch" : controllerSheet ? "console.controllers" : controllerMappingOpen ? "controls" : batchRefreshOpen ? "batchRefresh" : missingImgGuideFor != nil ? "imgGuide" : artworkEditor != nil ? "artwork" : savesFor != nil ? "saves" : cheatsFor != nil ? "cheats" : freeSpaceFor != nil ? "free" : stores.buildFiles.confirming != nil ? "buildfiles" : deleting != nil ? "delete" : removing != nil ? "remove" : skippedItemsOpen ? "skipped" : activityLogOpen ? "activity" : supportedGames != nil ? "supported" : renaming != nil ? "rename" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
+        dropdowns.custom != nil ? "engineDropdown" : stores.seedCompression.phase != nil ? "seedCompress" : (devices.shellCopy != nil || devices.shellWaiting) ? "shellCopy" : updates.showUpdateSheet ? "update" : updates.uninstallPlan != nil ? "uninstall" : cloudGate.isActive ? "cloudsave" : selectingGames ? "batch" : controllerSheet ? "console.controllers" : controllerMappingOpen ? "controls" : batchRefreshOpen ? "batchRefresh" : missingImgGuideFor != nil ? "imgGuide" : artworkEditor != nil ? "artwork" : savesFor != nil ? "saves" : cheatsFor != nil ? "cheats" : freeSpaceFor != nil ? "free" : stores.buildFiles.confirming != nil ? "buildfiles" : deleting != nil ? "delete" : removing != nil ? "remove" : skippedItemsOpen ? "skipped" : activityLogOpen ? "activity" : supportedGames != nil ? "supported" : renaming != nil ? "rename" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
     }
 
     /// The space the collection row keeps around its cards for the focus ring (PadFocus draws it 4 pt outside a target).

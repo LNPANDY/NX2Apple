@@ -229,6 +229,17 @@ import NXLauncher
             root = AnyView(launcher(.settings, category: .controls))
         case .settingsTools:
             Self.releaseEngine(stores)
+            let sampleScan = SeedScanResult(
+                seedRoot: "/Users/Shared/nxnative/build-seeds",
+                zstdAvailable: true,
+                totalGames: 2,
+                totalFiles: 2,
+                uncompressedBytes: 1_280_000_000,
+                estimatedCompressedBytes: 102_400_000,
+                estimatedSavedBytes: 1_177_600_000,
+                games: []
+            )
+            stores.seedCompression.setGalleryState(phase: nil, scanState: .ready(hasAnySeeds: true, scan: sampleScan))
             root = AnyView(launcher(.settings, category: .tools))
         case .settingsEngineError:
             Self.releaseEngine(stores)

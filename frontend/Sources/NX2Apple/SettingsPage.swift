@@ -26,6 +26,7 @@ struct SettingsPage: View {
     var buildFiles: BuildFilesStore? = nil   // Tools: BuildFilesCard (#232)
     var buildingID: UUID? = nil   // the game a build runs for: its build files cannot be removed
     var onBuildFileDetails: (UUID) -> Void = { _ in }   // Details…: the game's Free space sheet, part by part
+    var seedCompression: SeedCompressionStore? = nil
     @Binding var category: SettingsCategory
     @AppStorage(ConsolePrompt.defaultsKey) private var consolePromptOn = true   // ConsoleCoordinator.swift
     @AppStorage(ConsolePrompt.startKey) private var startInConsole = false   // ConsoleCoordinator.swift (#336)
@@ -99,7 +100,14 @@ struct SettingsPage: View {
     @ViewBuilder private var tools: some View {
         KeysCard(build: build)
         ToolsCard(repo: repo, engine: engine, dependencies: dependencies, buildRunning: build.running,
-                  shellCache: { ShellCacheRow(build: build); BuildCacheRows(build: build) }, builder: {
+                  shellCache: {
+                      ShellCacheRow(build: build)
+                      BuildCacheRows(build: build)
+                      if let seedCompression {
+                          CardDivider()
+                          SeedCompressionSettingsRow(store: seedCompression, buildRunning: build.running)
+                      }
+                  }, builder: {
             // rows of the build tools group, under its last row. Each brings the divider above it.
             UpstreamBuilderRow(build: build)
         }, upstream: UpstreamBuilderRow.offersPicker(build, loc) ? { UpstreamPicker(build: build) } : nil,

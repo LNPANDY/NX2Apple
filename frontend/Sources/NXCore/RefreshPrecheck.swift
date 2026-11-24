@@ -536,7 +536,14 @@ package enum RefreshPrecheck {
         let checkDir: (String) -> Bool = { folder in
             guard let entries = try? fm.contentsOfDirectory(atPath: folder) else { return false }
             for entry in entries where entry.hasPrefix("b-") {
-                let stem = entry.hasSuffix(".img") ? String(entry.dropLast(4)) : entry
+                let stem: String
+                if entry.hasSuffix(".img.zst") {
+                    stem = String(entry.dropLast(8))
+                } else if entry.hasSuffix(".img") {
+                    stem = String(entry.dropLast(4))
+                } else {
+                    stem = entry
+                }
                 guard stem != targetName, stem.count == 14 else { continue }
                 let lib = readSingleShaderLib(basePath: folder + "/" + stem, fm: fm)
                 if lib.hasLibrary { return true }

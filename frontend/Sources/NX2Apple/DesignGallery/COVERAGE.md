@@ -4,9 +4,9 @@ Written by `GalleryCoverageTests` from `GalleryCoverage.swift`: every View type 
 popover and alert, every notice and every case of the state enums the views switch on, with the gallery's scenes
 (`GalleryScene.id`) that show it, or the reason none can. After a change:
 `NX_WRITE_COVERAGE=1 swift test --package-path frontend --filter GalleryCoverageTests`. The gallery has
-333 scenes.
+338 scenes.
 
-## Views: 231 of 241 in a scene
+## Views: 233 of 243 in a scene
 
 | View | Scenes |
 |---|---|
@@ -229,6 +229,8 @@ popover and alert, every notice and every case of the state enums the views swit
 | `RootView` | Reason: The app's roots: they choose the onboarding, the launcher or the console demo, whose scenes show what they draw. |
 | `SaveImportSheet` | `saveImport` |
 | `SavesView` | `saves`, `desktop-savesReady` |
+| `SeedCompressionSettingsRow` | `settingsTools` |
+| `SeedCompressionSheet` | `seedCompressionPrompt`, `seedCompressionProgress`, `seedCompressionDone` |
 | `SendSelectedSheet` | `sendSelectedDevice`, `desktop-sendSelectedDrive` |
 | `SettingsPage` | `settings`, `settingsTools` |
 | `SettingsUpdateAction` | `desktop-appAvailable` |
@@ -272,6 +274,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `LaunchOptionsView.swift .sheet GameControllerMappingView` | `desktop-controllerMapping` |
 | `LauncherDropdown.swift .popover LauncherDropdownList` | Reason: A popover or an alert: AppKit draws it in its own window, which a capture of the scene cannot hold. The scene shows what opens it. |
 | `LauncherInfoHelp.swift .popover VStack` | Reason: A popover or an alert: AppKit draws it in its own window, which a capture of the scene cannot hold. The scene shows what opens it. |
+| `LauncherView+SeedCompression.swift .sheet SeedCompressionSheet` | `seedCompressionPrompt` |
 | `LauncherView.swift .sheet ConsoleControllersSheet` | `controllersSheet` |
 | `LauncherView.swift .alert Text` | Reason: A popover or an alert: AppKit draws it in its own window, which a capture of the scene cannot hold. The scene shows what opens it. |
 | `LauncherView.swift .sheet LauncherConfirmSheet` | `removeGame` |
@@ -310,7 +313,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `hero.switch2` | `librarySwitch2` |
 | `library.skippedBanner` | `libraryNoticeWarning` |
 
-## States: 268 of 268 in a scene
+## States: 278 of 278 in a scene
 
 | State | Scenes |
 |---|---|
@@ -423,6 +426,16 @@ popover and alert, every notice and every case of the state enums the views swit
 | `AppUpdateStore.Phase.preparing` | `desktop-appPreparing` |
 | `EngineChannel.stable` | `settingsTools` |
 | `EngineChannel.experimental` | `desktop-engineExperimental` |
+| `SeedCompressionStore.Phase.prompt` | `seedCompressionPrompt` |
+| `SeedCompressionStore.Phase.running` | `seedCompressionProgress` |
+| `SeedCompressionStore.Phase.done` | `seedCompressionDone` |
+| `SeedCompressionStore.ItemStatus.waiting` | `seedCompressionProgress` |
+| `SeedCompressionStore.ItemStatus.compressing` | `seedCompressionProgress` |
+| `SeedCompressionStore.ItemStatus.done` | `seedCompressionProgress` |
+| `SeedCompressionStore.ItemStatus.failed` | `seedCompressionProgress` |
+| `SeedCompressSummary.Status.completed` | `seedCompressionDone` |
+| `SeedCompressSummary.Status.partial` | `seedCompressionDonePartial` |
+| `SeedCompressSummary.Status.stopped` | `seedCompressionDoneStopped` |
 | `NxkitUpdateState.idle` | `desktop-nxkitIdle` |
 | `NxkitUpdateState.checking` | `desktop-nxkitChecking` |
 | `NxkitUpdateState.upToDate` | `nxkitEngine` |
