@@ -291,6 +291,9 @@ enum ConsoleInput: Equatable {
         case let .cloudSave(question):   // ConsoleCloudSaveView.swift (#957)
             ConsoleCloudSaveView(question: question, lang: lang, compact: compact, choose: { driver.chooseCloudSave($0) },
                                  retry: { driver.retryCloudSave() }, cancel: { driver.back() })
+        case let .mngMigration(question):
+            ConsoleMngMigrationView(question: question, lang: lang, compact: compact,
+                                    choose: { driver.chooseMngMigration($0) }, cancel: { driver.back() })
         case .menu: menu(compact: compact)
         case .library: library(compact: compact)
         case .settings: settings(compact: compact)
@@ -587,6 +590,7 @@ enum ConsoleInput: Equatable {
         case .explanation: return "console.explanationTitle"
         case .homeButtonHint: return "console.homeHint.title"
         case let .cloudSave(question): return question.outcome == .unreadable ? "cloudCheck.unreadable.title" : "cloudCheck.differ.title"
+        case .mngMigration: return "mng.migration.title"
         case .menu: return "console.menu"
         case .mapping: return state.mappingGameID == nil ? "console.mapping" : "console.mapping.game"
         case .gamePad: return "console.gamePad"
@@ -629,6 +633,7 @@ enum ConsoleInput: Equatable {
         case .explanation: pad.focused = "console.explanation.desktop"
         case .homeButtonHint: pad.focused = "console.homeHint.open"
         case let .cloudSave(question): pad.focused = ConsoleCloudSaveView.firstFocus(question)
+        case .mngMigration: pad.focused = ConsoleMngMigrationView.firstFocus
         case .menu: pad.focused = "console.menu.allGames"
         case .cloudSaves: pad.focused = ConsoleCloudSaves.sorted(state.saveRows).first.map { "console.saves.row." + $0.id } ?? "console.saves.close"   // the first row as the page sorts them
         case .library: pad.focused = ConsolePref.onLibrary.first.map { "console.pref." + $0.rawValue } ?? "console.library.saves"

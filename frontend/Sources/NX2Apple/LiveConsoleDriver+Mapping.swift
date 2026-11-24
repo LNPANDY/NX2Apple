@@ -8,6 +8,7 @@ import NXCore
 extension LiveConsoleDriver {
     func back() {
         if cancelPendingLaunch() { return }
+        if mngMigration.isActive { mngMigration.cancel(); return }
         if cloudGate.isActive { cloudGate.cancel(); return }
         let wasGame = state.mappingGameID != nil
         state.back()

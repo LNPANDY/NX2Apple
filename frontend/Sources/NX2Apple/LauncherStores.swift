@@ -157,6 +157,9 @@ import NXModel
                 }
             }
         self.saveSettings = SaveSettingsStore(defaults: defaults)
+        build.saveLocationSettings = { [weak saveSettings] tid in
+            (saveSettings?.global ?? SaveGlobalSettings(), saveSettings?.game(tid) ?? SaveGameOverride())
+        }
         self.sticks = StickDeadzoneStore(defaults: defaults)
         self.players = PlayerProfileStore(defaults: defaults, defaultName: { localizer.t("players.default") })
         self.playSessions = PlaySessionStore(file: defaults === UserDefaults.standard ? PlaySessionStore.defaultFile : nil)

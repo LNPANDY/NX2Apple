@@ -652,8 +652,10 @@ extension BuildStore {
                     return placed
                 }.value
                 guard archiveGeneration == generation, !stopping else { return }
-                macAppPath = app.path
                 let builtTid = (gameTitleID?.isEmpty == false ? gameTitleID! : buildKey)
+                await injectMngSharedSaveConfigIfNeeded(app: app, titleID: builtTid)
+                guard archiveGeneration == generation, !stopping else { return }
+                macAppPath = app.path
                 BuiltUpstreamRegistry.record(appPath: app.path, titleID: builtTid, upstream: activeBuildUpstream, home: home)
                 say("✓ " + shortPath(app.path))
                 await preflight(app)

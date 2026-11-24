@@ -42,8 +42,8 @@ struct CloudSavesCard: View {
     }
 
     private var store: GameCloudSaves { saves ?? GameCloudSaves(titleID: game.titleID, appPath: game.appPath) }
-    private var engineManaged: Bool { preview != nil || previewSync != nil || SaveEngines.forApp(game.appPath).managesSavesInLauncher }
-    private var isMacNativeGames: Bool { SaveEngines.forApp(game.appPath) is MacNativeGamesSaveEngine }
+    private var engineManaged: Bool { preview != nil || previewSync != nil || SaveEngines.forApp(game.appPath, titleID: game.titleID).managesSavesInLauncher }
+    private var isMacNativeGames: Bool { SaveEngines.forApp(game.appPath, titleID: game.titleID) is MacNativeGamesSaveEngine }
     static let attention = DS.Color.statusWarning
 
     var body: some View {
@@ -187,8 +187,8 @@ struct CloudSavesCard: View {
 
     private func syncPlan(setting: CloudSaveSync.Setting) -> CloudSaveNow.SyncPlan? {
         guard setting.isOn, let folder = setting.folder, !game.appPath.isEmpty else { return nil }
-        let engine = SaveEngines.forApp(game.appPath)
-        let mac = SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath)
+        let engine = SaveEngines.forApp(game.appPath, titleID: game.titleID)
+        let mac = SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath, engine: engine)
         let effective = SaveLocations.effectiveSave(
             titleID: game.titleID,
             appPath: game.appPath,
@@ -380,11 +380,13 @@ struct CloudSavesCard: View {
         guard preview == nil, !game.appPath.isEmpty else { return nil }
         let save: URL
         if let overrides {
+            let engine = SaveEngines.forApp(game.appPath, titleID: game.titleID)
             save = SaveLocations.effectiveSave(
                 titleID: game.titleID,
                 appPath: game.appPath,
                 global: overrides.global,
-                game: overrides.game(game.titleID)
+                game: overrides.game(game.titleID),
+                engine: engine
             ).path
         } else {
             save = SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath).save

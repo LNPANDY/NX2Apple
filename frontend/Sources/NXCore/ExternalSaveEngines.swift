@@ -16,6 +16,11 @@ package struct MacNativeGamesSaveEngine: SaveEngine {
     package struct SaveTarget: Equatable, Sendable {
         package var displaySaveURL: URL
         package var revealURL: URL
+
+        package init(displaySaveURL: URL, revealURL: URL) {
+            self.displaySaveURL = displaySaveURL
+            self.revealURL = revealURL
+        }
     }
 
     /// Data directories for legacy `dm`-wrapped MNG ports that force-override `DM_SAVE` inside `app/launcher.c`.

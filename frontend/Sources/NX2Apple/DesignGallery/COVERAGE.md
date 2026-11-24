@@ -4,9 +4,9 @@ Written by `GalleryCoverageTests` from `GalleryCoverage.swift`: every View type 
 popover and alert, every notice and every case of the state enums the views switch on, with the gallery's scenes
 (`GalleryScene.id`) that show it, or the reason none can. After a change:
 `NX_WRITE_COVERAGE=1 swift test --package-path frontend --filter GalleryCoverageTests`. The gallery has
-340 scenes.
+342 scenes.
 
-## Views: 232 of 242 in a scene
+## Views: 234 of 244 in a scene
 
 | View | Scenes |
 |---|---|
@@ -94,6 +94,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `ConsoleListRow` | `consoleBuilds` |
 | `ConsoleManagePanel` | `console-manage` |
 | `ConsoleMenuRow` | `console-menu` |
+| `ConsoleMngMigrationView` | `console-mngMigration` |
 | `ConsoleNoticeCard` | `consoleBuildsEmpty`, `consoleGameOverviewEmpty` |
 | `ConsoleOptionRow` | `consoleOptions` |
 | `ConsolePadDiagram` | `console-mappingCustom` |
@@ -201,6 +202,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `ManageMenuPanel` | `desktop-manageMenu`, `desktop-manageMenuPad` |
 | `MissingImgGuideSheet` | `imgGuide` |
 | `MissingToolRow` | `desktop-missingTool` |
+| `MngSaveMigrationSheet` | `mngSaveMigration` |
 | `NxkitFeedbackRow` | `nxkitFinished`, `nxkitLibrary` |
 | `NxkitGenericBuildRow` | `nxkitGeneric` |
 | `OnboardingCheck` | `onboarding-done` |
@@ -312,7 +314,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `hero.switch2` | `librarySwitch2` |
 | `library.skippedBanner` | `libraryNoticeWarning` |
 
-## States: 284 of 284 in a scene
+## States: 285 of 285 in a scene
 
 | State | Scenes |
 |---|---|
@@ -538,6 +540,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `ConsoleSheet.confirmReset` | `console-confirmReset` |
 | `ConsoleSheet.confirmUpdate` | `console-confirmUpdate` |
 | `ConsoleSheet.cloudSave` | `console-cloudSaveQuestion`, `console-cloudSaveUnreadable` |
+| `ConsoleSheet.mngMigration` | `console-mngMigration` |
 | `ConsoleSheet.gamePage` | `consoleGamePage` |
 | `ConsoleSheet.allGames` | `consoleAllGames` |
 | `ConsoleSheet.search` | `consoleSearch` |

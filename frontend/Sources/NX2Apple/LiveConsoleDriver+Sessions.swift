@@ -108,7 +108,7 @@ extension LiveConsoleDriver {
         tracking.hostPID = nil
         tracking.bundleID = Bundle(url: URL(fileURLWithPath: game.appPath))?.bundleIdentifier
         tracking.notificationPrefix = NxkitLaunch.notificationPrefix(app: game.appPath)
-        tracking.saveFolder = environment[SaveEngines.forApp(game.appPath).saveKey].map { URL(fileURLWithPath: $0) } ?? SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath).save
+        tracking.saveFolder = environment[SaveEngines.forApp(game.appPath, titleID: game.titleID).saveKey].map { URL(fileURLWithPath: $0) } ?? SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath).save
         tracking.pausedSince = nil
         tracking.pausedSeconds = 0
         sessions.started(titleID: game.titleID, title: game.displayName(lang()))

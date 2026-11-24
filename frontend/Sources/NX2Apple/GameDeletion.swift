@@ -61,9 +61,13 @@ struct GameDeletion: Equatable {
             if !logs.isEmpty { items.append(Item(kind: .log, paths: logs)) }
 
             var saves: [String] = builds.map { $0 + "/run" }
-            let engine = SaveEngines.forUpstream(upstream)
-            if upstream.sharesSaveWithNxnative {
-                let otherSharesSave = game.sortedMacBuilds.contains { $0.upstream != upstream && $0.upstream.sharesSaveWithNxnative && exists($0.appPath) }
+            let engine = SaveEngines.forApp(targetMacPath, titleID: game.titleID, fallbackUpstream: upstream)
+            if engine.sharesSaveWithNxnative {
+                let otherSharesSave = game.sortedMacBuilds.contains { build in
+                    build.upstream != upstream
+                        && exists(build.appPath)
+                        && SaveEngines.forApp(build.appPath, titleID: game.titleID, fallbackUpstream: build.upstream).sharesSaveWithNxnative
+                }
                 if !otherSharesSave, exists(targetMacPath) {
                     saves += Self.managedSavePaths(titleID: game.titleID, appPath: targetMacPath, engine: engine, support: support)
                 }
@@ -144,7 +148,7 @@ struct GameDeletion: Equatable {
         if !logs.isEmpty { items.append(Item(kind: .log, paths: logs)) }
 
         var saves = logApps.flatMap { app -> [String] in
-            let engine = SaveEngines.forApp(app)
+            let engine = SaveEngines.forApp(app, titleID: game.titleID)
             if engine.managesSavesInLauncher {
                 return Self.managedSavePaths(titleID: game.titleID, appPath: app, engine: engine, support: support)
             }
