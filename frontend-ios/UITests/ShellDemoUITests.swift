@@ -499,8 +499,8 @@ import XCTest
         XCTAssertEqual(reopened.value as? String, "0")
     }
 
-    // Run on a standard iPhone: editing follows gameplay's landscape-only policy.
-    func testPhoneEditorOpensLandscapeAndRestoresPortraitBrowsing() {
+    // Run on a standard iPhone: editing follows the live orientation, switches landscape/portrait in options, and restores browsing.
+    func testPhoneEditorOpensPortraitRotatesAndSwitchesPose() {
         XCUIDevice.shared.orientation = .portrait
         launch("shell-settings")
         let arrange = app.buttons["shellSettings.arrange"]
@@ -508,26 +508,66 @@ import XCTest
         arrange.tap()
         let options = app.buttons["touchLayout.options"]
         XCTAssertTrue(options.waitForExistence(timeout: 5))
-        let landscape = NSPredicate { _, _ in
-            let frame = self.app.otherElements["touchLayout.editor"].firstMatch.frame
+        let editor = app.otherElements["touchLayout.editor"].firstMatch
+        let isPortrait = NSPredicate { _, _ in
+            let frame = editor.frame
+            return frame.height > frame.width
+        }
+        let isLandscape = NSPredicate { _, _ in
+            let frame = editor.frame
             return frame.width > frame.height
         }
-        expectation(for: landscape, evaluatedWith: nil)
+        expectation(for: isPortrait, evaluatedWith: nil)
         waitForExpectations(timeout: 5)
+
+        let stick = app.buttons["Left stick"].firstMatch
+        XCTAssertTrue(stick.exists)
+        XCTAssertGreaterThan(stick.frame.midY, app.windows.firstMatch.frame.midY)
+
+        options.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)).tap()
+        let pose = app.segmentedControls["setting.lay.pose"]
+        XCTAssertTrue(pose.waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["touchLayout.orientation"].label, "Portrait")
+        XCTAssertTrue(pose.buttons["Portrait"].isSelected)
+
+        pose.buttons["Landscape"].tap()
+        expectation(for: NSPredicate { _, _ in
+            self.app.staticTexts["touchLayout.orientation"].label == "Landscape"
+        }, evaluatedWith: nil)
+        waitForExpectations(timeout: 5)
+        XCTAssertTrue(pose.buttons["Landscape"].isSelected)
+
+        pose.buttons["Portrait"].tap()
+        expectation(for: NSPredicate { _, _ in
+            self.app.staticTexts["touchLayout.orientation"].label == "Portrait"
+        }, evaluatedWith: nil)
+        waitForExpectations(timeout: 5)
+
+        let done = app.buttons["touchLayout.done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 5))
+        done.tap()
+        XCTAssertTrue(app.buttons["shellSettings.close"].waitForExistence(timeout: 5))
+        XCTAssertFalse(options.exists)
+
+        // Reopen and verify physical rotation rotates both sideways and upright freely.
+        reveal(arrange)
+        arrange.tap()
+        XCTAssertTrue(options.waitForExistence(timeout: 5))
         XCUIDevice.shared.orientation = .landscapeLeft
+        expectation(for: isLandscape, evaluatedWith: nil)
+        waitForExpectations(timeout: 5)
         XCUIDevice.shared.orientation = .portrait
-        XCTAssertGreaterThan(app.otherElements["touchLayout.editor"].firstMatch.frame.width,
-                             app.otherElements["touchLayout.editor"].firstMatch.frame.height)
+        expectation(for: isPortrait, evaluatedWith: nil)
+        waitForExpectations(timeout: 5)
+
         options.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)).tap()
         let exit = app.buttons["touchLayout.back"]
         XCTAssertTrue(exit.waitForExistence(timeout: 5))
         exit.tap()
         XCTAssertTrue(app.buttons["shellSettings.close"].waitForExistence(timeout: 5))
         XCTAssertFalse(options.exists)
-        XCUIDevice.shared.orientation = .landscapeLeft
-        XCUIDevice.shared.orientation = .portrait
-        let portrait = NSPredicate { _, _ in self.app.frame.height > self.app.frame.width }
-        expectation(for: portrait, evaluatedWith: nil)
+        let appPortrait = NSPredicate { _, _ in self.app.frame.height > self.app.frame.width }
+        expectation(for: appPortrait, evaluatedWith: nil)
         waitForExpectations(timeout: 5)
     }
 

@@ -66,7 +66,7 @@ import Testing
         #expect(PadGeo.region(snapshot.screen).separated)
     }
 
-    @MainActor @Test func onlyOrdinaryPhonePortraitUsesTheRotatedFallback() {
+    @MainActor @Test func ordinaryPhonePortraitEditsNativelyWithoutLandscapeFallback() {
         let portrait = TouchLayoutGeometrySnapshot(
             bounds: CGRect(x: 0, y: 0, width: 402, height: 874),
             safeAreaInsets: .init(top: 62, left: 0, bottom: 34, right: 0),
@@ -74,8 +74,9 @@ import Testing
             hingeStatus: nil
         )
         let context = TouchLayoutEditorView.editorContext(geometry: portrait, isPad: false)
-        #expect(context.phonePortraitFallback)
-        #expect(context.screen.size == CGSize(width: 874, height: 402))
+        #expect(!context.phonePortraitFallback)
+        #expect(context.screen.size == CGSize(width: 402, height: 874))
+        #expect(PadGeo.region(context.screen).separated)
 
         let landscape = TouchLayoutGeometrySnapshot(
             bounds: CGRect(x: 0, y: 0, width: 956, height: 440),
@@ -86,6 +87,7 @@ import Testing
         let live = TouchLayoutEditorView.editorContext(geometry: landscape, isPad: false)
         #expect(!live.phonePortraitFallback)
         #expect(live.screen.insets == landscape.safeAreaInsets)
+        #expect(!PadGeo.region(live.screen).separated)
     }
 
     @MainActor @Test func partiallyOpenTabletopUsesLiveDivisionAndHingeStatus() {
@@ -102,10 +104,13 @@ import Testing
         #expect(context.screen.division == snapshot.division)
         #expect(PadGeo.region(context.screen).separated)
     }
-    @MainActor @Test func aClosedDuoOuterPortraitStillRequiresLandscapeEditing() {
+    @MainActor @Test func aClosedDuoOuterPortraitEditsInPortraitAsOrdinaryPhone() {
         let outer = TouchLayoutGeometrySnapshot(bounds: CGRect(x: 0, y: 0, width: 402, height: 874),
             safeAreaInsets: .init(top: 62, left: 0, bottom: 34, right: 0), division: nil, hingeStatus: .closed)
-        #expect(TouchLayoutEditorView.editorContext(geometry: outer, isPad: false).phonePortraitFallback)
+        let context = TouchLayoutEditorView.editorContext(geometry: outer, isPad: false)
+        #expect(!context.phonePortraitFallback)
+        #expect(context.screen.size == CGSize(width: 402, height: 874))
+        #expect(PadGeo.region(context.screen).separated)
     }
 
 }

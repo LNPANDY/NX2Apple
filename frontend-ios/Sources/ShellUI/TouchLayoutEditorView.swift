@@ -18,9 +18,8 @@ struct TouchLayoutEditorView: View {
     var cancel: (() -> Void)? = nil
     @Environment(\.shellDismissTouchEditor) private var dismissEditor
 #if os(iOS)
+    @Environment(\.shellRotateTouchEditor) private var rotateEditor
     @State private var liveGeometry: TouchLayoutGeometrySnapshot?
-    /// Ordinary phones play sideways; while the shell remains upright, this is a scaled landscape fallback.
-    @State private var phonePortraitFallback = false
 #endif
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The system's echo of a controller button: the editor's buttons do nothing for it (the shell's focus took it).
@@ -53,20 +52,22 @@ struct TouchLayoutEditorView: View {
                                     height: proxy.size.height + contentInsets.top + contentInsets.bottom)
 #if os(iOS)
             let isPad = UIDevice.current.userInterfaceIdiom == .pad
-            // Size from the current container; feeding the last probe size back can pin the old orientation.
-            let canvasSize = windowSize
+            let sameOrientation = (windowSize.height > windowSize.width) == (screen.size.height > screen.size.width)
+            let canvasSize = sameOrientation ? windowSize : proxy.size
 #else
             let division = reservedDivision(in: proxy)?.offsetBy(dx: contentInsets.leading, dy: contentInsets.top)
             let actualScreen = TouchLayoutGeometrySnapshot(bounds: CGRect(origin: .zero, size: windowSize),
                 safeAreaInsets: .init(top: contentInsets.top, left: contentInsets.leading, bottom: contentInsets.bottom, right: contentInsets.trailing),
                 division: division, hingeStatus: nil).screen
-            let canvasSize = windowSize
+            let sameOrientation = (windowSize.height > windowSize.width) == (screen.size.height > screen.size.width)
+            let canvasSize = sameOrientation ? windowSize : proxy.size
 #endif
-            ZStack(alignment: .topLeading) {
+            ZStack(alignment: sameOrientation ? .topLeading : .center) {
                 ShellPalette.background.ignoresSafeArea()
                 canvas
-                    .frame(width: canvasSize.width, height: canvasSize.height)
-                    .offset(x: -contentInsets.leading, y: -contentInsets.top)
+                    .frame(width: sameOrientation ? canvasSize.width : nil, height: sameOrientation ? canvasSize.height : nil)
+                    .frame(maxWidth: sameOrientation ? nil : canvasSize.width, maxHeight: sameOrientation ? nil : canvasSize.height)
+                    .offset(x: sameOrientation ? -contentInsets.leading : 0, y: sameOrientation ? -contentInsets.top : 0)
 #if os(iOS)
                     .allowsHitTesting(liveGeometry != nil)
 #endif
@@ -80,7 +81,6 @@ struct TouchLayoutEditorView: View {
             .onChange(of: liveGeometry, initial: true) { _, geometry in
                 guard let geometry else { return }
                 let context = Self.editorContext(geometry: geometry, isPad: isPad)
-                phonePortraitFallback = context.phonePortraitFallback
                 model.updateScreen(context.screen)
                 drag = nil
                 bounce = .zero
@@ -149,7 +149,7 @@ struct TouchLayoutEditorView: View {
 
     private var exactGeometryReady: Bool {
         #if os(iOS)
-        liveGeometry != nil && !phonePortraitFallback
+        liveGeometry != nil
         #else
         true
         #endif
@@ -230,16 +230,8 @@ struct TouchLayoutEditorView: View {
     }
 
     static func editorContext(geometry: TouchLayoutGeometrySnapshot, isPad: Bool) -> EditorContext {
-        let screen = geometry.screen
-        let hingeKnown = geometry.hingeStatus.map { $0 != .unknown } ?? false
-        let foldContext = geometry.hingeStatus != .closed && (hingeKnown || geometry.division != nil)
-        let portraitPhone = !isPad && screen.size.height > screen.size.width && !foldContext
-        guard portraitPhone else { return EditorContext(screen: screen, phonePortraitFallback: false) }
-
-        let insets = EdgeInsets(top: geometry.safeAreaInsets.top, leading: geometry.safeAreaInsets.left,
-                                bottom: geometry.safeAreaInsets.bottom, trailing: geometry.safeAreaInsets.right)
-        let fallback = TouchLayoutScreens.device(window: geometry.bounds.size, insets: insets, isPad: false).sideways
-        return EditorContext(screen: fallback, phonePortraitFallback: true)
+        _ = isPad
+        return EditorContext(screen: geometry.screen, phonePortraitFallback: false)
     }
 
     private var liveHingeStatus: TouchLayoutGeometrySnapshot.HingeStatus? {
@@ -273,6 +265,15 @@ struct TouchLayoutEditorView: View {
                     NativeChoiceControl(row: sizeRow, targetPrefix: "lay.row.") { model.setSize($0) }
                     NativeChoiceControl(row: layoutChoiceRow, targetPrefix: "lay.row.") { value in
                         model.setKind(.of(full: value == "3d", split: model.kind.split))
+                    }
+                    if !(model.actualScreen?.partiallyOpen ?? false) && liveHingeStatus != .partiallyOpen {
+                        NativeChoiceControl(row: screenRow, targetPrefix: "lay.row.") { value in
+                            let portrait = value == "below"
+                            model.selectOrientation(portrait: portrait)
+                            #if os(iOS)
+                            rotateEditor?(portrait)
+                            #endif
+                        }
                     }
                     TouchControlsNote()
                     Divider()
@@ -330,6 +331,12 @@ struct TouchLayoutEditorView: View {
                    value: model.kind.full ? "3d" : "2d")
     }
 
+    private var screenRow: SettingRow {
+        SettingRow(id: Self.poseRow, label: ShellStrings.text("Screen"),
+                   kind: .choice([SettingOption("over", ShellStrings.text("Landscape")), SettingOption("below", ShellStrings.text("Portrait"))]),
+                   value: model.kind.split ? "below" : "over")
+    }
+
     /// The rows report to the editor, not to a game or the shell settings (LibraryView.pickChoice).
     static let gameID = "touchLayout"
     static let layoutRow = "lay.layout", poseRow = "lay.pose", togetherRow = "lay.together"
@@ -371,9 +378,7 @@ struct TouchLayoutEditorView: View {
                 )
                 accessibilityElements(g, k: k)
                 TouchEditorCogHalo(active: exactGeometryReady && scenePhase == .active && drag == nil && !model.held && !optionsPresented && !model.confirmingExit,
-                                   activity: idleActivity)
-                    .allowsHitTesting(false)
-                    .position(optionsPos)
+                                   activity: idleActivity, center: optionsPos)
                 editorOptionsButton.position(optionsPos)
                 if hintVisible && exactGeometryReady {
                     TipView(editorTip, arrowEdge: .top)
@@ -427,6 +432,7 @@ struct TouchLayoutEditorView: View {
                 }
             }
         }
+        .clipped()
         .aspectRatio(screen.size.width / screen.size.height, contentMode: .fit)
         .background(PadDrawing.backdrop)
         .accessibilityElement(children: .contain)
