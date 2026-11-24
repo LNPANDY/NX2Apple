@@ -1,28 +1,68 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: LNPANDY <lnp-andy@hotmail.com>
 Date: Fri, 20 Nov 2026 21:11:31 +0800
-Subject: [PATCH] build_seed: fix zero-inode loop detection and stale seed
- profile handling
+Subject: [PATCH] build_seed: fix zero-inode loop detection, stale profiles,
+ and zstd metal-sources
 
 Use realpath fallback when directory st_ino is 0 (Windows DirEntry.stat and exFAT volumes) while checking os.lstat and Windows directory reparse points in _verify_no_symlinks_or_unsafe_names and _stage_tree. Validate staged seed profile build versions before mounting DM_GAMES_DIR in _prepare_from_seed, guard report_profile_status against missing build keys, reject mismatched leftover work/profile directories during save_seed/adopt_legacy_work, and clean stale work/profile leftovers on registered seed persistence.
 
+Also stream-compress metal-sources archives as b-<chain>.img.zst with zstd while remaining backward-compatible with legacy .img archives, and add scan-uncompressed and atomic compress-seeds CLI subcommands with full-stream DMROMFS1 header verification and graceful stop handling.
+
 Upstream-Status: fork-only
-Reason: Handle Windows/exFAT zero-inode directory checks and self-heal stale seed profile copies
-Issue: LNPANDY/NX2Apple#1456, LNPANDY/NX2Apple#1478
+Reason: Handle Windows/exFAT zero-inode checks, self-heal stale seed profiles, and stream-compress metal-sources with zstd
+Issue: LNPANDY/NX2Apple#1456, LNPANDY/NX2Apple#1478, LNPANDY/NX2Apple#1618
 ---
- dm/tools/build_seed.py                        | 101 ++++++-
- .../tests/test_build_seed_profile_version.py  | 277 +++++++++++++++++
- .../tests/test_build_seed_windows_dir_loop.py | 284 ++++++++++++++++++
- scripts/build_ipa_from_nsp.py                 |  68 ++++-
- 4 files changed, 705 insertions(+), 25 deletions(-)
+ dm/tools/build_seed.py                        | 1629 ++++++++++++++---
+ .../tests/test_build_seed_profile_version.py  |  277 +++
+ .../tests/test_build_seed_windows_dir_loop.py |  284 +++
+ dm/tools/tests/test_build_seed_zstd.py        |  584 ++++++
+ scripts/build_ipa_from_nsp.py                 |   68 +-
+ 5 files changed, 2593 insertions(+), 249 deletions(-)
  create mode 100644 dm/tools/tests/test_build_seed_profile_version.py
  create mode 100644 dm/tools/tests/test_build_seed_windows_dir_loop.py
+ create mode 100644 dm/tools/tests/test_build_seed_zstd.py
 
 diff --git a/dm/tools/build_seed.py b/dm/tools/build_seed.py
-index 1b77aae2..66776f92 100755
+index 1b77aae..5d5f6f1 100755
 --- a/dm/tools/build_seed.py
 +++ b/dm/tools/build_seed.py
-@@ -60,6 +60,27 @@ _EMPTY_TABLE_HEADERS = {
+@@ -2,16 +2,23 @@
+ """Persistent build seed cache (Schema v1) for fast launcher/engine refreshes without NSPs or prod.keys."""
+ 
+ import argparse
++import contextlib
+ import datetime
+ import errno
+ import hashlib
++import importlib
+ import json
+ import os
+ import plistlib
+ import re
+ import shutil
++import signal
+ import stat
++import subprocess
+ import sys
++import tempfile
++import threading
++import time
+ 
+ _TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
+ _REPO_ROOT = os.path.abspath(os.path.join(_TOOLS_DIR, '..', '..'))
+@@ -24,6 +31,11 @@ SEED_SCHEMA_VERSION = 1
+ SEED_MAX_ENTRIES = 500_000
+ SEED_MAX_BYTES = 32 << 30
+ COPY_CHUNK = 8 << 20
++_ZSTD_CHUNK = 2 << 20
++_ZSTD_MAGIC = b'\x28\xb5\x2f\xfd'
++_ZSTD_RESERVE_MIN_BYTES = 64 << 20
++_ZSTD_RESERVE_RATIO = 0.25
++_ZSTD_ESTIMATE_RATIO = 0.08
+ 
+ _TID_RE = re.compile(r'^[0-9A-F]{16}$')
+ _PROG_RE = re.compile(r'^p(\d+)$')
+@@ -60,6 +72,27 @@ _EMPTY_TABLE_HEADERS = {
      'c1_full.tsv': '# empty table placeholder\n',
      'cb_extent.tsv': '# empty table placeholder\n',
  }
@@ -50,7 +90,7 @@ index 1b77aae2..66776f92 100755
  
  
  class _Quota:
-@@ -207,7 +228,7 @@ def _link_or_copy_file(src, dst, quota):
+@@ -207,7 +240,7 @@ def _link_or_copy_file(src, dst, quota):
      src_path = os.fspath(src)
      dst_path = os.fspath(dst)
      st = os.lstat(src_path)
@@ -59,7 +99,7 @@ index 1b77aae2..66776f92 100755
          raise ValueError(f'symlink forbidden in build seed input: {src_path}')
      if not stat.S_ISREG(st.st_mode):
          raise ValueError(f'non-regular file forbidden in build seed input: {src_path}')
-@@ -256,14 +277,14 @@ def _stage_tree(src_dir, dst_dir, quota, allow_subdirs=True, skip_names=(), _anc
+@@ -256,14 +289,14 @@ def _stage_tree(src_dir, dst_dir, quota, allow_subdirs=True, skip_names=(), _anc
      src_path = os.fspath(src_dir)
      dst_path = os.fspath(dst_dir)
      st = os.lstat(src_path)
@@ -76,7 +116,7 @@ index 1b77aae2..66776f92 100755
      if dev_ino in _ancestors:
          raise ValueError(f'recursive directory cycle detected at {src_path}')
      next_ancestors = _ancestors | {dev_ino}
-@@ -277,7 +298,7 @@ def _stage_tree(src_dir, dst_dir, quota, allow_subdirs=True, skip_names=(), _anc
+@@ -277,7 +310,7 @@ def _stage_tree(src_dir, dst_dir, quota, allow_subdirs=True, skip_names=(), _anc
          entries = sorted(it, key=lambda e: e.name)
  
      for entry in entries:
@@ -85,7 +125,7 @@ index 1b77aae2..66776f92 100755
              raise ValueError(f'symlink forbidden inside tree: {entry.path}')
          name = entry.name
          if name in ('.DS_Store',) or '.tmp' in name or name in skip_names:
-@@ -297,14 +318,14 @@ def _stage_tree(src_dir, dst_dir, quota, allow_subdirs=True, skip_names=(), _anc
+@@ -297,14 +330,14 @@ def _stage_tree(src_dir, dst_dir, quota, allow_subdirs=True, skip_names=(), _anc
  def _verify_no_symlinks_or_unsafe_names(root_dir):
      """Walks root_dir without following symlinks and returns (ok, reason, total_bytes)."""
      st = os.lstat(root_dir)
@@ -102,7 +142,7 @@ index 1b77aae2..66776f92 100755
      while stack:
          cur = stack.pop()
          try:
-@@ -324,10 +345,20 @@ def _verify_no_symlinks_or_unsafe_names(root_dir):
+@@ -324,10 +357,20 @@ def _verify_no_symlinks_or_unsafe_names(root_dir):
                  est = entry.stat(follow_symlinks=False)
              except OSError as exc:
                  return False, f'cannot stat {entry.path}: {exc}', total_bytes
@@ -125,7 +165,613 @@ index 1b77aae2..66776f92 100755
                  if key in visited:
                      return False, f'directory loop inside seed: {entry.path}', total_bytes
                  visited.add(key)
-@@ -664,6 +695,26 @@ def _read_game_tsv_kv(tsv_path):
+@@ -421,18 +464,452 @@ def _highest_version_dir(extract_root, allow_patched=False):
+     return None, None
+ 
+ 
++class _CompressStopped(Exception):
++    """Internal control-flow signal raised when SIGTERM/SIGINT interrupts seed compression."""
++
++
++class _CompressStopController:
++    """Tracks cooperative stop state, active subprocess, and temporary file cleanup on signals."""
++
++    def __init__(self):
++        self.stopped = False
++        self._lock = threading.Lock()
++        self._proc = None
++        self._tmp_paths = set()
++
++    def request_stop(self):
++        with self._lock:
++            self.stopped = True
++            proc = self._proc
++        if proc is not None:
++            try:
++                proc.terminate()
++            except OSError:
++                pass
++
++    def check(self):
++        if self.stopped:
++            raise _CompressStopped('seed compression interrupted')
++
++    def set_proc(self, proc):
++        with self._lock:
++            self._proc = proc
++            stopped = self.stopped
++        if stopped and proc is not None:
++            try:
++                proc.terminate()
++            except OSError:
++                pass
++
++    def add_tmp(self, path):
++        with self._lock:
++            self._tmp_paths.add(path)
++
++    def discard_tmp(self, path):
++        with self._lock:
++            self._tmp_paths.discard(path)
++
++    def cleanup_tmps(self):
++        with self._lock:
++            paths = list(self._tmp_paths)
++            self._tmp_paths.clear()
++        for p in paths:
++            try:
++                if os.path.lexists(p) and not os.path.islink(p):
++                    os.unlink(p)
++            except OSError:
++                pass
++
++
++def _find_zstd_cli():
++    return shutil.which('zstd')
++
++
++def _zstd_backend():
++    """Returns ('pep784'|'zstandard'|'cli', handle) in priority order, or None."""
++    for mod_name in ('compression.zstd', 'backports.zstd'):
++        try:
++            mod = importlib.import_module(mod_name)
++            if hasattr(mod, 'ZstdFile') or hasattr(mod, 'open'):
++                return ('pep784', mod)
++        except ImportError:
++            continue
++    try:
++        mod = importlib.import_module('zstandard')
++        if hasattr(mod, 'ZstdCompressor') and hasattr(mod, 'ZstdDecompressor'):
++            return ('zstandard', mod)
++    except ImportError:
++        pass
++    cli = _find_zstd_cli()
++    if cli:
++        return ('cli', cli)
++    return None
++
++
++def zstd_available():
++    """Returns True if any streaming zstd compressor/decompressor backend is available."""
++    return _zstd_backend() is not None
++
++
++def _open_regular_nofollow(path):
++    """Opens a regular file without following symlinks, verifying non-reparse regular file."""
++    p = os.fspath(path)
++    st = os.lstat(p)
++    if _is_symlink_or_reparse(p, st):
++        raise ValueError(f'symlink forbidden: {p}')
++    if not stat.S_ISREG(st.st_mode):
++        raise ValueError(f'non-regular file forbidden: {p}')
++    flags = os.O_RDONLY | getattr(os, 'O_BINARY', 0) | getattr(os, 'O_NOFOLLOW', 0)
++    fd = os.open(p, flags)
++    try:
++        fst = os.fstat(fd)
++        if not stat.S_ISREG(fst.st_mode):
++            raise ValueError(f'non-regular file forbidden: {p}')
++        return os.fdopen(fd, 'rb'), fst
++    except BaseException:
++        try:
++            os.close(fd)
++        except OSError:
++            pass
++        raise
++
++
++def _zstd_compress_stream(src_path, dst_tmp_path, level=3, stop_ctrl=None):
++    """Streams src_path through zstd compression into dst_tmp_path using bounded chunks."""
++    if isinstance(level, bool) or not isinstance(level, int) or not (1 <= level <= 22):
++        raise ValueError(f'invalid zstd compression level: {level!r}')
++    backend = _zstd_backend()
++    if backend is None:
++        raise RuntimeError('zstd compression is unavailable')
++
++    dst_p = os.fspath(dst_tmp_path)
++    if os.path.lexists(dst_p):
++        if os.path.islink(dst_p) or os.path.isdir(dst_p):
++            raise ValueError(f'unsafe temporary output path: {dst_p}')
++        os.unlink(dst_p)
++
++    kind, handle = backend
++    if stop_ctrl is not None:
++        stop_ctrl.add_tmp(dst_p)
++    try:
++        fin, _ = _open_regular_nofollow(src_path)
++        if kind == 'cli':
++            fin.close()
++            if stop_ctrl is not None:
++                stop_ctrl.check()
++            cmd = [handle, f'-{level}', '-q', '-f', '-o', dst_p, '--', os.fspath(src_path)]
++            popen_kw = {}
++            if os.name == 'nt':
++                popen_kw['creationflags'] = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000)
++            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, **popen_kw)
++            if stop_ctrl is not None:
++                stop_ctrl.set_proc(proc)
++            try:
++                while True:
++                    if stop_ctrl is not None and stop_ctrl.stopped:
++                        proc.terminate()
++                        try:
++                            proc.wait(timeout=2)
++                        except subprocess.TimeoutExpired:
++                            proc.kill()
++                            proc.wait(timeout=2)
++                        raise _CompressStopped('seed compression interrupted')
++                    try:
++                        rc = proc.wait(timeout=0.05)
++                        break
++                    except subprocess.TimeoutExpired:
++                        continue
++                err = proc.stderr.read() if proc.stderr else b''
++                if stop_ctrl is not None:
++                    stop_ctrl.check()
++                if rc != 0:
++                    raise OSError(f'zstd CLI compression failed (rc={rc}): {err.decode("utf-8", "replace").strip()}')
++            finally:
++                if proc.stderr:
++                    proc.stderr.close()
++                if stop_ctrl is not None:
++                    stop_ctrl.set_proc(None)
++        elif kind == 'pep784':
++            with fin, open(dst_p, 'wb') as raw_out:
++                zfile_cls = getattr(handle, 'ZstdFile', None) or handle.open
++                with zfile_cls(raw_out, 'wb', level=level) as zout:
++                    while True:
++                        if stop_ctrl is not None:
++                            stop_ctrl.check()
++                        chunk = fin.read(_ZSTD_CHUNK)
++                        if not chunk:
++                            break
++                        zout.write(chunk)
++                raw_out.flush()
++                os.fsync(raw_out.fileno())
++        else:
++            with fin, open(dst_p, 'wb') as raw_out:
++                cctx = handle.ZstdCompressor(level=level)
++                with cctx.stream_writer(raw_out, closefd=False) as writer:
++                    while True:
++                        if stop_ctrl is not None:
++                            stop_ctrl.check()
++                        chunk = fin.read(_ZSTD_CHUNK)
++                        if not chunk:
++                            break
++                        writer.write(chunk)
++                raw_out.flush()
++                os.fsync(raw_out.fileno())
++    except BaseException:
++        try:
++            if os.path.lexists(dst_p) and not os.path.islink(dst_p):
++                os.unlink(dst_p)
++        except OSError:
++            pass
++        if stop_ctrl is not None:
++            stop_ctrl.discard_tmp(dst_p)
++        raise
++
++
++def _zstd_verify_and_decompress_stream(
++    src_zst_path,
++    dst_path=None,
++    expected_size=None,
++    expected_magic=None,
++    max_bytes=SEED_MAX_BYTES,
++    stop_ctrl=None,
++):
++    """Streams and verifies a zstd archive, optionally writing the decompressed output atomically."""
++    backend = _zstd_backend()
++    if backend is None:
++        raise RuntimeError('zstd decompression is unavailable')
++    kind, handle = backend
++
++    fin, fst = _open_regular_nofollow(src_zst_path)
++    if fst.st_size == 0:
++        fin.close()
++        raise ValueError(f'empty zstd archive: {src_zst_path}')
++
++    dst_p = os.fspath(dst_path) if dst_path is not None else None
++    tmp_dst = None
++    out_f = None
++    if dst_p is not None:
++        parent = os.path.dirname(os.path.abspath(dst_p))
++        if os.path.islink(parent):
++            fin.close()
++            raise ValueError(f'symlink parent forbidden: {parent}')
++        os.makedirs(parent, exist_ok=True)
++        tmp_dst = f'{dst_p}.part.{os.getpid()}'
++        if os.path.islink(tmp_dst):
++            fin.close()
++            raise ValueError(f'symlink temporary path forbidden: {tmp_dst}')
++        out_f = open(tmp_dst, 'wb')
++
++    total = 0
++    head_buf = bytearray()
++    magic_len = len(expected_magic) if expected_magic else 0
++    check_romfs_head = (expected_magic == romfs_image.MAGIC)
++    capture_len = romfs.HEAD.size if check_romfs_head else magic_len
++    try:
++        def _consume(chunk):
++            nonlocal total
++            if stop_ctrl is not None:
++                stop_ctrl.check()
++            if max_bytes is not None and len(chunk) > max_bytes - total:
++                raise ValueError(f'decompressed zstd payload exceeds byte quota ({max_bytes} bytes): {src_zst_path}')
++            if capture_len and len(head_buf) < capture_len:
++                need = capture_len - len(head_buf)
++                prev_len = len(head_buf)
++                head_buf.extend(chunk[:need])
++                if magic_len and prev_len < magic_len <= len(head_buf) and bytes(head_buf[:magic_len]) != expected_magic:
++                    raise ValueError(f'invalid decompressed magic in {src_zst_path}: expected {expected_magic!r}')
++            total += len(chunk)
++            if out_f is not None:
++                out_f.write(chunk)
++
++        if kind == 'cli':
++            fin.close()
++            if stop_ctrl is not None:
++                stop_ctrl.check()
++            popen_kw = {}
++            if os.name == 'nt':
++                popen_kw['creationflags'] = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000)
++            proc = subprocess.Popen(
++                [handle, '-d', '-q', '-c', '--', os.fspath(src_zst_path)],
++                stdout=subprocess.PIPE,
++                stderr=subprocess.PIPE,
++                **popen_kw,
++            )
++            if stop_ctrl is not None:
++                stop_ctrl.set_proc(proc)
++            try:
++                while True:
++                    if stop_ctrl is not None and stop_ctrl.stopped:
++                        proc.terminate()
++                        raise _CompressStopped('seed decompression interrupted')
++                    chunk = proc.stdout.read(_ZSTD_CHUNK)
++                    if not chunk:
++                        break
++                    _consume(chunk)
++                err = proc.stderr.read() if proc.stderr else b''
++                rc = proc.wait()
++                if stop_ctrl is not None:
++                    stop_ctrl.check()
++                if rc != 0:
++                    raise ValueError(
++                        f'corrupt or truncated zstd stream {src_zst_path} (rc={rc}): '
++                        f'{err.decode("utf-8", "replace").strip()}'
++                    )
++            except BaseException:
++                if proc.poll() is None:
++                    proc.terminate()
++                    try:
++                        proc.wait(timeout=2)
++                    except subprocess.TimeoutExpired:
++                        proc.kill()
++                        proc.wait(timeout=2)
++                raise
++            finally:
++                if proc.stdout:
++                    proc.stdout.close()
++                if proc.stderr:
++                    proc.stderr.close()
++                if stop_ctrl is not None:
++                    stop_ctrl.set_proc(None)
++        elif kind == 'pep784':
++            with fin:
++                zfile_cls = getattr(handle, 'ZstdFile', None) or handle.open
++                with zfile_cls(fin, 'rb') as zin:
++                    while True:
++                        chunk = zin.read(_ZSTD_CHUNK)
++                        if not chunk:
++                            break
++                        _consume(chunk)
++        else:
++            with fin:
++                dctx = handle.ZstdDecompressor()
++                with dctx.stream_reader(fin, read_across_frames=True, closefd=False) as reader:
++                    while True:
++                        chunk = reader.read(_ZSTD_CHUNK)
++                        if not chunk:
++                            break
++                        _consume(chunk)
++
++        if magic_len and bytes(head_buf[:magic_len]) != expected_magic:
++            raise ValueError(f'truncated header in decompressed {src_zst_path}')
++        if check_romfs_head:
++            if len(head_buf) < romfs.HEAD.size:
++                raise ValueError(f'truncated RomFS header in decompressed {src_zst_path}')
++            magic, off, size, count = romfs.HEAD.unpack(bytes(head_buf[:romfs.HEAD.size]))
++            if (
++                magic != romfs_image.MAGIC
++                or not (0 < count <= 0xffffffff)
++                or off < romfs.HEAD.size
++                or off > total
++                or size > total - off
++                or count > size // romfs.ENT.size
++            ):
++                raise ValueError(f'truncated or invalid RomFS header bounds in decompressed {src_zst_path}')
++        if expected_size is not None and total != expected_size:
++            raise ValueError(
++                f'decompressed size mismatch for {src_zst_path}: got {total} bytes, expected {expected_size}'
++            )
++
++        if out_f is not None:
++            out_f.flush()
++            out_f.close()
++            out_f = None
++            os.replace(tmp_dst, dst_p)
++            tmp_dst = None
++        return total
++    except BaseException:
++        if out_f is not None:
++            try:
++                out_f.close()
++            except OSError:
++                pass
++        if tmp_dst and os.path.lexists(tmp_dst):
++            try:
++                os.unlink(tmp_dst)
++            except OSError:
++                pass
++        raise
++
++
++def _lib_folder_of(lib):
++    s = os.fspath(lib)
++    if s.endswith('.img.zst'):
++        return s[:-8]
++    if s.endswith('.img'):
++        return s[:-4]
++    return s
++
++
++def _resolve_lib_for_read(lib_path, tmp_dir, quota):
++    """Resolves a shader library path preferring valid .img.zst over .img over folder.
++    Decompresses .img.zst into tmp_dir enforcing quota and DMROMFS1 + RomFS index validation."""
++    raw_p = os.fspath(lib_path)
++    folder = _lib_folder_of(raw_p)
++    zst_p = folder + '.img.zst'
++    img_p = folder + '.img'
++
++    for cand in (folder, img_p, zst_p):
++        if os.path.islink(cand) or _is_symlink_or_reparse(cand, os.lstat(cand) if os.path.lexists(cand) else None):
++            raise ValueError(f'symlink forbidden in shader library: {cand}')
++
++    if raw_p.endswith('.img.zst') or os.path.isfile(zst_p):
++        target_zst = raw_p if raw_p.endswith('.img.zst') else zst_p
++        if os.path.isfile(target_zst):
++            os.makedirs(tmp_dir, exist_ok=True)
++            fd, dec_img = tempfile.mkstemp(prefix='dec_', suffix='.img', dir=tmp_dir)
++            os.close(fd)
++            try:
++                budget = max(0, quota.max_bytes - quota.used_bytes)
++                _zstd_verify_and_decompress_stream(
++                    target_zst,
++                    dst_path=dec_img,
++                    expected_magic=romfs_image.MAGIC,
++                    max_bytes=budget,
++                )
++                romfs.Image(dec_img)
++                return dec_img
++            except BaseException:
++                try:
++                    if os.path.lexists(dec_img):
++                        os.unlink(dec_img)
++                except OSError:
++                    pass
++                if not raw_p.endswith('.img.zst') and os.path.isfile(img_p):
++                    return img_p
++                raise
++
++    if os.path.isfile(img_p):
++        return img_p
++    return raw_p
++
++
++@contextlib.contextmanager
++def _open_shader_lib_view(lib_path, quota):
++    """Context manager yielding a shader_lib.view(...) supporting .img.zst, .img, and folder."""
++    raw_p = os.fspath(lib_path)
++    folder = _lib_folder_of(raw_p)
++    zst_p = folder + '.img.zst'
++    if raw_p.endswith('.img.zst') or os.path.isfile(zst_p):
++        with tempfile.TemporaryDirectory(prefix='msl_zst_view_') as td:
++            resolved = _resolve_lib_for_read(raw_p, td, quota)
++            yield shader_lib.view(resolved)
++    else:
++        yield shader_lib.view(raw_p)
++
++
+ def _pack_metal_sources_one(src_lib_path, dst_img_path, quota, extra_lib_path=None):
+-    """Packs a single b-<chain> folder or .img into dst_img_path keeping only *.metal, *.json, *.tsv
+-    and 0-byte placeholders for *_bx.metallib and *_bf.metallib while excluding *_b.metallib payloads."""
++    """Packs a single b-<chain> folder, .img, or .img.zst into dst_img_path (.img.zst when zstd is
++    available, else .img), keeping *.metal/*.json/*.tsv and 0-byte *_bx/*_bf placeholders."""
+     sources = [src_lib_path]
+     if extra_lib_path:
+         sources.append(extra_lib_path)
+ 
+     files_map = {}
+     for cur_src in sources:
+-        folder = shader_lib.folder_of(os.fspath(cur_src))
++        folder = _lib_folder_of(os.fspath(cur_src))
+         img_file = folder + '.img'
+-        if os.path.islink(folder) or os.path.islink(img_file):
++        zst_file = folder + '.img.zst'
++        if os.path.islink(folder) or os.path.islink(img_file) or os.path.islink(zst_file):
+             raise ValueError(f'symlink forbidden in Mac shader cache: {cur_src}')
+         if os.path.isdir(folder):
+             with os.scandir(folder) as it:
+@@ -442,32 +919,62 @@ def _pack_metal_sources_one(src_lib_path, dst_img_path, quota, extra_lib_path=No
+                     if not entry.name.startswith('.') and '.tmp' not in entry.name:
+                         _validate_rel_path(entry.name, folder)
+ 
+-        lib = shader_lib.view(cur_src)
+-        if not lib.is_dir():
+-            continue
+-        for name in sorted(romfs.os.listdir(lib)):
+-            if name.startswith('.') or '.tmp' in name or name in files_map:
++        with _open_shader_lib_view(cur_src, quota) as lib:
++            if not lib.is_dir():
+                 continue
+-            _validate_rel_path(name, str(cur_src))
+-            if '/' in name:
+-                raise ValueError(f'nested path forbidden inside shader library: {name}')
+-            if name.endswith(('.metal', '.json', '.tsv')):
+-                data = (lib / name).read_bytes()
+-                quota.charge(1, len(data), name)
+-                files_map[name] = data
+-            elif name.endswith(('_bx.metallib', '_bf.metallib')):
+-                quota.charge(1, 0, name)
+-                files_map[name] = b''
++            for name in sorted(romfs.os.listdir(lib)):
++                if name.startswith('.') or '.tmp' in name or name in files_map:
++                    continue
++                _validate_rel_path(name, str(cur_src))
++                if '/' in name:
++                    raise ValueError(f'nested path forbidden inside shader library: {name}')
++                if name.endswith(('.metal', '.json', '.tsv')):
++                    data = (lib / name).read_bytes()
++                    quota.charge(1, len(data), name)
++                    files_map[name] = data
++                elif name.endswith(('_bx.metallib', '_bf.metallib')):
++                    quota.charge(1, 0, name)
++                    files_map[name] = b''
+     if not files_map:
+         return False
+ 
+-    os.makedirs(os.path.dirname(os.fspath(dst_img_path)), exist_ok=True)
+-    shader_lib.write(files_map, os.fspath(dst_img_path))
++    dst_raw = os.fspath(dst_img_path)
++    if dst_raw.endswith('.img.zst'):
++        raw_target = dst_raw[:-4]
++        zst_target = dst_raw
++    else:
++        raw_target = dst_raw
++        zst_target = dst_raw + '.zst'
++
++    os.makedirs(os.path.dirname(raw_target), exist_ok=True)
++    if _zstd_backend() is not None:
++        raw_tmp = f'{raw_target}.raw.{os.getpid()}.tmp'
++        zst_tmp = f'{zst_target}.tmp'
++        try:
++            shader_lib.write(files_map, raw_tmp)
++            raw_size = os.path.getsize(raw_tmp)
++            _zstd_compress_stream(raw_tmp, zst_tmp, level=3)
++            _zstd_verify_and_decompress_stream(
++                zst_tmp,
++                dst_path=None,
++                expected_size=raw_size,
++                expected_magic=romfs_image.MAGIC,
++            )
++            os.replace(zst_tmp, zst_target)
++        finally:
++            for tmp_p in (raw_tmp, zst_tmp):
++                try:
++                    if os.path.lexists(tmp_p) and not os.path.islink(tmp_p):
++                        os.unlink(tmp_p)
++                except OSError:
++                    pass
++    else:
++        shader_lib.write(files_map, raw_target)
+     return True
+ 
+ 
+-def _discover_b_libs_in_dir(parent_dir):
+-    """Returns sorted unique b-<chain> base names present as folders or .img files inside parent_dir."""
++def _discover_b_libs_in_dir(parent_dir, include_zst=False):
++    """Returns sorted unique b-<chain> base names present as folders, .img, or (optionally) .img.zst."""
+     if not parent_dir or not os.path.isdir(parent_dir) or os.path.islink(parent_dir):
+         return []
+     found = set()
+@@ -479,13 +986,16 @@ def _discover_b_libs_in_dir(parent_dir):
+                 continue
+             if entry.is_dir(follow_symlinks=False) and entry.name.startswith('b-'):
+                 found.add(entry.name)
+-            elif entry.is_file(follow_symlinks=False) and entry.name.startswith('b-') and entry.name.endswith('.img'):
+-                found.add(entry.name[:-4])
++            elif entry.is_file(follow_symlinks=False) and entry.name.startswith('b-'):
++                if entry.name.endswith('.img'):
++                    found.add(entry.name[:-4])
++                elif include_zst and entry.name.endswith('.img.zst'):
++                    found.add(entry.name[:-8])
+     return sorted(found)
+ 
+ 
+ def _stage_metal_sources(mac_shader_dir, work_dir, chain, staging_dir, quota, extra_msl_dir=None, gfx_api='nvn'):
+-    """Builds metal-sources/b-<chain>.img (or multi-program p<N>/b-<chain>.img) inside staging_dir.
++    """Builds metal-sources/b-<chain>.img.zst (falling back to .img without zstd) inside staging_dir.
+     Returns inferred raw chain string if discovered."""
+     src = os.fspath(mac_shader_dir) if mac_shader_dir else os.path.join(work_dir, 'shader', 'cache')
+     if not src:
+@@ -504,14 +1014,19 @@ def _stage_metal_sources(mac_shader_dir, work_dir, chain, staging_dir, quota, ex
+         if not extra_msl_dir or not os.path.isdir(extra_msl_dir) or os.path.islink(extra_msl_dir):
+             return None
+         cand = os.path.join(extra_msl_dir, b_tag)
+-        if os.path.isdir(cand) or os.path.isfile(cand + '.img'):
++        if os.path.isdir(cand) or os.path.isfile(cand + '.img') or os.path.isfile(cand + '.img.zst'):
+             return cand
+         return None
+ 
+-    # Case 1: src directly names a shader library (.img file, folder_of+.img, or flat library folder)
+-    src_folder = shader_lib.folder_of(src)
++    # Case 1: src directly names a shader library (.img / .img.zst file, folder_of+.img, or flat library folder)
++    src_folder = _lib_folder_of(src)
+     src_base = os.path.basename(os.path.normpath(src_folder))
+-    if os.path.isfile(src) or os.path.isfile(src_folder + '.img') or src_base.startswith('b-'):
++    if (
++        os.path.isfile(src)
++        or os.path.isfile(src_folder + '.img')
++        or os.path.isfile(src_folder + '.img.zst')
++        or src_base.startswith('b-')
++    ):
+         out_tag = src_base if src_base.startswith('b-') else (target_tag or 'b-unknown')
+         if not inferred_chain and out_tag.startswith('b-'):
+             inferred_chain = _norm_chain(out_tag)
+@@ -536,7 +1051,7 @@ def _stage_metal_sources(mac_shader_dir, work_dir, chain, staging_dir, quota, ex
+     prog_dirs = [e for e in entries if e.is_dir(follow_symlinks=False) and _PROG_RE.fullmatch(e.name)]
+     if prog_dirs:
+         for pe in prog_dirs:
+-            b_names = _discover_b_libs_in_dir(pe.path)
++            b_names = _discover_b_libs_in_dir(pe.path, include_zst=True)
+             chosen = [target_tag] if (target_tag and target_tag in b_names) else b_names
+             for b_name in chosen:
+                 if not inferred_chain:
+@@ -548,10 +1063,10 @@ def _stage_metal_sources(mac_shader_dir, work_dir, chain, staging_dir, quota, ex
+                 )
+         return inferred_chain
+ 
+-    # Case 3: parent cache directory containing b-<chain> folders and/or b-<chain>.img files
+-    b_names = set(_discover_b_libs_in_dir(src))
++    # Case 3: parent cache directory containing b-<chain> folders and/or b-<chain>.img[.zst] files
++    b_names = set(_discover_b_libs_in_dir(src, include_zst=True))
+     if extra_msl_dir and os.path.isdir(extra_msl_dir) and not os.path.islink(extra_msl_dir):
+-        b_names.update(_discover_b_libs_in_dir(extra_msl_dir))
++        b_names.update(_discover_b_libs_in_dir(extra_msl_dir, include_zst=True))
+     sorted_b = sorted(b_names)
+     chosen = [target_tag] if (target_tag and target_tag in sorted_b) else sorted_b
+     for b_name in chosen:
+@@ -664,6 +1179,26 @@ def _read_game_tsv_kv(tsv_path):
      return kv
  
  
@@ -152,7 +798,7 @@ index 1b77aae2..66776f92 100755
  def _find_registered_profile_dir(tid, profile_id=''):
      games_dir = os.path.join(_REPO_ROOT, 'dm', 'games')
      if not os.path.isdir(games_dir):
-@@ -1069,25 +1120,51 @@ def save_seed(
+@@ -1069,25 +1604,51 @@ def save_seed(
          # 4. Discover / stage optional derived or provisional profile/<gid>/
          profile_id = str(meta_in.get('profile_id') or '').strip()
          profile_kind = str(meta_in.get('profile_kind') or '').strip()
@@ -208,9 +854,1055 @@ index 1b77aae2..66776f92 100755
              prof_kv = _read_game_tsv_kv(os.path.join(eff_profile_dir, 'game.tsv'))
              gid = profile_id or os.path.basename(os.path.normpath(eff_profile_dir))
              _validate_rel_path(gid, 'profile_id')
+@@ -1723,12 +2284,12 @@ def _infer_prog_from_parent(lib_path):
+     return parent_base if _PROG_RE.fullmatch(parent_base) else ''
+ 
+ 
+-def _discover_prog_b_libs(root_dir):
++def _discover_prog_b_libs(root_dir, include_zst=False):
+     """Returns [(prog, b_name, lib_path), ...] for top-level b-* (prog='') and p<N>/b-* subdirectories."""
+     if not root_dir or not os.path.isdir(root_dir) or os.path.islink(root_dir):
+         return []
+     items = []
+-    for b_name in _discover_b_libs_in_dir(root_dir):
++    for b_name in _discover_b_libs_in_dir(root_dir, include_zst=include_zst):
+         items.append(('', b_name, os.path.join(root_dir, b_name)))
+     prog_entries = []
+     with os.scandir(root_dir) as it:
+@@ -1739,7 +2300,7 @@ def _discover_prog_b_libs(root_dir):
+                 prog_entries.append((entry.name, entry.path))
+     prog_entries.sort(key=lambda item: _prog_sort_key(item[0]))
+     for prog_name, prog_path in prog_entries:
+-        for b_name in _discover_b_libs_in_dir(prog_path):
++        for b_name in _discover_b_libs_in_dir(prog_path, include_zst=include_zst):
+             items.append((prog_name, b_name, os.path.join(prog_path, b_name)))
+     return items
+ 
+@@ -1774,100 +2335,84 @@ def prepare_prefill(seed_dir, prefill_sources, tmp_dir, gfx_api='nvn', target_ch
+     ios_bin_libs = {}     # (prog, raw_chain) -> path
+     sources_used = []
+ 
+-    # 1. Seed's own metal-sources/b-<old>.img and metal-sources/p<N>/b-<old>.img
+-    seed_metal_dir = os.path.join(seed_p, 'metal-sources')
+-    for prog, b_name, lib_path in _discover_prog_b_libs(seed_metal_dir):
+-        ch = _norm_chain(b_name)
+-        if ch:
+-            metal_src_libs[(prog, ch)] = lib_path
+-
+     extracted_tmp_dirs = []
++    dec_tmp_dir = os.path.join(tmp_abs, '_zstd_dec')
++    extracted_tmp_dirs.append(dec_tmp_dir)
+ 
+-    def register_lib(lib_path, prog='', chain_hint='', platform_hint=None, origin=''):
+-        lib_v = shader_lib.view(lib_path)
+-        if not lib_v.is_dir():
+-            return
+-        names = [n for n in romfs.os.listdir(lib_v) if not n.startswith('.') and '.tmp' not in n]
+-        if not names:
+-            return
+-        ch = _norm_chain(chain_hint or shader_lib.name_of(lib_path))
+-        if not ch:
+-            stamp = shader_lib.read_stamp(lib_v)
+-            ch = _norm_chain(stamp.get('chain', ''))
+-        if not ch:
+-            return
+-        key = (prog, ch)
+-        has_metal = any(n.endswith('.metal') for n in names)
+-        has_real_metallib = any(
+-            n.endswith('.metallib') and not n.endswith(('_bx.metallib', '_bf.metallib'))
+-            for n in names
+-        )
+-        if has_metal and key not in metal_src_libs:
+-            metal_src_libs[key] = os.fspath(lib_path)
+-        if has_real_metallib:
+-            plat = _classify_shader_lib_platform(lib_v, hint=platform_hint)
+-            if plat == 'mac':
+-                mac_bin_libs.setdefault(key, os.fspath(lib_path))
+-            else:
+-                ios_bin_libs.setdefault(key, os.fspath(lib_path))
+-            if origin and origin not in sources_used:
+-                sources_used.append(origin)
++    try:
++        # 1. Seed's own metal-sources/b-<old>.img[.zst] and metal-sources/p<N>/b-<old>.img[.zst]
++        seed_metal_dir = os.path.join(seed_p, 'metal-sources')
++        if os.path.lexists(seed_metal_dir) and _is_symlink_or_reparse(seed_metal_dir, os.lstat(seed_metal_dir)):
++            raise ValueError(f'symlink forbidden for metal-sources: {seed_metal_dir}')
++        for prog, b_name, lib_path in _discover_prog_b_libs(seed_metal_dir, include_zst=True):
++            ch = _norm_chain(b_name)
++            if ch:
++                metal_src_libs[(prog, ch)] = lib_path
++
++        def register_lib(lib_path, prog='', chain_hint='', platform_hint=None, origin=''):
++            resolved_p = _resolve_lib_for_read(lib_path, dec_tmp_dir, quota)
++            lib_v = shader_lib.view(resolved_p)
++            if not lib_v.is_dir():
++                return
++            names = [n for n in romfs.os.listdir(lib_v) if not n.startswith('.') and '.tmp' not in n]
++            if not names:
++                return
++            ch = _norm_chain(chain_hint or _lib_folder_of(lib_path).rsplit(os.sep, 1)[-1])
++            if not ch:
++                stamp = shader_lib.read_stamp(lib_v)
++                ch = _norm_chain(stamp.get('chain', ''))
++            if not ch:
++                return
++            key = (prog, ch)
++            has_metal = any(n.endswith('.metal') for n in names)
++            has_real_metallib = any(
++                n.endswith('.metallib') and not n.endswith(('_bx.metallib', '_bf.metallib'))
++                for n in names
++            )
++            if has_metal and key not in metal_src_libs:
++                metal_src_libs[key] = os.fspath(lib_path)
++            if has_real_metallib:
++                plat = _classify_shader_lib_platform(lib_v, hint=platform_hint)
++                if plat == 'mac':
++                    mac_bin_libs.setdefault(key, os.fspath(resolved_p))
++                else:
++                    ios_bin_libs.setdefault(key, os.fspath(resolved_p))
++                if origin and origin not in sources_used:
++                    sources_used.append(origin)
+ 
+-    def scan_msl_container(container_dir, platform_hint, origin):
+-        for prog, b_name, lib_path in _discover_prog_b_libs(container_dir):
+-            register_lib(lib_path, prog=prog, chain_hint=b_name, platform_hint=platform_hint, origin=origin)
++        def scan_msl_container(container_dir, platform_hint, origin):
++            for prog, b_name, lib_path in _discover_prog_b_libs(container_dir, include_zst=True):
++                register_lib(lib_path, prog=prog, chain_hint=b_name, platform_hint=platform_hint, origin=origin)
+ 
+-    # 2. Inspect external prefill_sources first (.app, RomFS .img with DMMSLTR1 trailer, msl/ dir, b-<chain>[.img])
+-    for idx, raw_src in enumerate(prefill_sources or ()):
+-        if not raw_src:
+-            continue
+-        src = os.fspath(raw_src)
+-        if not os.path.exists(src) or os.path.islink(src):
+-            continue
++        # 2. Inspect external prefill_sources first (.app, RomFS .img with DMMSLTR1 trailer, msl/ dir, b-<chain>[.img[.zst]])
++        for idx, raw_src in enumerate(prefill_sources or ()):
++            if not raw_src:
++                continue
++            src = os.fspath(raw_src)
++            if not os.path.exists(src) or os.path.islink(src):
++                continue
+ 
+-        if os.path.isdir(src):
+-            norm_s = os.path.normpath(src)
+-            base_s = os.path.basename(norm_s)
+-            if base_s.endswith('.app') or os.path.isdir(os.path.join(norm_s, 'Contents', 'Resources', 'msl')):
+-                scan_msl_container(os.path.join(norm_s, 'Contents', 'Resources', 'msl'), 'mac', norm_s)
+-            elif base_s.startswith('b-'):
+-                hint = 'ios' if '/ios' in norm_s.replace('\\', '/') else None
+-                register_lib(
+-                    norm_s,
+-                    prog=_infer_prog_from_parent(norm_s),
+-                    chain_hint=base_s,
+-                    platform_hint=hint,
+-                    origin=norm_s,
+-                )
+-            else:
+-                hint = 'mac' if 'cache' in base_s else ('ios' if 'ios' in base_s else None)
+-                scan_msl_container(norm_s, hint, norm_s)
+-        elif os.path.isfile(src):
+-            base_s = os.path.basename(src)
+-            trailer_extracted = False
+-            if not base_s.startswith('b-'):
+-                try:
+-                    t_info = romfs_image.inspect_msl(src)
+-                except ValueError:
+-                    t_info = None
+-                if t_info and t_info.get('has_trailer'):
+-                    ext_dir = os.path.join(tmp_abs, f'_trailer_{idx}')
+-                    extracted_tmp_dirs.append(ext_dir)
+-                    romfs_image.extract_msl(src, ext_dir)
+-                    scan_msl_container(ext_dir, 'ios', src)
+-                    trailer_extracted = True
+-            if not trailer_extracted:
+-                stem = base_s[:-4] if base_s.endswith('.img') else base_s
+-                if stem.startswith('b-'):
+-                    hint = 'mac' if '.app/' in src.replace('\\', '/') else None
++            if os.path.isdir(src):
++                norm_s = os.path.normpath(src)
++                base_s = os.path.basename(norm_s)
++                if base_s.endswith('.app') or os.path.isdir(os.path.join(norm_s, 'Contents', 'Resources', 'msl')):
++                    scan_msl_container(os.path.join(norm_s, 'Contents', 'Resources', 'msl'), 'mac', norm_s)
++                elif base_s.startswith('b-'):
++                    hint = 'ios' if '/ios' in norm_s.replace('\\', '/') else None
+                     register_lib(
+-                        src,
+-                        prog=_infer_prog_from_parent(src),
+-                        chain_hint=stem,
++                        norm_s,
++                        prog=_infer_prog_from_parent(norm_s),
++                        chain_hint=base_s,
+                         platform_hint=hint,
+-                        origin=src,
++                        origin=norm_s,
+                     )
+                 else:
++                    hint = 'mac' if 'cache' in base_s else ('ios' if 'ios' in base_s else None)
++                    scan_msl_container(norm_s, hint, norm_s)
++            elif os.path.isfile(src):
++                base_s = os.path.basename(src)
++                trailer_extracted = False
++                if not base_s.startswith('b-'):
+                     try:
+                         t_info = romfs_image.inspect_msl(src)
+                     except ValueError:
+@@ -1877,115 +2422,143 @@ def prepare_prefill(seed_dir, prefill_sources, tmp_dir, gfx_api='nvn', target_ch
+                         extracted_tmp_dirs.append(ext_dir)
+                         romfs_image.extract_msl(src, ext_dir)
+                         scan_msl_container(ext_dir, 'ios', src)
+-
+-    # Fallback to seed's own shader/ios/b-<old>.img and shader/ios/p<N>/b-<old>.img
+-    seed_ios_dir = os.path.join(seed_p, 'shader', 'ios')
+-    for prog, b_name, lib_path in _discover_prog_b_libs(seed_ios_dir):
+-        ch = _norm_chain(b_name)
+-        key = (prog, ch)
+-        if ch and key not in ios_bin_libs:
+-            ios_bin_libs[key] = lib_path
+-            if seed_ios_dir not in sources_used:
+-                sources_used.append(seed_ios_dir)
+-
+-    # 3. Pair metal-sources with Mac and/or iOS metallibs per program group
+-    def _lookup_bin(bin_map, prog, ch):
+-        exact = bin_map.get((prog, ch))
+-        if exact is not None:
+-            return exact
+-        if prog:
+-            return bin_map.get(('', ch))
+-        return bin_map.get(('p0', ch))
+-
+-    progs_present = sorted({prog for prog, _ch in metal_src_libs}, key=_prog_sort_key)
+-    paired_chains = []
+-    seen_chains = set()
+-    env_specs = []
+-    first_mac_root = None
+-    first_ios_root = None
+-
+-    for prog in progs_present:
+-        mac_root = os.path.join(tmp_abs, f'prefill_mac_{prog}' if prog else 'prefill_mac')
+-        ios_root = os.path.join(tmp_abs, f'prefill_ios_{prog}' if prog else 'prefill_ios')
+-        prog_chains = sorted(ch for p, ch in metal_src_libs if p == prog)
+-        group_paired = False
+-        group_has_ios = False
+-
+-        for ch in prog_chains:
+-            if norm_target and ch == norm_target:
+-                continue
+-            ios_src_path = _lookup_bin(ios_bin_libs, prog, ch)
+-            mac_src_path = _lookup_bin(mac_bin_libs, prog, ch)
+-            if ios_src_path is None and mac_src_path is None:
+-                continue
+-
+-            b_tag = f'b-{ch}'
+-            src_metal_view = shader_lib.view(metal_src_libs[(prog, ch)])
+-            mac_map = {}
+-            for name in sorted(romfs.os.listdir(src_metal_view)):
+-                if name.startswith('.') or '.tmp' in name:
++                        trailer_extracted = True
++                if not trailer_extracted:
++                    if base_s.endswith('.img.zst'):
++                        stem = base_s[:-8]
++                    elif base_s.endswith('.img'):
++                        stem = base_s[:-4]
++                    else:
++                        stem = base_s
++                    if stem.startswith('b-'):
++                        hint = 'mac' if '.app/' in src.replace('\\', '/') else None
++                        register_lib(
++                            src,
++                            prog=_infer_prog_from_parent(src),
++                            chain_hint=stem,
++                            platform_hint=hint,
++                            origin=src,
++                        )
++                    else:
++                        try:
++                            t_info = romfs_image.inspect_msl(src)
++                        except ValueError:
++                            t_info = None
++                        if t_info and t_info.get('has_trailer'):
++                            ext_dir = os.path.join(tmp_abs, f'_trailer_{idx}')
++                            extracted_tmp_dirs.append(ext_dir)
++                            romfs_image.extract_msl(src, ext_dir)
++                            scan_msl_container(ext_dir, 'ios', src)
++
++        # Fallback to seed's own shader/ios/b-<old>.img and shader/ios/p<N>/b-<old>.img
++        seed_ios_dir = os.path.join(seed_p, 'shader', 'ios')
++        for prog, b_name, lib_path in _discover_prog_b_libs(seed_ios_dir, include_zst=False):
++            ch = _norm_chain(b_name)
++            key = (prog, ch)
++            if ch and key not in ios_bin_libs:
++                ios_bin_libs[key] = lib_path
++                if seed_ios_dir not in sources_used:
++                    sources_used.append(seed_ios_dir)
++
++        # 3. Pair metal-sources with Mac and/or iOS metallibs per program group
++        def _lookup_bin(bin_map, prog, ch):
++            exact = bin_map.get((prog, ch))
++            if exact is not None:
++                return exact
++            if prog:
++                return bin_map.get(('', ch))
++            return bin_map.get(('p0', ch))
++
++        progs_present = sorted({prog for prog, _ch in metal_src_libs}, key=_prog_sort_key)
++        paired_chains = []
++        seen_chains = set()
++        env_specs = []
++        first_mac_root = None
++        first_ios_root = None
++
++        for prog in progs_present:
++            mac_root = os.path.join(tmp_abs, f'prefill_mac_{prog}' if prog else 'prefill_mac')
++            ios_root = os.path.join(tmp_abs, f'prefill_ios_{prog}' if prog else 'prefill_ios')
++            prog_chains = sorted(ch for p, ch in metal_src_libs if p == prog)
++            group_paired = False
++            group_has_ios = False
++
++            for ch in prog_chains:
++                if norm_target and ch == norm_target:
+                     continue
+-                _validate_rel_path(name, b_tag)
+-                data = (src_metal_view / name).read_bytes()
+-                quota.charge(1, len(data), name)
+-                mac_map[name] = data
+-
+-            if mac_src_path is not None:
+-                mac_bin_view = shader_lib.view(mac_src_path)
+-                for name in sorted(romfs.os.listdir(mac_bin_view)):
++                ios_src_path = _lookup_bin(ios_bin_libs, prog, ch)
++                mac_src_path = _lookup_bin(mac_bin_libs, prog, ch)
++                if ios_src_path is None and mac_src_path is None:
++                    continue
++
++                b_tag = f'b-{ch}'
++                resolved_metal_src = _resolve_lib_for_read(metal_src_libs[(prog, ch)], dec_tmp_dir, quota)
++                src_metal_view = shader_lib.view(resolved_metal_src)
++                mac_map = {}
++                for name in sorted(romfs.os.listdir(src_metal_view)):
+                     if name.startswith('.') or '.tmp' in name:
+                         continue
+                     _validate_rel_path(name, b_tag)
+-                    if name.endswith(('.metallib', '.json', '.tsv')):
+-                        data = (mac_bin_view / name).read_bytes()
+-                        quota.charge(1, len(data), name)
+-                        mac_map[name] = data
+-
+-            os.makedirs(mac_root, exist_ok=True)
+-            shader_lib.write(mac_map, os.path.join(mac_root, f'{b_tag}.img'))
+-            group_paired = True
+-
+-            if ios_src_path is not None:
+-                ios_dst = os.path.join(ios_root, b_tag)
+-                os.makedirs(ios_dst, exist_ok=True)
+-                ios_folder = shader_lib.folder_of(ios_src_path)
+-                if os.path.isdir(ios_folder) and not os.path.isfile(ios_folder + '.img'):
+-                    with os.scandir(ios_folder) as it:
+-                        for entry in sorted(it, key=lambda e: e.name):
+-                            if entry.is_symlink():
+-                                raise ValueError(f'symlink forbidden in {ios_folder}: {entry.path}')
+-                            if entry.name.startswith('.') or '.tmp' in entry.name:
+-                                continue
+-                            if entry.is_file(follow_symlinks=False) and entry.name.endswith(('.metallib', '.json', '.tsv')):
+-                                _validate_rel_path(entry.name, ios_folder)
+-                                _link_or_copy_file(entry.path, os.path.join(ios_dst, entry.name), quota)
+-                else:
+-                    ios_view = shader_lib.view(ios_src_path)
+-                    for name in sorted(romfs.os.listdir(ios_view)):
++                    data = (src_metal_view / name).read_bytes()
++                    quota.charge(1, len(data), name)
++                    mac_map[name] = data
++
++                if mac_src_path is not None:
++                    mac_bin_view = shader_lib.view(mac_src_path)
++                    for name in sorted(romfs.os.listdir(mac_bin_view)):
+                         if name.startswith('.') or '.tmp' in name:
+                             continue
++                        _validate_rel_path(name, b_tag)
+                         if name.endswith(('.metallib', '.json', '.tsv')):
+-                            _validate_rel_path(name, ios_src_path)
+-                            data = (ios_view / name).read_bytes()
++                            data = (mac_bin_view / name).read_bytes()
+                             quota.charge(1, len(data), name)
+-                            out_f = os.path.join(ios_dst, name)
+-                            with open(out_f, 'wb') as f:
+-                                f.write(data)
+-                group_has_ios = True
+-
+-            if b_tag not in seen_chains:
+-                seen_chains.add(b_tag)
+-                paired_chains.append(b_tag)
+-
+-        if group_paired:
+-            if first_mac_root is None:
+-                first_mac_root = mac_root
+-            if group_has_ios and first_ios_root is None:
+-                first_ios_root = ios_root
+-            env_specs.append(f'{mac_root}={ios_root}' if group_has_ios else mac_root)
+-
+-    for ext_d in extracted_tmp_dirs:
+-        shutil.rmtree(ext_d, ignore_errors=True)
++                            mac_map[name] = data
++
++                os.makedirs(mac_root, exist_ok=True)
++                shader_lib.write(mac_map, os.path.join(mac_root, f'{b_tag}.img'))
++                group_paired = True
++
++                if ios_src_path is not None:
++                    ios_dst = os.path.join(ios_root, b_tag)
++                    os.makedirs(ios_dst, exist_ok=True)
++                    ios_folder = shader_lib.folder_of(ios_src_path)
++                    if os.path.isdir(ios_folder) and not os.path.isfile(ios_folder + '.img'):
++                        with os.scandir(ios_folder) as it:
++                            for entry in sorted(it, key=lambda e: e.name):
++                                if entry.is_symlink():
++                                    raise ValueError(f'symlink forbidden in {ios_folder}: {entry.path}')
++                                if entry.name.startswith('.') or '.tmp' in entry.name:
++                                    continue
++                                if entry.is_file(follow_symlinks=False) and entry.name.endswith(('.metallib', '.json', '.tsv')):
++                                    _validate_rel_path(entry.name, ios_folder)
++                                    _link_or_copy_file(entry.path, os.path.join(ios_dst, entry.name), quota)
++                    else:
++                        ios_view = shader_lib.view(ios_src_path)
++                        for name in sorted(romfs.os.listdir(ios_view)):
++                            if name.startswith('.') or '.tmp' in name:
++                                continue
++                            if name.endswith(('.metallib', '.json', '.tsv')):
++                                _validate_rel_path(name, ios_src_path)
++                                data = (ios_view / name).read_bytes()
++                                quota.charge(1, len(data), name)
++                                out_f = os.path.join(ios_dst, name)
++                                with open(out_f, 'wb') as f:
++                                    f.write(data)
++                    group_has_ios = True
++
++                if b_tag not in seen_chains:
++                    seen_chains.add(b_tag)
++                    paired_chains.append(b_tag)
++
++            if group_paired:
++                if first_mac_root is None:
++                    first_mac_root = mac_root
++                if group_has_ios and first_ios_root is None:
++                    first_ios_root = ios_root
++                env_specs.append(f'{mac_root}={ios_root}' if group_has_ios else mac_root)
++    finally:
++        for ext_d in extracted_tmp_dirs:
++            shutil.rmtree(ext_d, ignore_errors=True)
+ 
+     if not env_specs:
+         return '', {
+@@ -2008,6 +2581,532 @@ def prepare_prefill(seed_dir, prefill_sources, tmp_dir, gfx_api='nvn', target_ch
+     }
+ 
+ 
++def _read_seed_app_name(seed_dir):
++    seed_json = os.path.join(seed_dir, 'seed.json')
++    if not os.path.lexists(seed_json):
++        return ''
++    try:
++        st = os.lstat(seed_json)
++        if _is_symlink_or_reparse(seed_json, st) or not stat.S_ISREG(st.st_mode):
++            return ''
++        with open(seed_json, 'r', encoding='utf-8') as f:
++            data = json.load(f)
++        if isinstance(data, dict):
++            return str(data.get('app_name') or '').strip()
++    except (OSError, ValueError):
++        pass
++    return ''
++
++
++def _refresh_seed_json_timestamp(seed_dir):
++    """Best-effort atomic refresh of seed.json updated_at without altering existing fields."""
++    seed_json = os.path.join(seed_dir, 'seed.json')
++    if not os.path.lexists(seed_json):
++        return
++    try:
++        st = os.lstat(seed_json)
++        if _is_symlink_or_reparse(seed_json, st) or not stat.S_ISREG(st.st_mode):
++            return
++        with open(seed_json, 'r', encoding='utf-8') as f:
++            data = json.load(f)
++        if not isinstance(data, dict) or data.get('schema') != SEED_SCHEMA_VERSION:
++            return
++        data['updated_at'] = _utc_now_iso()
++        payload = (json.dumps(data, indent=2, ensure_ascii=False) + '\n').encode('utf-8')
++        tmp_json = os.path.join(seed_dir, f'.seed.json.{os.getpid()}.tmp')
++        if os.path.islink(tmp_json):
++            return
++        with open(tmp_json, 'wb') as tf:
++            tf.write(payload)
++            tf.flush()
++            os.fsync(tf.fileno())
++        os.replace(tmp_json, seed_json)
++    except (OSError, ValueError):
++        try:
++            tmp_json = os.path.join(seed_dir, f'.seed.json.{os.getpid()}.tmp')
++            if os.path.lexists(tmp_json) and not os.path.islink(tmp_json):
++                os.unlink(tmp_json)
++        except OSError:
++            pass
++
++
++def _scan_metal_sources_tree(metal_dir, *, allow_symlinks_as_error=False):
++    """Safely walks metal-sources/ without following symlinks.
++    Returns ([(relpath, abs_path, size_bytes, is_symlink_error), ...], tree_error_or_None)."""
++    if not os.path.lexists(metal_dir):
++        return [], None
++    mst = os.lstat(metal_dir)
++    if _is_symlink_or_reparse(metal_dir, mst):
++        msg = f'symlink forbidden for metal-sources: {metal_dir}'
++        return ([], msg) if allow_symlinks_as_error else ([], None)
++    if not stat.S_ISDIR(mst.st_mode):
++        return [], None
++
++    metal_real = os.path.realpath(metal_dir)
++    found = []
++    stack = [(metal_dir, '')]
++    visited = {_dir_loop_key(metal_dir, mst)}
++    entries_seen = 0
++
++    while stack:
++        cur_dir, cur_rel = stack.pop()
++        try:
++            with os.scandir(cur_dir) as it:
++                entries = sorted(it, key=lambda e: e.name)
++        except OSError as exc:
++            if allow_symlinks_as_error:
++                return found, f'cannot scan {cur_dir}: {exc}'
++            continue
++
++        for entry in entries:
++            entries_seen += 1
++            if entries_seen > SEED_MAX_ENTRIES:
++                return found, f'metal-sources exceeds entry quota ({SEED_MAX_ENTRIES})'
++            name = entry.name
++            if name.startswith('.') or '.tmp' in name or name.endswith('.part'):
++                continue
++            rel = f'{cur_rel}/{name}' if cur_rel else name
++            try:
++                _validate_rel_path(rel, metal_dir)
++            except ValueError as exc:
++                if allow_symlinks_as_error:
++                    return found, str(exc)
++                continue
++
++            try:
++                est = entry.stat(follow_symlinks=False)
++            except OSError as exc:
++                if allow_symlinks_as_error:
++                    return found, f'cannot stat {entry.path}: {exc}'
++                continue
++
++            if entry.is_symlink() or _is_symlink_or_reparse(entry.path, est):
++                if allow_symlinks_as_error:
++                    return found, f'symlink forbidden inside metal-sources: {entry.path}'
++                continue
++
++            if stat.S_ISDIR(est.st_mode):
++                try:
++                    lst = os.lstat(entry.path)
++                except OSError:
++                    continue
++                if _is_symlink_or_reparse(entry.path, lst) or not stat.S_ISDIR(lst.st_mode):
++                    if allow_symlinks_as_error:
++                        return found, f'symlink forbidden inside metal-sources: {entry.path}'
++                    continue
++                key = _dir_loop_key(entry.path, lst)
++                if key in visited:
++                    if allow_symlinks_as_error:
++                        return found, f'directory loop inside metal-sources: {entry.path}'
++                    continue
++                visited.add(key)
++                stack.append((entry.path, rel))
++            elif stat.S_ISREG(est.st_mode) and name.startswith('b-') and name.endswith('.img'):
++                try:
++                    ent_real = os.path.realpath(entry.path)
++                    if os.path.commonpath([metal_real, ent_real]) != metal_real:
++                        if allow_symlinks_as_error:
++                            return found, f'path escapes metal-sources: {entry.path}'
++                        continue
++                except ValueError:
++                    continue
++                found.append((rel, entry.path, est.st_size))
++
++    found.sort(key=lambda item: item[0])
++    return found, None
++
++
++def scan_uncompressed_seeds(seed_root=None):
++    """Safely scans <seed_root>/<16-hex-TID>/metal-sources/**/b-*.img and returns a summary dict."""
++    root = os.fspath(seed_root) if seed_root else default_seed_root()
++    root_abs = os.path.abspath(root)
++    zstd_ok = zstd_available()
++
++    if os.path.lexists(root):
++        st = os.lstat(root)
++        if _is_symlink_or_reparse(root, st):
++            raise ValueError(f'seed_root must not be a symlink: {root}')
++        if not stat.S_ISDIR(st.st_mode):
++            raise ValueError(f'seed_root is not a directory: {root}')
++    else:
++        return {
++            'seed_root': root_abs,
++            'zstd_available': zstd_ok,
++            'total_games': 0,
++            'total_files': 0,
++            'uncompressed_bytes': 0,
++            'estimated_compressed_bytes': 0,
++            'estimated_saved_bytes': 0,
++            'games': [],
++        }
++
++    root_real = os.path.realpath(root)
++    games = []
++    with os.scandir(root) as it:
++        entries = sorted(it, key=lambda e: e.name)
++
++    for entry in entries:
++        if entry.name.startswith('.'):
++            continue
++        if entry.is_symlink() or _is_symlink_or_reparse(entry.path):
++            continue
++        if not entry.is_dir(follow_symlinks=False):
++            continue
++        tid = entry.name.upper()
++        if not _TID_RE.fullmatch(tid):
++            continue
++        try:
++            if os.path.commonpath([root_real, os.path.realpath(entry.path)]) != root_real:
++                continue
++        except ValueError:
++            continue
++
++        metal_dir = os.path.join(entry.path, 'metal-sources')
++        found, _err = _scan_metal_sources_tree(metal_dir, allow_symlinks_as_error=False)
++        if not found:
++            continue
++
++        uncomp_bytes = sum(sz for _, _, sz in found)
++        est_comp = int(round(uncomp_bytes * _ZSTD_ESTIMATE_RATIO)) if uncomp_bytes > 0 else 0
++        games.append({
++            'title_id': tid,
++            'app_name': _read_seed_app_name(entry.path),
++            'files': [rel for rel, _, _ in found],
++            'uncompressed_bytes': uncomp_bytes,
++            'estimated_compressed_bytes': est_comp,
++        })
++
++    games.sort(key=lambda g: (-g['uncompressed_bytes'], g['title_id']))
++    total_files = sum(len(g['files']) for g in games)
++    total_uncomp = sum(g['uncompressed_bytes'] for g in games)
++    total_est_comp = sum(g['estimated_compressed_bytes'] for g in games)
++    total_est_saved = max(0, total_uncomp - total_est_comp)
++
++    return {
++        'seed_root': root_abs,
++        'zstd_available': zstd_ok,
++        'total_games': len(games),
++        'total_files': total_files,
++        'uncompressed_bytes': total_uncomp,
++        'estimated_compressed_bytes': total_est_comp,
++        'estimated_saved_bytes': total_est_saved,
++        'games': games,
++    }
++
++
++def compress_seeds(seed_root=None, title_ids=None, progress_cb=None, level=3):
++    """Stream-compresses legacy uncompressed metal-sources/**/b-*.img files into .img.zst.
++    Verifies every compressed archive before atomic replace and unlinks .img only after success."""
++    if isinstance(level, bool) or not isinstance(level, int) or not (1 <= level <= 22):
++        raise ValueError(f'invalid zstd compression level: {level!r}')
++    if _zstd_backend() is None:
++        raise RuntimeError('zstd compression is unavailable (install backports.zstd or zstd CLI)')
++
++    root = os.fspath(seed_root) if seed_root else default_seed_root()
++    if os.path.lexists(root):
++        st = os.lstat(root)
++        if _is_symlink_or_reparse(root, st):
++            raise ValueError(f'seed_root must not be a symlink: {root}')
++        if not stat.S_ISDIR(st.st_mode):
++            raise ValueError(f'seed_root is not a directory: {root}')
++
++    wanted_tids = None
++    if title_ids:
++        seen_tids = []
++        for raw_tid in title_ids:
++            t = _validate_title_id(raw_tid)
++            if t not in seen_tids:
++                seen_tids.append(t)
++        wanted_tids = seen_tids
++
++    worklist = []   # list of dicts: {title_id, seed_dir, files: [(rel, abs_path, img_sz, zst_sz)], before_bytes, scan_error}
++    if os.path.isdir(root):
++        root_real = os.path.realpath(root)
++        with os.scandir(root) as it:
++            dir_entries = sorted(it, key=lambda e: e.name)
++
++        by_tid = {}
++        for entry in dir_entries:
++            if entry.name.startswith('.'):
++                continue
++            tid = entry.name.upper()
++            if not _TID_RE.fullmatch(tid):
++                continue
++            by_tid.setdefault(tid, []).append(entry)
++
++        iter_tids = wanted_tids if wanted_tids is not None else sorted(by_tid)
++        for tid in iter_tids:
++            entries_for_tid = by_tid.get(tid, [])
++            if not entries_for_tid:
++                continue
++            entry = entries_for_tid[0]
++            if entry.is_symlink() or _is_symlink_or_reparse(entry.path):
++                worklist.append({
++                    'title_id': tid,
++                    'seed_dir': entry.path,
++                    'files': [],
++                    'before_bytes': 0,
++                    'scan_error': f'symlink forbidden for seed directory: {entry.path}',
++                })
++                continue
++            if not entry.is_dir(follow_symlinks=False):
++                continue
++            try:
++                if os.path.commonpath([root_real, os.path.realpath(entry.path)]) != root_real:
++                    worklist.append({
++                        'title_id': tid,
++                        'seed_dir': entry.path,
++                        'files': [],
++                        'before_bytes': 0,
++                        'scan_error': f'seed directory escapes seed_root: {entry.path}',
++                    })
++                    continue
++            except ValueError:
++                continue
++
++            metal_dir = os.path.join(entry.path, 'metal-sources')
++            found, scan_err = _scan_metal_sources_tree(metal_dir, allow_symlinks_as_error=True)
++            if not found and not scan_err:
++                continue
++
++            file_items = []
++            game_before = 0
++            for rel, img_p, img_sz in found:
++                zst_p = img_p + '.zst'
++                zst_sz = 0
++                if os.path.lexists(zst_p) and not os.path.islink(zst_p) and os.path.isfile(zst_p):
++                    try:
++                        zst_sz = os.path.getsize(zst_p)
++                    except OSError:
++                        zst_sz = 0
++                file_items.append((rel, img_p, img_sz, zst_sz))
++                game_before += img_sz + zst_sz
++
++            worklist.append({
++                'title_id': tid,
++                'seed_dir': entry.path,
++                'files': file_items,
++                'before_bytes': game_before,
++                'scan_error': scan_err,
++            })
++
++    worklist.sort(key=lambda item: (-item['before_bytes'], item['title_id']))
++    total_games = len(worklist)
++    total_files = sum(len(item['files']) for item in worklist)
++    total_bytes = sum(item['before_bytes'] for item in worklist)
++
++    def _emit(event_dict):
++        if progress_cb is not None:
++            progress_cb(event_dict)
++
++    stop_ctrl = _CompressStopController()
++    installed_handlers = {}
++    is_main = threading.current_thread() is threading.main_thread()
++    if is_main:
++        def _handle_signal(_signum, _frame):
++            stop_ctrl.request_stop()
++        for sig_name in ('SIGTERM', 'SIGINT'):
++            sig = getattr(signal, sig_name, None)
++            if sig is not None:
++                try:
++                    installed_handlers[sig] = signal.getsignal(sig)
++                    signal.signal(sig, _handle_signal)
++                except (OSError, ValueError):
++                    pass
++
++    t_start = time.monotonic()
++    results = []
++    completed_games = 0
++    failed_games = 0
++    agg_before = 0
++    agg_after = 0
++
++    try:
++        _emit({
++            'event': 'start',
++            'total_games': total_games,
++            'total_files': total_files,
++            'total_bytes': total_bytes,
++        })
++
++        for idx, item in enumerate(worklist, start=1):
++            if stop_ctrl.stopped:
++                break
++
++            tid = item['title_id']
++            before_b = item['before_bytes']
++            _emit({
++                'event': 'item_start',
++                'index': idx,
++                'total_games': total_games,
++                'title_id': tid,
++                'before_bytes': before_b,
++            })
++
++            file_items = item['files']
++            per_file_after = [img_sz + zst_sz for _rel, _p, img_sz, zst_sz in file_items]
++            files_compressed = 0
++
++            try:
++                if item['scan_error']:
++                    raise ValueError(item['scan_error'])
++
++                for f_idx, (rel, img_path, img_sz, _zst_sz) in enumerate(file_items):
++                    stop_ctrl.check()
++
++                    # 1. Verify regular non-symlink file and DMROMFS1 magic
++                    fin, fst = _open_regular_nofollow(img_path)
++                    try:
++                        head_magic = fin.read(len(romfs_image.MAGIC))
++                    finally:
++                        fin.close()
++                    if head_magic != romfs_image.MAGIC:
++                        raise ValueError(f'invalid RomFS magic in {tid}/{rel} (expected DMROMFS1)')
++                    src_size = fst.st_size
++
++                    zst_path = img_path + '.zst'
++                    existing_valid_zst = False
++                    if os.path.lexists(zst_path):
++                        zst_st = os.lstat(zst_path)
++                        if _is_symlink_or_reparse(zst_path, zst_st):
++                            raise ValueError(f'symlink forbidden at destination: {zst_path}')
++                        if not stat.S_ISREG(zst_st.st_mode):
++                            raise ValueError(f'non-regular file at destination: {zst_path}')
++                        try:
++                            _zstd_verify_and_decompress_stream(
++                                zst_path,
++                                dst_path=None,
++                                expected_magic=romfs_image.MAGIC,
++                                stop_ctrl=stop_ctrl,
++                            )
++                            existing_valid_zst = True
++                        except _CompressStopped:
++                            raise
++                        except Exception:
++                            existing_valid_zst = False
++
++                    if existing_valid_zst:
++                        # 7. Existing .img.zst verified cleanly as DMROMFS1: unlink duplicate .img
++                        new_zst_size = os.path.getsize(zst_path)
++                        os.unlink(img_path)
++                        per_file_after[f_idx] = new_zst_size
++                        files_compressed += 1
++                    else:
++                        # 2. Disk free-space preflight on target volume
++                        parent_dir = os.path.dirname(img_path)
++                        free_bytes = shutil.disk_usage(parent_dir).free
++                        reserve = max(_ZSTD_RESERVE_MIN_BYTES, int(src_size * _ZSTD_RESERVE_RATIO))
++                        if free_bytes < reserve:
++                            raise OSError(
++                                errno.ENOSPC,
++                                f'insufficient disk space for {tid}/{rel}: {free_bytes} bytes free, need at least {reserve} bytes',
++                            )
++
++                        # 3. Stream-compress to same-directory .tmp
++                        tmp_zst = zst_path + '.tmp'
++                        if os.path.islink(tmp_zst):
++                            raise ValueError(f'symlink forbidden at temp path: {tmp_zst}')
++                        _zstd_compress_stream(img_path, tmp_zst, level=level, stop_ctrl=stop_ctrl)
++
++                        # 4. Full streaming decompression verify (complete frame + DMROMFS1 + exact byte count)
++                        _zstd_verify_and_decompress_stream(
++                            tmp_zst,
++                            dst_path=None,
++                            expected_size=src_size,
++                            expected_magic=romfs_image.MAGIC,
++                            stop_ctrl=stop_ctrl,
++                        )
++                        stop_ctrl.check()
++
++                        # 5. Atomic replace
++                        os.replace(tmp_zst, zst_path)
++                        stop_ctrl.discard_tmp(tmp_zst)
++
++                        # 6. Unlink original .img ONLY AFTER atomic replace succeeded
++                        new_zst_size = os.path.getsize(zst_path)
++                        os.unlink(img_path)
++                        per_file_after[f_idx] = new_zst_size
++                        files_compressed += 1
++
++                _refresh_seed_json_timestamp(item['seed_dir'])
++
++                after_b = sum(per_file_after)
++                saved_b = max(0, before_b - after_b)
++                completed_games += 1
++                agg_before += before_b
++                agg_after += after_b
++                res_entry = {
++                    'title_id': tid,
++                    'status': 'completed',
++                    'before_bytes': before_b,
++                    'after_bytes': after_b,
++                    'saved_bytes': saved_b,
++                    'files_compressed': files_compressed,
++                }
++                results.append(res_entry)
++                _emit({
++                    'event': 'item_done',
++                    'index': idx,
++                    'total_games': total_games,
++                    'title_id': tid,
++                    'before_bytes': before_b,
++                    'after_bytes': after_b,
++                    'saved_bytes': saved_b,
++                    'files_compressed': files_compressed,
++                })
++            except _CompressStopped:
++                stop_ctrl.cleanup_tmps()
++                break
++            except Exception as exc:
++                stop_ctrl.cleanup_tmps()
++                after_b = sum(per_file_after)
++                saved_b = max(0, before_b - after_b)
++                failed_games += 1
++                agg_before += before_b
++                agg_after += after_b
++                results.append({
++                    'title_id': tid,
++                    'status': 'error',
++                    'before_bytes': before_b,
++                    'after_bytes': after_b,
++                    'saved_bytes': saved_b,
++                    'files_compressed': files_compressed,
++                    'error': str(exc),
++                })
++                _emit({
++                    'event': 'item_error',
++                    'index': idx,
++                    'total_games': total_games,
++                    'title_id': tid,
++                    'before_bytes': before_b,
++                    'error': str(exc),
++                })
++    finally:
++        stop_ctrl.cleanup_tmps()
++        for sig, prev in installed_handlers.items():
++            try:
++                signal.signal(sig, prev)
++            except (OSError, ValueError):
++                pass
++
++    status = 'stopped' if stop_ctrl.stopped else ('partial' if failed_games > 0 else 'completed')
++    elapsed_sec = round(time.monotonic() - t_start, 3)
++    saved_total = max(0, agg_before - agg_after)
++    done_payload = {
++        'event': 'done',
++        'status': status,
++        'completed_games': completed_games,
++        'failed_games': failed_games,
++        'before_bytes': agg_before,
++        'after_bytes': agg_after,
++        'saved_bytes': saved_total,
++        'elapsed_sec': elapsed_sec,
++        'results': results,
++    }
++    _emit(done_payload)
++    return done_payload
++
++
+ def _build_cli_parser():
+     common_sub = argparse.ArgumentParser(add_help=False)
+     common_sub.add_argument('--json', action='store_true', default=argparse.SUPPRESS, help='print structured JSON output')
+@@ -2048,6 +3147,15 @@ def _build_cli_parser():
+     p_pre.add_argument('--gfx-api', default='nvn', dest='gfx_api', help='graphics backend (default: nvn)')
+     p_pre.add_argument('--target-chain', default=None, dest='target_chain', help='current target DMSH_CHAIN to exclude from old chains')
+ 
++    p_scan = sub.add_parser('scan-uncompressed', parents=[common_sub], help='scan uncompressed metal-sources .img archives')
++    p_scan.add_argument('--seed-cache-dir', '--seed-root', dest='seed_root', default=None, help='seed cache root directory')
++
++    p_comp = sub.add_parser('compress-seeds', parents=[common_sub], help='compress legacy metal-sources .img archives with zstd')
++    p_comp.add_argument('--seed-cache-dir', '--seed-root', dest='seed_root', default=None, help='seed cache root directory')
++    p_comp.add_argument('--title-id', action='append', default=[], dest='title_ids', help='restrict compression to specific 16-hex title ID(s)')
++    p_comp.add_argument('--progress', choices=('json', 'text'), default=None, dest='progress', help='emit line-delimited progress events')
++    p_comp.add_argument('--level', type=int, default=3, dest='level', help='zstd compression level (default: 3)')
++
+     return ap
+ 
+ 
+@@ -2109,7 +3217,56 @@ def main(argv=None):
+             else:
+                 print(env_val)
+             return 0
+-    except (OSError, ValueError, TypeError) as exc:
++
++        if args.cmd == 'scan-uncompressed':
++            res = scan_uncompressed_seeds(seed_root=args.seed_root)
++            if args.json:
++                print(json.dumps(res, indent=2))
++            else:
++                print(
++                    f"{res['seed_root']}: {res['total_games']} game(s), "
++                    f"{res['total_files']} file(s), {res['uncompressed_bytes']} bytes"
++                )
++            return 0
++
++        if args.cmd == 'compress-seeds':
++            progress_mode = getattr(args, 'progress', None)
++
++            def _progress_cb(ev):
++                if progress_mode == 'json':
++                    print(json.dumps(ev, ensure_ascii=False), flush=True)
++                elif progress_mode == 'text':
++                    kind = ev.get('event')
++                    if kind == 'item_done':
++                        print(
++                            f"[{ev['index']}/{ev['total_games']}] {ev['title_id']}: "
++                            f"{ev['before_bytes']} -> {ev['after_bytes']} bytes",
++                            flush=True,
++                        )
++                    elif kind == 'item_error':
++                        print(f"[{ev['index']}/{ev['total_games']}] {ev['title_id']}: error: {ev['error']}", flush=True)
++
++            res = compress_seeds(
++                seed_root=args.seed_root,
++                title_ids=args.title_ids or None,
++                progress_cb=_progress_cb if progress_mode else None,
++                level=args.level,
++            )
++            if progress_mode != 'json':
++                if args.json:
++                    print(json.dumps(res, indent=2))
++                else:
++                    print(
++                        f"{res['status']}: {res['completed_games']} completed, {res['failed_games']} failed, "
++                        f"saved {res['saved_bytes']} bytes in {res['elapsed_sec']}s"
++                    )
++            if res['status'] == 'partial' and res['completed_games'] == 0 and res['failed_games'] > 0:
++                return 1
++            return 0
++    except (OSError, ValueError, TypeError, RuntimeError) as exc:
++        if getattr(args, 'progress', None) == 'json':
++            print(json.dumps({'event': 'error', 'error': str(exc)}, ensure_ascii=False), flush=True)
++            return 1
+         if getattr(args, 'json', False):
+             print(json.dumps({'valid': False, 'ok': False, 'error': str(exc)}, indent=2))
+             return 1
 diff --git a/dm/tools/tests/test_build_seed_profile_version.py b/dm/tools/tests/test_build_seed_profile_version.py
 new file mode 100644
-index 00000000..15d1d1f4
+index 0000000..15d1d1f
 --- /dev/null
 +++ b/dm/tools/tests/test_build_seed_profile_version.py
 @@ -0,0 +1,277 @@
@@ -493,7 +2185,7 @@ index 00000000..15d1d1f4
 +    unittest.main()
 diff --git a/dm/tools/tests/test_build_seed_windows_dir_loop.py b/dm/tools/tests/test_build_seed_windows_dir_loop.py
 new file mode 100644
-index 00000000..1a5e3117
+index 0000000..1a5e311
 --- /dev/null
 +++ b/dm/tools/tests/test_build_seed_windows_dir_loop.py
 @@ -0,0 +1,284 @@
@@ -781,8 +2473,598 @@ index 00000000..1a5e3117
 +
 +if __name__ == '__main__':
 +    unittest.main()
+diff --git a/dm/tools/tests/test_build_seed_zstd.py b/dm/tools/tests/test_build_seed_zstd.py
+new file mode 100644
+index 0000000..8fc7cfe
+--- /dev/null
++++ b/dm/tools/tests/test_build_seed_zstd.py
+@@ -0,0 +1,584 @@
++#!/usr/bin/env python3
++"""Tests for streaming zstd compression of build seed metal-sources archives."""
++
++import json
++import os
++import shutil
++import signal
++import subprocess
++import sys
++import tempfile
++import unittest
++from pathlib import Path
++from unittest import mock
++
++HERE = Path(__file__).resolve().parent
++REPO = HERE.parent.parent.parent
++if str(REPO) not in sys.path:
++    sys.path.insert(0, str(REPO))
++
++from dm.tools import build_seed, romfs, romfs_image, shader_lib  # noqa: E402
++
++
++def _write_bytes(path, data):
++    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
++    with open(path, 'wb') as f:
++        f.write(data)
++
++
++class BuildSeedZstdTests(unittest.TestCase):
++    def setUp(self):
++        self._tmp = tempfile.TemporaryDirectory(prefix='test_seed_zstd_')
++        self.root = Path(self._tmp.name)
++
++    def tearDown(self):
++        self._tmp.cleanup()
++
++    def _make_nvn_work(self, name='work', chain='1122334455667788', metal_tag='v1'):
++        work = self.root / name
++        (work / 'extract' / 'v0' / 'ExeFS').mkdir(parents=True)
++        (work / 'extract' / 'v0' / 'ExeFS' / 'main').write_bytes(b'MAIN_BIN')
++        (work / 'shader' / 'pkg').mkdir(parents=True)
++        (work / 'shader' / 'pkg' / 'pkg.bin').write_bytes(b'PKG')
++        (work / 'shader' / 'tables').mkdir(parents=True)
++        (work / 'shader' / 'tables' / 'c1_full.tsv').write_text('# c1\n', encoding='utf-8')
++        (work / 'shader' / 'tables' / 'cb_extent.tsv').write_text('# cb\n', encoding='utf-8')
++        (work / 'shader' / 'ios').mkdir(parents=True)
++        shader_lib.write(
++            {'0000000000000001_b.metallib': b'IOS_METALLIB', 'inputs.tsv': b'inputs\tst\n'},
++            str(work / 'shader' / 'ios' / f'b-{chain}.img'),
++        )
++        (work / 'shader' / 'cache').mkdir(parents=True)
++        shader_lib.write(
++            {
++                '0000000000000001_b.metal': f'vertex float4 {metal_tag}() {{ return 0; }}\n'.encode('utf-8') * 200,
++                '0000000000000001_b.json': b'{"stage":"vs"}\n',
++                '0000000000000001_bx.metallib': b'SIDE_BIN',
++                'inputs.tsv': b'inputs\tst\n',
++            },
++            str(work / 'shader' / 'cache' / f'b-{chain}.img'),
++        )
++        return work
++
++    def _make_legacy_seed_with_uncompressed_img(self, seed_root, tid, chain='aaaabbbbccccdddd', app_name='Demo', extra_files=None):
++        seed_dir = seed_root / tid
++        (seed_dir / 'ExeFS').mkdir(parents=True)
++        (seed_dir / 'ExeFS' / 'main').write_bytes(b'MAIN')
++        (seed_dir / 'shader' / 'pkg').mkdir(parents=True)
++        (seed_dir / 'shader' / 'tables').mkdir(parents=True)
++        (seed_dir / 'shader' / 'tables' / 'c1_full.tsv').write_text('# c1\n', encoding='utf-8')
++        (seed_dir / 'shader' / 'tables' / 'cb_extent.tsv').write_text('# cb\n', encoding='utf-8')
++        (seed_dir / 'shader' / 'ios').mkdir(parents=True)
++        shader_lib.write({'0000000000000001_b.metallib': b'IOS_BIN'}, str(seed_dir / 'shader' / 'ios' / f'b-{chain}.img'))
++
++        ms_dir = seed_dir / 'metal-sources'
++        ms_dir.mkdir(parents=True)
++        files = extra_files or {
++            '0000000000000001_b.metal': (b'vertex float4 legacy_fn() { return 0; }\n' * 1500),
++            '0000000000000001_b.json': b'{"stage":"vs"}\n',
++            'inputs.tsv': b'inputs\tlegacy\n',
++        }
++        img_path = ms_dir / f'b-{chain}.img'
++        shader_lib.write(files, str(img_path))
++
++        seed_json = {
++            'schema': 1,
++            'title_id': tid,
++            'base_title_id': tid,
++            'pkg_ver': 'v0',
++            'app_name': app_name,
++            'gfx_api': 'nvn',
++            'chain': chain,
++            'updated_at': '2026-01-01T00:00:00Z',
++        }
++        (seed_dir / 'seed.json').write_text(json.dumps(seed_json, indent=2) + '\n', encoding='utf-8')
++        return seed_dir, img_path
++
++    def test_save_seed_writes_zstd_by_default_and_prepare_prefill_reads_it(self):
++        tid = '0100112233445000'
++        chain = '1122334455667788'
++        work = self._make_nvn_work('w_default', chain=chain, metal_tag='zstd_default')
++        seed_root = self.root / 'seeds_default'
++
++        res = build_seed.save_seed(seed_root, tid, {'pkg_ver': 'v0', 'gfx_api': 'nvn', 'chain': chain}, work)
++        self.assertTrue(res['valid'], res.get('reason'))
++        self.assertTrue(res['has_metal_sources'])
++
++        ms_dir = seed_root / tid / 'metal-sources'
++        zst_path = ms_dir / f'b-{chain}.img.zst'
++        img_path = ms_dir / f'b-{chain}.img'
++        self.assertTrue(zst_path.is_file(), 'save_seed must emit .img.zst by default')
++        self.assertFalse(img_path.exists(), 'uncompressed .img must not remain when zstd is available')
++        self.assertEqual(list(ms_dir.glob('*.tmp')), [])
++
++        # prepare_prefill must transparently read .img.zst and stage uncompressed prefill_mac/b-<chain>.img
++        prefill_tmp = self.root / 'prefill_out'
++        env_val, summary = build_seed.prepare_prefill(
++            seed_root / tid, [], prefill_tmp, gfx_api='nvn', target_chain='9999aaaabbbbcccc'
++        )
++        self.assertTrue(env_val)
++        self.assertEqual(summary['chains'], [f'b-{chain}'])
++        mac_img = Path(summary['prefill_mac']) / f'b-{chain}.img'
++        self.assertTrue(mac_img.is_file())
++        src_text = (shader_lib.view(str(mac_img)) / '0000000000000001_b.metal').read_text()
++        self.assertIn('zstd_default', src_text)
++
++    def test_save_seed_falls_back_to_uncompressed_img_when_zstd_unavailable(self):
++        tid = '0100112233446000'
++        chain = '2233445566778899'
++        work = self._make_nvn_work('w_fallback', chain=chain)
++        seed_root = self.root / 'seeds_fallback'
++
++        with mock.patch.object(build_seed, '_zstd_backend', return_value=None):
++            res = build_seed.save_seed(seed_root, tid, {'pkg_ver': 'v0', 'gfx_api': 'nvn', 'chain': chain}, work)
++
++        self.assertTrue(res['valid'], res.get('reason'))
++        ms_dir = seed_root / tid / 'metal-sources'
++        self.assertTrue((ms_dir / f'b-{chain}.img').is_file())
++        self.assertFalse((ms_dir / f'b-{chain}.img.zst').exists())
++
++    def test_prepare_prefill_supports_legacy_img_and_prefers_valid_img_zst_when_both_exist(self):
++        seed_root = self.root / 'seeds_compat'
++        tid = '0100112233447000'
++        chain = '3344556677889900'
++        seed_dir, img_path = self._make_legacy_seed_with_uncompressed_img(seed_root, tid, chain=chain)
++
++        # 1. Legacy uncompressed .img alone works
++        p_tmp1 = self.root / 'prefill_legacy'
++        env1, sum1 = build_seed.prepare_prefill(seed_dir, [], p_tmp1, gfx_api='nvn', target_chain='0000111122223333')
++        self.assertTrue(env1)
++        self.assertEqual(sum1['chains'], [f'b-{chain}'])
++        txt1 = (shader_lib.view(str(Path(sum1['prefill_mac']) / f'b-{chain}.img')) / '0000000000000001_b.metal').read_text()
++        self.assertIn('legacy_fn', txt1)
++
++        # 2. Create a newer valid .img.zst beside the old .img -> .img.zst MUST take precedence
++        raw_new = self.root / 'new_raw.img'
++        shader_lib.write(
++            {
++                '0000000000000001_b.metal': b'vertex float4 preferred_zst_fn() { return 1; }\n',
++                '0000000000000001_b.json': b'{"stage":"vs"}\n',
++                'inputs.tsv': b'inputs\tzst\n',
++            },
++            str(raw_new),
++        )
++        build_seed._zstd_compress_stream(str(raw_new), str(img_path) + '.zst', level=3)
++
++        p_tmp2 = self.root / 'prefill_prefer_zst'
++        env2, sum2 = build_seed.prepare_prefill(seed_dir, [], p_tmp2, gfx_api='nvn', target_chain='0000111122223333')
++        self.assertTrue(env2)
++        txt2 = (shader_lib.view(str(Path(sum2['prefill_mac']) / f'b-{chain}.img')) / '0000000000000001_b.metal').read_text()
++        self.assertIn('preferred_zst_fn', txt2)
++        self.assertNotIn('legacy_fn', txt2)
++
++    def test_scan_uncompressed_cli_and_sorting(self):
++        seed_root = self.root / 'seeds_scan'
++        tid_small = '0100000000000010'
++        tid_big = '0100000000000020'
++        tid_already_zst = '0100000000000030'
++
++        self._make_legacy_seed_with_uncompressed_img(
++            seed_root,
++            tid_small,
++            chain='1111111111111111',
++            app_name='Small Game',
++            extra_files={'0000000000000001_b.metal': b'A' * 4096, 'inputs.tsv': b'inputs\ts\n'},
++        )
++        big_dir, big_img = self._make_legacy_seed_with_uncompressed_img(
++            seed_root,
++            tid_big,
++            chain='2222222222222222',
++            app_name='Big Game',
++            extra_files={'0000000000000001_b.metal': b'B' * 65536, 'inputs.tsv': b'inputs\tb\n'},
++        )
++        # Also add multi-program p0/b-*.img and a .tmp file that must be ignored
++        (big_dir / 'metal-sources' / 'p0').mkdir(parents=True, exist_ok=True)
++        shader_lib.write({'0000000000000002_b.metal': b'C' * 8192}, str(big_dir / 'metal-sources' / 'p0' / 'b-2222222222222222.img'))
++        (big_dir / 'metal-sources' / 'b-2222222222222222.img.zst.tmp').write_bytes(b'TEMP')
++
++        # Already compressed game must NOT show up in scan-uncompressed
++        zst_dir, zst_old_img = self._make_legacy_seed_with_uncompressed_img(seed_root, tid_already_zst, chain='3333333333333333')
++        build_seed._zstd_compress_stream(str(zst_old_img), str(zst_old_img) + '.zst', level=3)
++        zst_old_img.unlink()
++
++        proc = subprocess.run(
++            [sys.executable, str(REPO / 'dm' / 'tools' / 'build_seed.py'), 'scan-uncompressed', '--seed-root', str(seed_root), '--json'],
++            capture_output=True,
++            text=True,
++        )
++        self.assertEqual(proc.returncode, 0, proc.stderr)
++        data = json.loads(proc.stdout)
++        self.assertEqual(data['seed_root'], os.path.abspath(seed_root))
++        self.assertTrue(data['zstd_available'])
++        self.assertEqual(data['total_games'], 2)
++        self.assertEqual(data['total_files'], 3)
++        self.assertEqual([g['title_id'] for g in data['games']], [tid_big, tid_small])
++        self.assertEqual(data['games'][0]['files'], ['b-2222222222222222.img', 'p0/b-2222222222222222.img'])
++        self.assertGreater(data['games'][0]['uncompressed_bytes'], data['games'][1]['uncompressed_bytes'])
++        self.assertEqual(data['estimated_saved_bytes'], data['uncompressed_bytes'] - data['estimated_compressed_bytes'])
++
++    def test_compress_seeds_happy_path_and_residual_duplicate_cleanup(self):
++        seed_root = self.root / 'seeds_compress'
++        tid1 = '0100000000000101'
++        tid2 = '0100000000000102'
++        d1, img1 = self._make_legacy_seed_with_uncompressed_img(seed_root, tid1, chain='aaaa111122223333', app_name='GameOne')
++        d2, img2 = self._make_legacy_seed_with_uncompressed_img(seed_root, tid2, chain='bbbb111122223333', app_name='GameTwo')
++
++        # Simulate tid2 already having a valid sibling .img.zst with an orphaned .img left behind
++        zst2 = Path(str(img2) + '.zst')
++        build_seed._zstd_compress_stream(str(img2), str(zst2), level=3)
++        self.assertTrue(img2.is_file() and zst2.is_file())
++
++        proc = subprocess.run(
++            [
++                sys.executable,
++                str(REPO / 'dm' / 'tools' / 'build_seed.py'),
++                'compress-seeds',
++                '--seed-root',
++                str(seed_root),
++                '--progress',
++                'json',
++                '--level',
++                '3',
++            ],
++            capture_output=True,
++            text=True,
++        )
++        self.assertEqual(proc.returncode, 0, proc.stderr)
++        events = [json.loads(line) for line in proc.stdout.strip().splitlines()]
++        self.assertEqual(events[0]['event'], 'start')
++        self.assertEqual(events[0]['total_games'], 2)
++        self.assertEqual(events[-1]['event'], 'done')
++        self.assertEqual(events[-1]['status'], 'completed')
++        self.assertEqual(events[-1]['completed_games'], 2)
++        self.assertEqual(events[-1]['failed_games'], 0)
++        self.assertGreater(events[-1]['saved_bytes'], 0)
++        self.assertEqual(events[-1]['saved_bytes'], events[-1]['before_bytes'] - events[-1]['after_bytes'])
++
++        # Both old .img files must be gone, both .img.zst files must exist and be usable
++        self.assertFalse(img1.exists())
++        self.assertFalse(img2.exists())
++        self.assertTrue(Path(str(img1) + '.zst').is_file())
++        self.assertTrue(zst2.is_file())
++        self.assertTrue(build_seed.inspect_seed(seed_root, tid1)['valid'])
++        self.assertTrue(build_seed.inspect_seed(seed_root, tid2)['valid'])
++
++        # Rescan must now show 0 uncompressed games
++        after_scan = build_seed.scan_uncompressed_seeds(seed_root)
++        self.assertEqual(after_scan['total_games'], 0)
++
++    def test_compress_seeds_verification_failure_rolls_back_and_keeps_original(self):
++        seed_root = self.root / 'seeds_verify_fail'
++        tid = '0100000000000201'
++        _, img_path = self._make_legacy_seed_with_uncompressed_img(seed_root, tid)
++        orig_bytes = img_path.read_bytes()
++
++        events = []
++        with mock.patch.object(
++            build_seed,
++            '_zstd_verify_and_decompress_stream',
++            side_effect=ValueError('simulated corrupt zstd frame'),
++        ):
++            summary = build_seed.compress_seeds(seed_root, progress_cb=events.append)
++
++        self.assertEqual(summary['status'], 'partial')
++        self.assertEqual(summary['completed_games'], 0)
++        self.assertEqual(summary['failed_games'], 1)
++        self.assertTrue(img_path.is_file(), 'original .img MUST be preserved on verify failure')
++        self.assertEqual(img_path.read_bytes(), orig_bytes)
++        self.assertFalse(Path(str(img_path) + '.zst').exists())
++        self.assertFalse(Path(str(img_path) + '.zst.tmp').exists())
++        self.assertEqual([e['event'] for e in events], ['start', 'item_start', 'item_error', 'done'])
++
++    def test_compress_seeds_rejects_bad_magic_insufficient_space_and_symlinks(self):
++        seed_root = self.root / 'seeds_guards'
++        # 1. Bad magic
++        tid_bad = '0100000000000301'
++        _, bad_img = self._make_legacy_seed_with_uncompressed_img(seed_root, tid_bad)
++        bad_img.write_bytes(b'NOTROMFS' + b'X' * 128)
++
++        # 2. Symlink trap
++        tid_sym = '0100000000000302'
++        sym_dir = seed_root / tid_sym / 'metal-sources'
++        sym_dir.mkdir(parents=True)
++        outside = self.root / 'outside.img'
++        shader_lib.write({'a.metal': b'void f(){}'}, str(outside))
++        os.symlink(outside, sym_dir / 'b-4444444444444444.img')
++
++        # 3. Valid game failing disk space check
++        tid_nospc = '0100000000000303'
++        _, nospc_img = self._make_legacy_seed_with_uncompressed_img(seed_root, tid_nospc)
++
++        events = []
++        fake_usage = shutil._ntuple_diskusage(total=1 << 30, used=1 << 30, free=1024)
++        with mock.patch('shutil.disk_usage', return_value=fake_usage):
++            summary = build_seed.compress_seeds(seed_root, progress_cb=events.append)
++
++        self.assertEqual(summary['status'], 'partial')
++        self.assertEqual(summary['failed_games'], 3)
++        self.assertEqual(summary['completed_games'], 0)
++        self.assertTrue(bad_img.is_file())
++        self.assertTrue(nospc_img.is_file())
++        self.assertTrue(outside.is_file())
++        self.assertFalse(Path(str(nospc_img) + '.zst').exists())
++
++        # Scan must skip symlinks safely and report only non-symlink files
++        scan_res = build_seed.scan_uncompressed_seeds(seed_root)
++        scanned_tids = {g['title_id'] for g in scan_res['games']}
++        self.assertNotIn(tid_sym, scanned_tids)
++
++    def test_compress_seeds_sigterm_preserves_completed_and_cleans_tmp(self):
++        seed_root = self.root / 'seeds_sigterm'
++        tid1 = '0100000000000401'
++        tid2 = '0100000000000402'
++        _, img1 = self._make_legacy_seed_with_uncompressed_img(
++            seed_root, tid1, chain='1111aaaa2222bbbb',
++            extra_files={'0000000000000001_b.metal': b'A' * 200000},
++        )
++        _, img2 = self._make_legacy_seed_with_uncompressed_img(
++            seed_root, tid2, chain='2222bbbb3333cccc',
++            extra_files={'0000000000000001_b.metal': b'B' * 100000},
++        )
++
++        # Spawn real subprocess and send SIGTERM right after item 1 completes
++        proc = subprocess.Popen(
++            [
++                sys.executable,
++                str(REPO / 'dm' / 'tools' / 'build_seed.py'),
++                'compress-seeds',
++                '--seed-root',
++                str(seed_root),
++                '--progress',
++                'json',
++            ],
++            stdout=subprocess.PIPE,
++            stderr=subprocess.PIPE,
++            text=True,
++        )
++        seen_events = []
++        sent_sig = False
++        try:
++            assert proc.stdout is not None
++            for line in proc.stdout:
++                ev = json.loads(line)
++                seen_events.append(ev)
++                if ev.get('event') == 'item_done' and not sent_sig:
++                    proc.send_signal(signal.SIGTERM)
++                    sent_sig = True
++            rc = proc.wait(timeout=10)
++        finally:
++            if proc.stdout:
++                proc.stdout.close()
++            if proc.stderr:
++                proc.stderr.close()
++
++        self.assertEqual(rc, 0)
++        self.assertTrue(sent_sig)
++        self.assertEqual(seen_events[-1]['event'], 'done')
++        self.assertEqual(seen_events[-1]['status'], 'stopped')
++        self.assertEqual(seen_events[-1]['completed_games'], 1)
++        self.assertFalse(img1.exists())
++        self.assertTrue(Path(str(img1) + '.zst').is_file())
++        self.assertTrue(img2.is_file(), 'interrupted/unstarted game must keep original .img')
++        self.assertFalse(Path(str(img2) + '.zst.tmp').exists(), 'unfinished .tmp must be cleaned on SIGTERM')
++
++    def test_prepare_prefill_rejects_corrupt_and_oversized_zstd(self):
++        seed_root = self.root / 'seeds_bad_zst'
++        tid = '0100000000000501'
++        chain = '5555666677778888'
++        seed_dir, img_path = self._make_legacy_seed_with_uncompressed_img(seed_root, tid, chain=chain)
++        zst_path = Path(str(img_path) + '.zst')
++        build_seed._zstd_compress_stream(str(img_path), str(zst_path), level=3)
++        img_path.unlink()
++
++        # 1. Quota / bomb limit exceeded during decompression
++        with self.assertRaisesRegex(ValueError, 'exceeds byte quota'):
++            build_seed._zstd_verify_and_decompress_stream(str(zst_path), max_bytes=16)
++
++        # 2. Truncated zstd stream without fallback .img must fail
++        zst_bytes = zst_path.read_bytes()
++        zst_path.write_bytes(zst_bytes[:-4])
++        with self.assertRaises(Exception):
++            build_seed.prepare_prefill(seed_dir, [], self.root / 'prefill_corrupt', gfx_api='nvn', target_chain='0000111122223333')
++
++    def test_compress_seeds_replaces_corrupt_sibling_zst_and_honors_title_id_filter(self):
++        seed_root = self.root / 'seeds_filter_corrupt'
++        tid1 = '0100000000000601'
++        tid2 = '0100000000000602'
++        _, img1 = self._make_legacy_seed_with_uncompressed_img(seed_root, tid1, chain='1111222233334444')
++        _, img2 = self._make_legacy_seed_with_uncompressed_img(seed_root, tid2, chain='5555666677778888')
++
++        # Write corrupt .img.zst beside img1
++        zst1 = Path(str(img1) + '.zst')
++        zst1.write_bytes(b'CORRUPT_ZST_PAYLOAD')
++
++        summary = build_seed.compress_seeds(seed_root, title_ids=[tid1])
++        self.assertEqual(summary['status'], 'completed')
++        self.assertEqual(summary['completed_games'], 1)
++        self.assertFalse(img1.exists())
++        self.assertTrue(zst1.is_file())
++        # Verify zst1 is now valid and decodes cleanly
++        dec_sz = build_seed._zstd_verify_and_decompress_stream(str(zst1), expected_magic=romfs_image.MAGIC)
++        self.assertGreater(dec_sz, 8)
++        # tid2 was filtered out and remains untouched
++        self.assertTrue(img2.is_file())
++
++    def test_cli_sigterm_race_raises_compress_stopped_not_error(self):
++        src = self.root / 'race.img'
++        shader_lib.write({'0000000000000001_b.metal': b'void f(){}'}, str(src))
++        zst = self.root / 'race.img.zst'
++        build_seed._zstd_compress_stream(str(src), str(zst), level=3)
++
++        class _FakeProc:
++            def __init__(self, stdout_chunks=None, rc=-15):
++                self._chunks = list(stdout_chunks or [])
++                self.stdout = self
++                self.stderr = self
++                self._rc = rc
++
++            def read(self, _n=-1):
++                if self._chunks:
++                    return self._chunks.pop(0)
++                return b''
++
++            def wait(self, timeout=None):
++                return self._rc
++
++            def poll(self):
++                return self._rc
++
++            def terminate(self):
++                pass
++
++            def kill(self):
++                pass
++
++            def close(self):
++                pass
++
++        # 1. Compress CLI exits -15 while stop_ctrl.stopped became True
++        ctrl_c = build_seed._CompressStopController()
++
++        def _fake_popen_compress(*args, **kwargs):
++            ctrl_c.stopped = True
++            return _FakeProc(rc=-15)
++
++        with mock.patch.object(build_seed, '_zstd_backend', return_value=('cli', 'zstd')), \
++                mock.patch('subprocess.Popen', side_effect=_fake_popen_compress):
++            with self.assertRaises(build_seed._CompressStopped):
++                build_seed._zstd_compress_stream(str(src), str(self.root / 'race.tmp'), stop_ctrl=ctrl_c)
++
++        # 2. Decompress CLI exits -15 after EOF while stop_ctrl.stopped became True
++        ctrl_d = build_seed._CompressStopController()
++
++        def _fake_popen_decompress(*args, **kwargs):
++            ctrl_d.stopped = True
++            return _FakeProc(stdout_chunks=[], rc=-15)
++
++        with mock.patch.object(build_seed, '_zstd_backend', return_value=('cli', 'zstd')), \
++                mock.patch('subprocess.Popen', side_effect=_fake_popen_decompress):
++            with self.assertRaises(build_seed._CompressStopped):
++                build_seed._zstd_verify_and_decompress_stream(
++                    str(zst), expected_magic=romfs_image.MAGIC, stop_ctrl=ctrl_d
++                )
++
++    def test_cli_windows_sets_create_no_window_flag(self):
++        src = self.root / 'win.img'
++        shader_lib.write({'0000000000000001_b.metal': b'void f(){}'}, str(src))
++        zst = self.root / 'win.img.zst'
++        build_seed._zstd_compress_stream(str(src), str(zst), level=3)
++
++        seen_flags = []
++        raw_bytes = src.read_bytes()
++
++        class _OkProc:
++            def __init__(self, chunks):
++                self._chunks = list(chunks)
++                self.stdout = self
++                self.stderr = self
++
++            def read(self, _n=-1):
++                if self._chunks:
++                    return self._chunks.pop(0)
++                return b''
++
++            def wait(self, timeout=None):
++                return 0
++
++            def poll(self):
++                return 0
++
++            def close(self):
++                pass
++
++        def _capture_popen(cmd, **kwargs):
++            seen_flags.append(kwargs.get('creationflags'))
++            return _OkProc([raw_bytes] if '-d' in cmd else [])
++
++        with mock.patch.object(build_seed, '_zstd_backend', return_value=('cli', 'zstd')), \
++                mock.patch.object(build_seed.os, 'name', 'nt'), \
++                mock.patch('subprocess.Popen', side_effect=_capture_popen):
++            build_seed._zstd_compress_stream(str(src), str(self.root / 'win.tmp'))
++            build_seed._zstd_verify_and_decompress_stream(str(zst), expected_magic=romfs_image.MAGIC)
++
++        expected_flag = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000)
++        self.assertEqual(seen_flags, [expected_flag, expected_flag])
++
++    def test_open_shader_lib_view_prefers_zst_over_residual_img(self):
++        d = self.root / 'dual_view'
++        d.mkdir(parents=True, exist_ok=True)
++        chain = '1234567890abcdef'
++        lib_base = d / f'b-{chain}'
++        shader_lib.write({'0000000000000001_b.metal': b'void old_img() {}\n'}, str(d / f'b-{chain}.img'))
++
++        new_raw = self.root / 'new_view.img'
++        shader_lib.write({'0000000000000001_b.metal': b'void new_zst() {}\n'}, str(new_raw))
++        build_seed._zstd_compress_stream(str(new_raw), str(d / f'b-{chain}.img.zst'), level=3)
++
++        quota = build_seed._Quota()
++        with build_seed._open_shader_lib_view(str(lib_base), quota) as view:
++            text = (view / '0000000000000001_b.metal').read_text()
++        self.assertIn('new_zst', text)
++        self.assertNotIn('old_img', text)
++
++        # Corrupt .img.zst must fall back safely to sibling .img
++        (d / f'b-{chain}.img.zst').write_bytes(b'CORRUPT')
++        with build_seed._open_shader_lib_view(str(lib_base), quota) as view_fb:
++            text_fb = (view_fb / '0000000000000001_b.metal').read_text()
++        self.assertIn('old_img', text_fb)
++
++    def test_compress_seeds_rejects_truncated_romfs_header_in_existing_zst(self):
++        seed_root = self.root / 'seeds_trunc_hdr'
++        tid = '0100000000000701'
++        chain = '7777888899990000'
++        _, img_path = self._make_legacy_seed_with_uncompressed_img(seed_root, tid, chain=chain)
++        orig_img_bytes = img_path.read_bytes()
++
++        # Case A: intact zstd frame containing < 32 bytes starting with DMROMFS1
++        trunc_src = self.root / 'trunc_short.img'
++        trunc_src.write_bytes(romfs_image.MAGIC + b'\x00' * 8)
++        zst_path = Path(str(img_path) + '.zst')
++        build_seed._zstd_compress_stream(str(trunc_src), str(zst_path), level=3)
++
++        with self.assertRaisesRegex(ValueError, 'truncated RomFS header'):
++            build_seed._zstd_verify_and_decompress_stream(str(zst_path), expected_magic=romfs_image.MAGIC)
++
++        # Case B: intact zstd frame with 32-byte DMROMFS1 header whose index offset exceeds decompressed length
++        bad_bounds_src = self.root / 'trunc_bounds.img'
++        bad_bounds_src.write_bytes(orig_img_bytes[:64])
++        build_seed._zstd_compress_stream(str(bad_bounds_src), str(zst_path), level=3)
++
++        with self.assertRaisesRegex(ValueError, 'invalid RomFS header bounds'):
++            build_seed._zstd_verify_and_decompress_stream(str(zst_path), expected_magic=romfs_image.MAGIC)
++
++        # compress_seeds must NOT trust the truncated .img.zst; it must recompress from good img_path
++        summary = build_seed.compress_seeds(seed_root)
++        self.assertEqual(summary['status'], 'completed')
++        self.assertFalse(img_path.exists())
++        dec_bytes = build_seed._zstd_verify_and_decompress_stream(
++            str(zst_path), expected_size=len(orig_img_bytes), expected_magic=romfs_image.MAGIC
++        )
++        self.assertEqual(dec_bytes, len(orig_img_bytes))
++
++
++if __name__ == '__main__':
++    unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index d7f829cf..430ac658 100755
+index d7f829c..430ac65 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -3969,13 +3969,15 @@ def profile_derivation_reason(g, pkg_ver, have, alias=None, app=None):
@@ -878,3 +3160,6 @@ index d7f829cf..430ac658 100755
          g = repo_g or gamemod.load(profile_id)
          reg = g
  
+-- 
+2.54.0 (Apple Git-157)
+
