@@ -108,14 +108,39 @@ final class BuildNotifier: NSObject, ObservableObject, UNUserNotificationCenterD
             guard let self, let m, let library else { return }
             DispatchQueue.main.async { MainActor.assumeIsolated { self.settle(m, library: library, stopped: false) } }
         } }.store(in: &watching)
+        m.$pendingRefreshNotice.compactMap { $0 }.sink { [weak self, weak m, weak library] summary in MainActor.assumeIsolated {
+            guard let self, let m, let library else { return }
+            m.pendingRefreshNotice = nil
+            self.postRefreshSummary(summary, m: m, library: library)
+        } }.store(in: &watching)
     }
 
     /// Only a game's build is announced: a send, an install or a shell setup also runs the model, with `buildingGame` false.
     @MainActor private func settle(_ m: BuildStore, library: GameLibrary, stopped: Bool) {
+        if m.deferShellPackaging { return }
+        if let entryID = m.activeQueuedEntryID,
+           m.queue?.entries.first(where: { $0.id == entryID })?.fastRefresh == true {
+            return
+        }
         guard !announced, m.buildingGame, let outcome = BuildNotice.ended(stopped: stopped, running: m.running, done: m.done, note: m.doneNote, stages: m.stages, t: m.t) else { return }
         announced = true
         guard BuildNotice.shouldNotify(outcome, enabled: BuildNotice.enabled, appActive: NSApp.isActive, hasBundleID: true) else { return }
         post(outcome, m: m, library: library)
+    }
+
+    @MainActor private func postRefreshSummary(_ summary: RefreshCompletionSummary, m: BuildStore, library: GameLibrary) {
+        guard BuildNotice.enabled, BuildNotice.hasBundleID else { return }
+        let formatted = RefreshCompletionFormatter.notificationText(for: summary, t: m.t)
+        let content = UNMutableNotificationContent()
+        content.title = formatted.title
+        content.body = formatted.body
+        content.sound = .default
+        let firstGameID = summary.items.first?.gameID?.uuidString ?? ""
+        content.userInfo = [
+            "page": summary.allSucceeded ? LauncherPage.builds.rawValue : LauncherPage.builds.rawValue,
+            "game": firstGameID,
+        ]
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "refresh-" + summary.id.uuidString, content: content, trigger: nil))
     }
 
     /// Shown while the launcher is in front too (the console mode fills the screen): without this the system drops a frontmost app's notification.

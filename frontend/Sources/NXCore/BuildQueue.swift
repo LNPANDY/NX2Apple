@@ -1,5 +1,15 @@
 import Foundation
 
+/// Per-entry RomFS `.img` shader update and device transfer outcome after a refresh/build finishes.
+package enum QueueEntryImgStatus: Codable, Equatable, Sendable {
+    /// No new `.img` or `DMMSLTR1` shader trailer was written (e.g. Mac target or fast refresh reusing unchanged shaders).
+    case unchanged
+    /// The updated `.img` (or `msl/` shader fallback) was transferred to the target device.
+    case transferred(imgName: String, deviceName: String)
+    /// An updated `.img` (or `msl/` fallback) was produced, but device transfer was skipped, unavailable, or failed.
+    case manualReplace(imgPath: String, reason: String?)
+}
+
 /// One entry of the build queue (LNPANDY/NX2Apple#943): a snapshot of what to build, taken when the player adds it. Nothing in it
 /// follows the Build form, the library or the engine selection afterwards, so the queue builds what was asked for.
 package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
@@ -46,6 +56,10 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
     package var upstream: EngineUpstreamKind? = nil
     /// Snapshotted opt-in iOS `--seen-shaders` preference; nil follows the Build form switch.
     package var iosSeenShaders: Bool? = nil
+    /// Snapshotted archive directory from the library so fast refresh finds the existing `.img` even when `outputDirectory` differs.
+    package var archivePath: String? = nil
+    /// Per-entry `.img` update and transfer disposition after completion.
+    package var imgStatus: QueueEntryImgStatus? = nil
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -72,6 +86,8 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
         case externalImgPath
         case upstream
         case iosSeenShaders
+        case archivePath
+        case imgStatus
     }
 
     package init(
@@ -97,7 +113,9 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
         existingAppPath: String? = nil,
         externalImgPath: String? = nil,
         upstream: EngineUpstreamKind? = nil,
-        iosSeenShaders: Bool? = nil
+        iosSeenShaders: Bool? = nil,
+        archivePath: String? = nil,
+        imgStatus: QueueEntryImgStatus? = nil
     ) {
         self.id = id
         self.gameID = gameID
@@ -122,6 +140,8 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
         self.externalImgPath = externalImgPath
         self.upstream = upstream
         self.iosSeenShaders = iosSeenShaders
+        self.archivePath = archivePath
+        self.imgStatus = imgStatus
     }
 
     package init(from decoder: Decoder) throws {
@@ -150,6 +170,8 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
         self.externalImgPath = try c.decodeIfPresent(String.self, forKey: .externalImgPath)
         self.upstream = try c.decodeIfPresent(EngineUpstreamKind.self, forKey: .upstream)
         self.iosSeenShaders = try c.decodeIfPresent(Bool.self, forKey: .iosSeenShaders)
+        self.archivePath = try c.decodeIfPresent(String.self, forKey: .archivePath)
+        self.imgStatus = try c.decodeIfPresent(QueueEntryImgStatus.self, forKey: .imgStatus)
     }
 
     package var finished: Bool { status == .done || status == .failed || status == .skipped || status == .stopped }

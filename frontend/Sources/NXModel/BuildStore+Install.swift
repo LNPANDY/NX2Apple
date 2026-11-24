@@ -132,7 +132,15 @@ extension BuildStore {
 
     /// Steps 4 to 7 of the shared app (ShellInstall.swift) for a game whose framework is built and whose archive is packed: the
     /// shell's project, signing, the install over the app that is already there, and the game data the device lacks.
-    package func installShell(framework: String, titleID: String, name: String, archive: String, dataOnly: Bool = false) {
+    package func installShell(
+        framework: String,
+        titleID: String,
+        name: String,
+        archive: String,
+        dataOnly: Bool = false,
+        didUpdateImg: Bool? = nil,
+        updatedImgPath: String? = nil
+    ) {
         buildingGame = true
         runningTarget = BuildTarget.ios
         beginOperation(dataOnly ? .sendingGameData : .installing, game: name, titleID: titleID, destination: .target)
@@ -143,9 +151,13 @@ extension BuildStore {
         if dataOnly { failure = nil; done = false; doneNote = "" }
         shellBatchRetry = nil
         shellRetry = (framework, titleID, name, archive)
-        let installer = makeInstaller(respectSkipMode: !dataOnly)
+        let shouldTransferUpdatedImg = didUpdateImg ?? needsReplaceOldImgReminder
+        let effectiveImgPath = updatedImgPath ?? self.updatedImgPath
+        let targetEntryID = activeQueuedEntryID
+        let installer = makeInstaller(respectSkipMode: !dataOnly && !shouldTransferUpdatedImg)
         let target = devices
         let device = devices.installDevice
+        let deviceDisplayName = target.deviceName(device)
         DispatchQueue.global(qos: .userInitiated).async {
             let result = dataOnly ? installer.installData(titleID: titleID, archive: archive)
                                   : installer.install(framework: framework, titleID: titleID, name: name, archive: archive)
@@ -161,6 +173,19 @@ extension BuildStore {
                     return
                 }
                 guard result.ok else {
+                    if shouldTransferUpdatedImg {
+                        self.needsReplaceOldImgReminder = true
+                        self.updatedImgPath = effectiveImgPath
+                        self.queue?.updateImgStatus(
+                            entryID: targetEntryID,
+                            titleID: titleID,
+                            imgStatus: .manualReplace(imgPath: effectiveImgPath, reason: result.message)
+                        )
+                    } else {
+                        self.needsReplaceOldImgReminder = false
+                        self.updatedImgPath = ""
+                        self.queue?.updateImgStatus(entryID: targetEntryID, titleID: titleID, imgStatus: .unchanged)
+                    }
                     self.finishInstall(result.message)
                     if let kind = result.failure {
                         let detail = (kind == .appIDLimit && !result.detail.isEmpty) ? result.detail : nil
@@ -169,6 +194,30 @@ extension BuildStore {
                         if kind == .appIDLimit { self.doneNote = self.failureWhat(f) }
                     } else if let step = result.step { self.noteInstallFailure(step, error: result.message) }
                     return
+                }
+                if shouldTransferUpdatedImg {
+                    if result.copySkipped || archive.isEmpty {
+                        self.needsReplaceOldImgReminder = true
+                        self.updatedImgPath = effectiveImgPath
+                        self.queue?.updateImgStatus(
+                            entryID: targetEntryID,
+                            titleID: titleID,
+                            imgStatus: .manualReplace(imgPath: effectiveImgPath, reason: result.copySkipped ? self.t("dev.copySkipped") : nil)
+                        )
+                    } else {
+                        self.needsReplaceOldImgReminder = false
+                        self.updatedImgPath = ""
+                        let rawName = effectiveImgPath.isEmpty ? "romfs.img" : (effectiveImgPath as NSString).lastPathComponent
+                        self.queue?.updateImgStatus(
+                            entryID: targetEntryID,
+                            titleID: titleID,
+                            imgStatus: .transferred(imgName: rawName, deviceName: deviceDisplayName)
+                        )
+                    }
+                } else {
+                    self.needsReplaceOldImgReminder = false
+                    self.updatedImgPath = ""
+                    self.queue?.updateImgStatus(entryID: targetEntryID, titleID: titleID, imgStatus: .unchanged)
                 }
                 self.installedOn = device
                 self.installedAppPath = result.appPath
@@ -231,10 +280,19 @@ extension BuildStore {
         shellBatchRetry = games
         shellRetry = (last.framework, last.titleID, last.name, last.archive)
         let batchGames = games.map {
-            ShellInstaller.BatchGame(framework: $0.framework, titleID: $0.titleID, name: $0.name, archive: $0.archive,
-                                     pickedArtwork: pickedArtworkForTitleID($0.titleID))
+            ShellInstaller.BatchGame(
+                framework: $0.framework,
+                titleID: $0.titleID,
+                name: $0.name,
+                archive: $0.archive,
+                pickedArtwork: pickedArtworkForTitleID($0.titleID),
+                queueEntryID: $0.queueEntryID,
+                didUpdateImg: $0.didUpdateImg,
+                updatedImgPath: $0.updatedImgPath
+            )
         }
-        let installer = makeInstaller(respectSkipMode: !dataOnly)
+        let anyImgUpdated = games.contains(where: \.didUpdateImg)
+        let installer = makeInstaller(respectSkipMode: !dataOnly && !anyImgUpdated)
         let root = installer.root
         let target = devices
         let device = devices.installDevice
@@ -254,6 +312,10 @@ extension BuildStore {
                     self.resetProgress(); self.doneNote = self.t("msg.stopped"); self.cleanupStaging()
                     return
                 }
+                self.applyBatchImgResults(result.batchGameResults)
+                // Batch installations track per-entry img disposition on QueueEntry rather than the single-game scalar reminder.
+                self.needsReplaceOldImgReminder = false
+                self.updatedImgPath = ""
                 guard result.ok else {
                     if !result.appPath.isEmpty {
                         self.installedOn = device

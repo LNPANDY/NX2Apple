@@ -130,6 +130,8 @@ extension BuildStore {
         archivePath = ""
         needsReplaceOldImgReminder = false
         updatedImgPath = ""
+        refreshCompletionSummary = nil
+        pendingRefreshNotice = nil
         completedOperation = nil
     }
 
@@ -183,6 +185,9 @@ extension BuildStore {
     package func startQueued(_ entry: QueueEntry) -> String? {
         guard !running else { return t("queue.cannotStart") }
         activeQueuedGameID = entry.gameID
+        activeQueuedEntryID = entry.id
+        activeQueuedArchivePath = entry.archivePath
+        activeQueuedRebuildsShaders = entry.rebuildsShaders
         let normalizedTarget = BuildTarget.normalized(entry.target)
         var resolvedTitleID = entry.titleID.trimmingCharacters(in: .whitespacesAndNewlines)
         if MacNativeGamesBuilder.normalizedHex16(resolvedTitleID) == nil,
@@ -288,7 +293,9 @@ extension BuildStore {
                 outDir: explicitOutDir,
                 gameName: entry.name.isEmpty ? nil : entry.name,
                 existingMacAppPath: entry.existingAppPath,
-                externalImgPath: entry.externalImgPath
+                externalImgPath: entry.externalImgPath,
+                knownArchivePath: entry.archivePath,
+                forceShaderRebuildTrailer: entry.rebuildsShaders
             )
             if running { return nil }
             activeQueueEntryUpstream = nil
@@ -298,6 +305,9 @@ extension BuildStore {
             queuedIOSSeenShaders = nil
             deferShellPackaging = false
             activeQueuedGameID = nil
+            activeQueuedEntryID = nil
+            activeQueuedArchivePath = nil
+            activeQueuedRebuildsShaders = false
             return doneNote.isEmpty ? t("queue.cannotStart") : doneNote
         }
 
@@ -344,6 +354,9 @@ extension BuildStore {
         deferShellPackaging = false
         skipStaleCheckForQueuedEntry = false
         activeQueuedGameID = nil
+        activeQueuedEntryID = nil
+        activeQueuedArchivePath = nil
+        activeQueuedRebuildsShaders = false
         return doneNote.isEmpty ? t("queue.cannotStart") : doneNote
     }
 

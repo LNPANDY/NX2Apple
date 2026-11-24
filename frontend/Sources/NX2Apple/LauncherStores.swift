@@ -148,23 +148,40 @@ import NXModel
                 MainActor.assumeIsolated {
                     guard let build, let queue, !build.running else { return }
                     if !queue.packaging.isEmpty {
+                        let batchID = queue.packaging.first?.batch
                         let outcome = build.queueOutcome
                         queue.packageEnded(succeeded: outcome.succeeded, reason: outcome.reason, stopped: outcome.stopped)
+                        if queue.running == nil && !queue.hasWaiting && queue.packaging.isEmpty {
+                            build.deferShellPackaging = false
+                            build.queuedExportIPA = nil
+                            build.queuedExportOneGame = nil
+                            build.queuedExportFramework = nil
+                            build.activeQueuedEntryID = nil
+                            build.activeQueuedArchivePath = nil
+                            build.activeQueuedRebuildsShaders = false
+                            build.enforceUpstreamForCurrentGame()
+                            if let batchID { build.publishBatchQueueRefreshCompletionIfNeeded(batchID: batchID) }
+                        }
                         return
                     }
                     guard queue.running != nil else { return }
+                    let batchID = queue.running?.batch
                     self?.settleFinishedBuild()
                     let outcome = build.queueOutcome
                     build.activeQueuedGameID = nil
+                    build.activeQueuedEntryID = nil
+                    build.activeQueuedArchivePath = nil
+                    build.activeQueuedRebuildsShaders = false
                     build.activeQueueEntryUpstream = nil
                     build.queuedIOSSeenShaders = nil
                     queue.buildEnded(succeeded: outcome.succeeded, reason: outcome.reason, stopped: outcome.stopped)
-                    if queue.running == nil {
+                    if queue.running == nil && !queue.hasWaiting && queue.packaging.isEmpty {
                         build.deferShellPackaging = false
                         build.queuedExportIPA = nil
                         build.queuedExportOneGame = nil
                         build.queuedExportFramework = nil
                         build.enforceUpstreamForCurrentGame()
+                        if let batchID { build.publishBatchQueueRefreshCompletionIfNeeded(batchID: batchID) }
                     }
                 }
             }

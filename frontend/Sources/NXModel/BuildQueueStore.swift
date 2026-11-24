@@ -157,7 +157,7 @@ import NXCore
                 entry.target = BuildTarget.mac
                 entry.packageAfter = false; entry.exportIPA = nil; entry.exportFramework = nil
             }
-            entry.status = .queued; entry.reason = nil
+            entry.status = .queued; entry.reason = nil; entry.imgStatus = nil
             if MacNativeGamesBuilder.normalizedHex16(entry.titleID) == nil,
                !entry.fastRefresh,
                let base = entry.inputs["base"]?.first,
@@ -246,7 +246,7 @@ import NXCore
         guard let group = games.first(where: { $0.id == id }), group.retryable else { return }
         let ids = Set(group.entries.filter { $0.status == .failed || $0.status == .skipped || $0.status == .stopped }.map(\.id))
         for index in entries.indices where ids.contains(entries[index].id) {
-            entries[index].status = .queued; entries[index].reason = nil
+            entries[index].status = .queued; entries[index].reason = nil; entries[index].imgStatus = nil
             entries[index].engineID = engineID()
             entries[index].target = BuildTarget.normalized(entries[index].target)
         }
@@ -432,6 +432,22 @@ import NXCore
         persist()
         processNext()
         if running == nil && !hasWaiting && packaging.isEmpty { active = false }
+    }
+
+    package func updateImgStatus(entryID: UUID?, titleID: String, imgStatus: QueueEntryImgStatus) {
+        if let entryID, let index = entries.firstIndex(where: { $0.id == entryID }) {
+            entries[index].imgStatus = imgStatus
+            persist()
+            return
+        }
+        let normalized = titleID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !normalized.isEmpty,
+              let index = entries.lastIndex(where: {
+                  $0.titleID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() == normalized
+                      && $0.target != BuildTarget.mac
+              }) else { return }
+        entries[index].imgStatus = imgStatus
+        persist()
     }
 
     private func persist() { if let file { BuildQueueFile.save(entries, paused: paused, to: file) } }

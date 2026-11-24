@@ -300,13 +300,14 @@ package enum BuildSeedCache {
         return Inspection(isValid: true, reason: nil, record: healedRecord, path: refreshPath, seedDir: seedDir)
     }
 
-    /// Finds existing Mac `.app`, `<outDir>/games/<GameName>/<GameName>.img`, legacy `<outDir>/games/<TID>/romfs.img` for `--prefill-msl`.
+    /// Finds existing Mac `.app`, `<outDir>/games/<GameName>/<GameName>.img`, legacy `<outDir>/games/<TID>/romfs.img`, and any recorded `archivePath` image for `--prefill-msl`.
     package static func prefillCandidates(
         titleID: String,
         outDir: String,
         gameName: String? = nil,
         macAppPath: String? = nil,
         workDir: String? = nil,
+        archivePath: String? = nil,
         fm: FileManager = .default
     ) -> [String] {
         let tid = titleID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
@@ -317,6 +318,14 @@ package enum BuildSeedCache {
             guard !path.isEmpty, !seen.contains(path), fm.fileExists(atPath: path) else { return }
             seen.insert(path)
             candidates.append(path)
+        }
+
+        if let archivePath, !archivePath.isEmpty {
+            if archivePath.lowercased().hasSuffix(".img") {
+                addCandidate(archivePath)
+            } else if let primary = RomFSArchive.primaryImagePath(in: archivePath, fm: fm) {
+                addCandidate(primary)
+            }
         }
 
         if let macAppPath, !macAppPath.isEmpty {
@@ -370,12 +379,15 @@ package enum BuildSeedCache {
     }
 
     /// Evaluates whether an existing RomFS image trailer already matches the target shader source, enabling 0-I/O skip.
+    /// When `forceReplace` is true (e.g. shaders were just rebuilt), injection is never skipped even if `chain` strings match.
     package static func shouldSkipTrailerInjection(
         status: RomfsTrailerStatus,
         gfxAPI: String?,
         chain: String?,
-        multiProgram: Bool
+        multiProgram: Bool,
+        forceReplace: Bool = false
     ) -> Bool {
+        guard !forceReplace else { return false }
         guard status.hasTrailer else { return false }
         guard status.multiProgram == multiProgram else { return false }
 
@@ -397,10 +409,11 @@ package enum BuildSeedCache {
         inspectJSON: String,
         gfxAPI: String?,
         chain: String?,
-        multiProgram: Bool
+        multiProgram: Bool,
+        forceReplace: Bool = false
     ) -> Bool {
         guard let status = parseTrailerStatus(from: inspectJSON) else { return false }
-        return shouldSkipTrailerInjection(status: status, gfxAPI: gfxAPI, chain: chain, multiProgram: multiProgram)
+        return shouldSkipTrailerInjection(status: status, gfxAPI: gfxAPI, chain: chain, multiProgram: multiProgram, forceReplace: forceReplace)
     }
 
     /// Decides whether to skip trailer injection (0 disk I/O), append a new trailer, or replace an existing mismatched trailer.
@@ -408,12 +421,13 @@ package enum BuildSeedCache {
         status: RomfsTrailerStatus,
         gfxAPI: String?,
         chain: String?,
-        multiProgram: Bool
+        multiProgram: Bool,
+        forceReplace: Bool = false
     ) -> TrailerAction {
         if !status.hasTrailer {
             return .append
         }
-        if shouldSkipTrailerInjection(status: status, gfxAPI: gfxAPI, chain: chain, multiProgram: multiProgram) {
+        if shouldSkipTrailerInjection(status: status, gfxAPI: gfxAPI, chain: chain, multiProgram: multiProgram, forceReplace: forceReplace) {
             return .skip
         }
         return .replace

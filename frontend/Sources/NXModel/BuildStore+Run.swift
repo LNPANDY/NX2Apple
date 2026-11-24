@@ -61,6 +61,8 @@ extension BuildStore {
             done = false
             return
         }
+        activeRunStartedAt = Date()
+        activeRunRebuiltShaders = false
         stopping = false
         stoppedByPlayer = false
         archiveGeneration &+= 1
@@ -531,11 +533,36 @@ extension BuildStore {
                         let fw = ShellInstall.builtFramework(workDir: self.effectiveWorkDir)
                             ?? ShellInstall.frameworkPath(workDir: self.effectiveWorkDir, titleID: key)
                         let tid = ShellInstall.titleID(ofFramework: fw)
-                        self.packArchive(workDir: self.effectiveWorkDir, titleID: tid) {
-                            if self.deferShellPackaging { self.deferShellPackage(framework: fw, titleID: tid, name: name, archive: $0) }
-                            else if self.exportsFramework { self.exportFrameworkBundle(framework: fw, titleID: tid, name: name) }
-                            else if self.exportsShell { self.exportShell(framework: fw, titleID: tid, name: name) }
-                            else { self.installShell(framework: fw, titleID: tid, name: name, archive: $0) }
+                        self.packArchiveWithOutcome(workDir: self.effectiveWorkDir, titleID: tid) { outcome in
+                            if self.deferShellPackaging {
+                                self.deferShellPackage(
+                                    framework: fw, titleID: tid, name: name, archive: outcome.archiveDir,
+                                    didUpdateImg: outcome.didUpdateImg, updatedImgPath: outcome.primaryImgPath
+                                )
+                            } else if self.exportsFramework {
+                                let exportNote = self.t("refreshDone.exportManualReason")
+                                self.needsReplaceOldImgReminder = outcome.didUpdateImg
+                                self.updatedImgPath = outcome.didUpdateImg ? outcome.primaryImgPath : ""
+                                let imgStatus: QueueEntryImgStatus = outcome.didUpdateImg
+                                    ? .manualReplace(imgPath: outcome.primaryImgPath, reason: exportNote)
+                                    : .unchanged
+                                self.queue?.updateImgStatus(entryID: self.activeQueuedEntryID, titleID: tid, imgStatus: imgStatus)
+                                self.exportFrameworkBundle(framework: fw, titleID: tid, name: name)
+                            } else if self.exportsShell {
+                                let exportNote = self.t("refreshDone.exportManualReason")
+                                self.needsReplaceOldImgReminder = outcome.didUpdateImg
+                                self.updatedImgPath = outcome.didUpdateImg ? outcome.primaryImgPath : ""
+                                let imgStatus: QueueEntryImgStatus = outcome.didUpdateImg
+                                    ? .manualReplace(imgPath: outcome.primaryImgPath, reason: exportNote)
+                                    : .unchanged
+                                self.queue?.updateImgStatus(entryID: self.activeQueuedEntryID, titleID: tid, imgStatus: imgStatus)
+                                self.exportShell(framework: fw, titleID: tid, name: name)
+                            } else {
+                                self.installShell(
+                                    framework: fw, titleID: tid, name: name, archive: outcome.archiveDir,
+                                    didUpdateImg: outcome.didUpdateImg, updatedImgPath: outcome.primaryImgPath
+                                )
+                            }
                         }
                     }
                 } else {
@@ -704,6 +731,8 @@ extension BuildStore {
         buildingGame = true
         runningTarget = target
         beginOperation(.building, game: gameName, titleID: gameTitleID, destination: .target)
+        activeRunStartedAt = Date()
+        activeRunRebuiltShaders = false
         stopping = false
         stoppedByPlayer = false
         installPhaseActive = true

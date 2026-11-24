@@ -310,10 +310,6 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package var lastBuildCommand: [String] = []   // this session's last build, for Copy diagnostics (Diagnostics.swift)
 
     // ---- Installing on an iPhone or iPad (Xcode with a development certificate) ----
-    // Optional: with a paired device and a signing team chosen, the script prepares the game's Xcode project
-    // (--prepare-xcode, the route its README gives developers), xcodebuild signs it for that device with the
-    // team (Xcode makes the provisioning profile) without the game files, devicectl installs it and copies the game's
-    // folder (romfs.img, aoc/) into its Documents, as a sideloaded copy has it. Without a device or a team the build stays an unsigned IPA, as before.
     @Published package var installedDataComplete: Bool?
     @Published package var installedOn = "" { didSet { installedDataComplete = nil } }       // the device the last build went to (its UDID)
     @Published package var installedAppPath = ""  // the signed app that went there
@@ -419,7 +415,6 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     private var queueSubscription: AnyCancellable?
     /// The running send of each transfer asks this flag whether it was cancelled.
     var transferCancels: [UUID: LockedFlag] = [:]
-    /// A queued shared-app batch builds each game and packages or installs the app once at the end (#997).
     package var deferShellPackaging = false
     var deferredExportsIPA = false
     package var queuedExportIPA: Bool?
@@ -428,7 +423,13 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     var skipStaleCheckForQueuedEntry = false
     var afterStaleFrameworks: (() -> Void)?
     package var activeQueuedGameID: UUID?
-    /// Stop was pressed during the running work (the queue pauses after it). Cleared when the next build starts.
+    package var activeQueuedEntryID: UUID?
+    package var activeQueuedArchivePath: String?
+    package var activeQueuedRebuildsShaders = false
+    package var activeRunStartedAt: Date?
+    package var activeRunRebuiltShaders = false
+    @Published package var refreshCompletionSummary: RefreshCompletionSummary?
+    @Published package var pendingRefreshNotice: RefreshCompletionSummary?
     package var stoppedByPlayer = false
     var deferredShell: [DeferredShellGame] = []
     package var pickedArtworkForTitleID: (String) -> String? = { _ in nil }
@@ -705,6 +706,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     /// The progress card keeps the explanation visible without waiting for an acknowledgment (#862).
     /// Once per build: the script sends the event once per shader step. A reason a newer script adds shows nothing: no text explains it.
     package func noteStaleShaders(reason: String) {
+        activeRunRebuiltShaders = true
         guard let text = ["chain": "msg.shadersStale.chain", "inputs": "msg.shadersStale.inputs"][reason], staleShadersMessageKey == nil else { return }
         staleShadersMessageKey = text
     }

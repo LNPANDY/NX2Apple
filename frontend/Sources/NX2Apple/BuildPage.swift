@@ -61,7 +61,7 @@ struct BuildPage: View {
     }
     private var processActive: Bool { !hasActiveTransfer && ((running && build.buildingGame) || (queue.isAdvancing && queue.packaging.isEmpty)) }
     private var standaloneOperationActive: Bool { running && !build.buildingGame && !processActive }
-    private var completionActive: Bool { build.completionStatus != nil && !editingResult.wrappedValue && !queue.active && !queue.hasWaiting && queue.running == nil }
+    private var completionActive: Bool { build.completionStatus != nil && !editingResult.wrappedValue && !queue.active && !queue.hasWaiting && queue.running == nil && !finishedQueueSummary }
     private var stagingQueue: Bool { !running && !queue.active && queue.hasWaiting }
     private var queueReview: Bool { !running && !queue.active && (queue.hasWaiting || queue.games.contains(where: \.retryable)) }
     /// Pure finished batch/refresh summary: hides blank single-game form cards until the user clears history or starts a new build.
