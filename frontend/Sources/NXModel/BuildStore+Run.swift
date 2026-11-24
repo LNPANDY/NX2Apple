@@ -210,7 +210,7 @@ extension BuildStore {
             }
         }
         let tidHex = buildKey
-        let workDir = nxnativeWorkDirectory(baseOut: outDir.isEmpty ? baseDir : outDir, tidHex: tidHex)
+        guard let workDir = startingBuildWorkDir(baseDir: baseDir, tidHex: tidHex) else { return }
         // The build's signing step refuses the attributes a cloud folder adds, after the long steps: stop here instead.
         if cloudFolderCheck(workDir) {
             failure = BuildFailure(kind: .cloudFolder, gameName: nil, detail: workDir)
@@ -322,14 +322,14 @@ extension BuildStore {
         // The image of this game the other platform's build left (the iPhone build's games/<id>/romfs.img, the Mac app's): the
         // script takes it in place of extracting the RomFS again once it checks out as this version's (#708). A game folder is packed, not extracted.
         if folder == nil, RepoLayout.supportsRomfsFrom(capabilityDir) {
-            var reusable = RomFSArchive.reusableImages(root: outDir.isEmpty ? baseDir : outDir, key: tidHex)
+            var reusable = RomFSArchive.reusableImages(root: appFolder(baseDir: baseDir), key: tidHex)
             if let extImg = fastRefreshExternalImgPath, !reusable.contains(extImg), FileManager.default.fileExists(atPath: extImg) {
                 reusable.append(extImg)
             }
             for image in reusable { args += ["--romfs-from", image] }
         }
         let macApp = target == BuildTarget.mac
-        let macOutput = macApp ? MacAppOutput(workDir: URL(fileURLWithPath: workDir), key: tidHex, titleID: gameTitleID, upstream: buildUpstream, preferred: macAppPath) : nil
+        let macOutput = macApp ? MacAppOutput(workDir: URL(fileURLWithPath: workDir), key: tidHex, titleID: gameTitleID, upstream: buildUpstream, preferred: macAppPath, appDirectory: separateAppFolder(baseDir: baseDir)) : nil
         oneGameIPAPath = ""
         if exportsOneGame {
             // One game's own IPA with its game data inside (BuildStore+OneGame.swift, #540)

@@ -23,7 +23,7 @@ extension BuildStore {
         let initialPy = resolveBuildPython(includeS2Arm: true)
         let baseDir = inputFolder
         let tidHex = buildKey
-        let workDir = nxnativeWorkDirectory(baseOut: outDir.isEmpty ? baseDir : outDir, tidHex: tidHex, upstream: .s2arm)
+        guard let workDir = startingBuildWorkDir(baseDir: baseDir, tidHex: tidHex, upstream: .s2arm) else { return }
         if cloudFolderCheck(workDir) {
             failure = BuildFailure(kind: .cloudFolder, gameName: nil, detail: workDir)
             fail(failureWhat(failure!))

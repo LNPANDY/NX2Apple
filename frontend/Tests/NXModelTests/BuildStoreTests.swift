@@ -927,4 +927,42 @@ import XCTest
         XCTAssertTrue(ActiveOperation.Kind.building.buildsGame)
         XCTAssertFalse(ActiveOperation.Kind.renewingSignature.buildsGame, "a re-sign never marks a game as building")
     }
+
+    // MARK: The build-files folder (BuildStore+BuildFiles.swift)
+
+    func testBuildFilesGoBesideTheAppUntilAFolderIsChosenAndTheChoiceIsKept() {
+        let store = makeStore()
+        store.outDir = "/Users/a/Games"
+        XCTAssertEqual(store.buildWorkDir(baseDir: "/in", tidHex: "0100000000010000"), "/Users/a/Games/0100000000010000_build")
+        XCTAssertNil(store.separateAppFolder(baseDir: "/in"))
+        store.chooseFolder = { "/Volumes/Drive/Builds" }
+        store.chooseBuildFilesFolder()
+        XCTAssertEqual(store.buildWorkDir(baseDir: "/in", tidHex: "0100000000010000"), "/Volumes/Drive/Builds/0100000000010000_build")
+        XCTAssertEqual(store.separateAppFolder(baseDir: "/in")?.path, "/Users/a/Games")
+        XCTAssertEqual(store.buildWorkDir(baseDir: "/in", tidHex: "0100000000010000", upstream: .macNativeGames),
+                       "/Volumes/Drive/Builds/0100000000010000_mng_build", "each engine keeps its own folder there")
+        XCTAssertEqual(makeStore().buildFilesFolder, "/Volumes/Drive/Builds", "the choice is saved")
+        store.clearBuildFilesFolder()
+        XCTAssertEqual(makeStore().buildFilesFolder, "")
+        store.outDir = ""
+        XCTAssertEqual(store.buildWorkDir(baseDir: "/in", tidHex: "0100000000010000"), "/in/0100000000010000_build", "beside the game files")
+    }
+
+    func testABuildFilesFolderOnADriveThatIsNotConnectedStopsTheBuild() throws {
+        let volumes = temporary.appendingPathComponent("Volumes")
+        try FileManager.default.createDirectory(at: volumes.appendingPathComponent("Here"), withIntermediateDirectories: true)
+        let store = BuildStore(localizer: localizer, runner: FakeProcessRunner(), repo: repo, deps: deps, engine: engine, devices: devices,
+                               defaults: defaults, volumesRoot: volumes.path)
+        XCTAssertNil(store.buildFilesDriveProblem(workDir: volumes.path + "/Gone/out/0100000000010000_build"), "only a chosen folder is checked")
+        store.buildFilesFolder = volumes.path + "/Gone/Builds"
+        let gone = store.buildFilesDriveProblem(workDir: volumes.path + "/Gone/Builds/0100000000010000_build")
+        XCTAssertEqual(gone, String(format: localizer.t("msg.buildFilesOffline"), "Gone"))
+        XCTAssertNil(store.buildFilesDriveProblem(workDir: volumes.path + "/Here/Builds/0100000000010000_build"))
+        XCTAssertNil(store.buildFilesDriveProblem(workDir: temporary.path + "/0100000000010000_build"))
+        XCTAssertEqual(store.buildFilesOfflineNote, gone, "the Builds page says it before a build")
+        store.buildFilesFolder = volumes.path + "/Here/Builds"
+        XCTAssertNil(store.buildFilesOfflineNote)
+        store.buildFilesFolder = ""
+        XCTAssertNil(store.buildFilesOfflineNote)
+    }
 }

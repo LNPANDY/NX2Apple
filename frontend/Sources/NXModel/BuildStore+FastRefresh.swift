@@ -129,7 +129,7 @@ extension BuildStore {
         }()
 
         try? FileManager.default.createDirectory(atPath: resolvedOutDir, withIntermediateDirectories: true)
-        let workDir = resolvedOutDir + "/" + tid + "_build"
+        let workDir = BuildFilesFolder.workDir(root: BuildFilesFolder.root(chosen: buildFilesFolder, appFolder: resolvedOutDir), key: tid)
 
         // Configure store state for fast refresh (external image path is set after device verification succeeds)
         fastRefreshActive = true
@@ -166,6 +166,11 @@ extension BuildStore {
         }
         shellDeviceChecked = false
 
+        if let why = buildFilesDriveProblem(workDir: workDir) {
+            fail(why)
+            clearFastRefreshContext()
+            return
+        }
         if cloudFolderCheck(workDir) {
             failure = BuildFailure(kind: .cloudFolder, gameName: nil, detail: workDir)
             fail(failureWhat(failure!))
@@ -254,7 +259,8 @@ extension BuildStore {
             return candidate
         }()
         let macOutput = isMac
-            ? MacAppOutput(workDir: URL(fileURLWithPath: workDir), key: tid, titleID: tid, upstream: .nxnative, preferred: nxnativeExistingApp)
+            ? MacAppOutput(workDir: URL(fileURLWithPath: workDir), key: tid, titleID: tid, upstream: .nxnative, preferred: nxnativeExistingApp,
+                           appDirectory: buildFilesFolder.isEmpty ? nil : URL(fileURLWithPath: resolvedOutDir))
             : nil
         oneGameIPAPath = ""
 
@@ -310,6 +316,7 @@ extension BuildStore {
         }
 
         let repoPath = repo.path
+        let buildFilesRoot = buildFilesFolder
         let prefillMacAppPath = nxnativeExistingApp.isEmpty ? nil : nxnativeExistingApp
         let initialInspection = BuildSeedCache.inspect(titleID: tid, seedRoot: seedRoot, repoPath: repoPath)
         let initialPrecheck = RefreshPrecheck.evaluate(
@@ -322,7 +329,8 @@ extension BuildStore {
             gameName: gameName,
             seedRoot: seedRoot,
             repoPath: repoPath,
-            externalIOSImgPath: validExternalImg
+            externalIOSImgPath: validExternalImg,
+            buildFilesFolder: buildFilesRoot
         )
         let adoptTool = engine + "/" + RepoLayout.buildSeedTool
         let needsAdopt = !initialInspection.isUsable
@@ -406,7 +414,8 @@ extension BuildStore {
                         gameName: gameName,
                         seedRoot: seedRoot,
                         repoPath: repoPath,
-                        externalIOSImgPath: validExternalImg
+                        externalIOSImgPath: validExternalImg,
+                        buildFilesFolder: buildFilesRoot
                     )
                     : initialPrecheck
 

@@ -11,10 +11,14 @@ package struct MacAppOutput {
     private let directory: URL
     private let rebuilding: Bool
 
-    package init(workDir: URL, key: String, titleID: String?, upstream: EngineUpstreamKind = .nxnative, preferred: String, stagingDirectory: URL? = nil) {
+    /// `appDirectory` is the folder the finished app goes to when the build files are kept elsewhere (BuildFilesFolder). Without
+    /// it the app goes beside the build folder, as it always did.
+    package init(workDir: URL, key: String, titleID: String?, upstream: EngineUpstreamKind = .nxnative, preferred: String,
+                 stagingDirectory: URL? = nil, appDirectory: URL? = nil) {
         workDirectoryURL = workDir
         self.upstream = upstream
-        directory = workDir.deletingLastPathComponent()
+        let besideWork = workDir.deletingLastPathComponent()
+        directory = appDirectory ?? besideWork
         let prior = Self.existing(in: directory, titleID: titleID, upstream: upstream, preferred: preferred)
         rebuilding = prior != nil
         if let prior {
@@ -23,6 +27,11 @@ package struct MacAppOutput {
         } else if let stagingDirectory {
             stagingDirectoryURL = stagingDirectory
             builderURL = stagingDirectory.appendingPathComponent(key + ".app")
+        } else if directory.standardizedFileURL.path != besideWork.standardizedFileURL.path {
+            // A first build packs the app in its own folder under a hidden name, which the library does not list while it is
+            // made. Packing it in the build folder on another drive would copy the whole app across drives at the end.
+            stagingDirectoryURL = nil
+            builderURL = directory.appendingPathComponent("." + key + ".app")
         } else {
             stagingDirectoryURL = nil
             builderURL = workDir.appendingPathComponent(key + ".app")
