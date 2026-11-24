@@ -905,6 +905,8 @@
   "dev.none": "选择设备",
   "dev.notConnected": "未连接",
   "dev.note": "Xcode 会为这台设备签名共用应用并安装，然后把游戏数据（romfs.img）复制到应用的“文稿”中。第一次复制大型游戏需要几分钟。第一次需要在设备上开启开发者模式，并信任开发者（设置 → 通用 → VPN 与设备管理）。",
+  "dev.onDeviceFrameworkBadge": "iPhone 上已有",
+  "dev.onDeviceFrameworkHelp": "已安装在 %@ 的共享壳中。",
   "dev.open": "在 %@ 上打开",
   "dev.openIOS": "在 iOS 中打开",
   "dev.personalTeam": "个人团队",

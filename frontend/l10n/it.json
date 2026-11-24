@@ -905,6 +905,8 @@
   "dev.none": "Scegli un dispositivo",
   "dev.notConnected": "non collegato",
   "dev.note": "Xcode firma l’app condivisa per questo dispositivo e la installa, poi copia i dati di gioco (romfs.img) nella cartella Documenti dell’app. La prima copia di un gioco grande richiede alcuni minuti. La prima volta, attiva la Modalità sviluppatore sul dispositivo e autorizza lo sviluppatore (Impostazioni → Generali → VPN e gestione dispositivi).",
+  "dev.onDeviceFrameworkBadge": "Su iPhone",
+  "dev.onDeviceFrameworkHelp": "Installato nell’app condivisa su %@.",
   "dev.open": "Apri su %@",
   "dev.openIOS": "Apri in iOS",
   "dev.personalTeam": "Team personale",

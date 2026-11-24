@@ -904,6 +904,8 @@
   "dev.none": "Choose a device",
   "dev.notConnected": "not connected",
   "dev.note": "Xcode signs the shared app for this device and installs it there, then copies the game data (romfs.img) into the app’s Documents. The first copy of a large game takes a few minutes. The first time, turn on Developer Mode on the device and trust the developer (Settings → General → VPN & Device Management).",
+  "dev.onDeviceFrameworkBadge": "On iPhone",
+  "dev.onDeviceFrameworkHelp": "Installed in the shared shell on %@.",
   "dev.open": "Open on %@",
   "dev.openIOS": "Open in iOS",
   "dev.personalTeam": "Personal team",

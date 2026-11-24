@@ -38,10 +38,11 @@ final class LibraryArtworkStateCache {
         let sourceFolder: String
         let titleID: String
         let building: Bool
+        let onConnectedDevice: Bool
         /// nxkit's launcher.json (its date and size): a rebuild into the same app path changes the No game profile tag.
         let nxkitList: NxkitBuildProfile.Stamp?
 
-        init(_ game: LibraryGame, building: Bool) {
+        init(_ game: LibraryGame, building: Bool, onConnectedDevice: Bool) {
             appPath = game.appPath
             ipaPath = game.ipaPath
             iosAppPath = game.iosAppPath
@@ -54,6 +55,7 @@ final class LibraryArtworkStateCache {
             sourceFolder = game.sourceFolder
             titleID = game.titleID
             self.building = building
+            self.onConnectedDevice = onConnectedDevice
             nxkitList = NxkitBuildProfile.stamp(app: game.appPath)
         }
     }
@@ -61,23 +63,26 @@ final class LibraryArtworkStateCache {
     private let lock = NSLock()
     private var entries: [UUID: (key: Key, state: LibraryArtworkState)] = [:]
 
-    func state(for game: LibraryGame, building: Bool = false) -> LibraryArtworkState {
-        let key = Key(game, building: building)
+    func state(for game: LibraryGame, building: Bool = false, onConnectedDevice: Bool = false) -> LibraryArtworkState {
+        let key = Key(game, building: building, onConnectedDevice: onConnectedDevice)
         lock.lock()
         if let cached = entries[game.id], cached.key == key {
             lock.unlock()
             return cached.state
         }
         lock.unlock()
-        let computed = LibraryArtworkState(game, building: building)
+        let computed = LibraryArtworkState(game, building: building, onConnectedDevice: onConnectedDevice)
         lock.lock()
         entries[game.id] = (key, computed)
         lock.unlock()
         return computed
     }
 
-    func states(for games: [LibraryGame], buildingID: UUID?) -> [UUID: LibraryArtworkState] {
-        Dictionary(uniqueKeysWithValues: games.map { ($0.id, state(for: $0, building: buildingID == $0.id)) })
+    func states(for games: [LibraryGame], buildingID: UUID?, connectedTitleIDs: Set<String> = []) -> [UUID: LibraryArtworkState] {
+        Dictionary(uniqueKeysWithValues: games.map {
+            let onDevice = connectedTitleIDs.contains($0.titleID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased())
+            return ($0.id, state(for: $0, building: buildingID == $0.id, onConnectedDevice: onDevice))
+        })
     }
 
     func invalidate(id: UUID? = nil) {
@@ -132,7 +137,7 @@ struct LibraryArtworkState: Equatable {
         self.macUpstream = macUpstream
         self.tunedEngines = tunedEngines
     }
-    init(_ game: LibraryGame, building: Bool = false, exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) {
+    init(_ game: LibraryGame, building: Bool = false, onConnectedDevice: Bool = false, exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) {
         var missingMacData = false
         var detectedUpstream: EngineUpstreamKind? = nil
         if game.appPath.isEmpty { mac = false }
@@ -148,7 +153,7 @@ struct LibraryArtworkState: Equatable {
         macUpstream = detectedUpstream
         isNxkitGeneric = detectedUpstream == .nxkit && NxkitBuildProfile.read(app: game.appPath) != nil
         tunedEngines = EngineUpstream.tunedEngines(forTitleID: game.titleID)
-        ios = game.hasIOSBuild
+        ios = game.hasIOSBuild || onConnectedDevice
         if mac { attention = .none }
         else if building { attention = .building }
         else if missingMacData { attention = .missingData }

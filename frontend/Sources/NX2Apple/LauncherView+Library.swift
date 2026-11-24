@@ -351,6 +351,7 @@ extension LauncherView {
                 ArtworkStatusChip(title: loc.t("library.olderToolsShort"), color: ArtworkStatusChip.neutralColor, showsIndicator: false)
                     .help(loc.t("library.olderToolsHelp"))
             }
+            deviceFrameworkBadge(game)
         }
         .accessibilityElement(children: .contain)
     }

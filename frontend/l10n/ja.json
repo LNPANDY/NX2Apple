@@ -904,6 +904,8 @@
   "dev.none": "デバイスを選択",
   "dev.notConnected": "未接続",
   "dev.note": "Xcode がこのデバイス用に共有アプリに署名してインストールし、ゲームデータ（romfs.img）をアプリの Documents にコピーします。大きなゲームの初回コピーには数分かかります。初回は、デバイスでデベロッパモードをオンにし、デベロッパを信頼してください（設定 → 一般 → VPN とデバイス管理）。",
+  "dev.onDeviceFrameworkBadge": "iPhone にあり",
+  "dev.onDeviceFrameworkHelp": "%@ の共有シェルにインストール済みです。",
   "dev.open": "%@ で開く",
   "dev.openIOS": "iOSで開く",
   "dev.personalTeam": "個人チーム",

@@ -143,6 +143,8 @@ final class GameLibrary: ObservableObject {
     @Published var skippedItems: [SkippedLibraryItem] = []
     @Published var dismissedSkippedPaths: Set<String> = []
     let played = PassthroughSubject<UUID, Never>()
+    @Published var connectedDeviceFrameworks: [String: DeviceFrameworkEntry] = [:]
+    @Published var connectedDeviceID = ""
     /// The keys saved in Settings: their header_key finds packages whose name has no title ID (#1012). The launcher sets it.
     var keysFile: () -> String = { "" }
     /// Test hook run at the start of each background folder scan pass.
@@ -187,11 +189,11 @@ final class GameLibrary: ObservableObject {
     }
 
     func artworkState(for game: LibraryGame, building: Bool = false) -> LibraryArtworkState {
-        artworkStateCache.state(for: game, building: building)
+        artworkStateCache.state(for: game, building: building, onConnectedDevice: connectedDeviceFramework(for: game.titleID) != nil)
     }
 
     func cachedArtworkStates(buildingID: UUID? = nil) -> [UUID: LibraryArtworkState] {
-        artworkStateCache.states(for: games, buildingID: buildingID)
+        artworkStateCache.states(for: games, buildingID: buildingID, connectedTitleIDs: Set(connectedDeviceFrameworks.keys))
     }
 
     func invalidateArtworkStates(for id: UUID? = nil) { artworkStateCache.invalidate(id: id) }
