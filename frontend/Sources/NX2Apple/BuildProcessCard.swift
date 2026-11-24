@@ -36,7 +36,8 @@ struct BuildProcessCard: View {
                         Spacer(minLength: DS.Space.xs)
                         if let fraction { Text("\(Int(fraction * 100))%").font(DS.Font.bodyStrong).monospacedDigit().foregroundStyle(DS.Color.textPrimary) }
                     }
-                    LauncherProgressBar(value: fraction, height: 8, tint: DS.Color.textPrimary)
+                    LauncherProgressBar(value: fraction, height: 8, tint: DS.Color.textPrimary,
+                                        segments: single ? [] : BuildProgress.segments(stages: stages, totalStages: build.totalStages))
                 }
                 .accessibilityElement(children: .combine)
                 if !single { BuildProcessRows(stages: stages) }
@@ -51,45 +52,6 @@ struct BuildProcessCard: View {
                 }
             }
             .padding(DS.Space.m).frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-}
-
-/// The games waiting after the running one: icon, name, platform, "Waiting", and a "…" menu to take one out of the queue.
-struct BuildUpNextSection: View {
-    @ObservedObject var queue: BuildQueueStore
-    let artwork: (QueueEntry) -> NSImage?
-    @EnvironmentObject private var loc: Localizer
-
-    var body: some View {
-        let waiting = queue.games.filter { $0.waiting && !$0.running }
-        if !waiting.isEmpty {
-            CardGroup(loc.t("queue.upNext")) {
-                VStack(spacing: 0) {
-                    ForEach(Array(waiting.enumerated()), id: \.element.id) { index, game in
-                        if index > 0 { CardDivider() }
-                        HStack(spacing: DS.Space.s) {
-                            Group {
-                                if let image = artwork(game.entries[0]) { Image(nsImage: image).resizable().scaledToFill() }
-                                else { Image(systemName: "gamecontroller.fill").foregroundStyle(DS.Color.symbolDefault).frame(maxWidth: .infinity, maxHeight: .infinity).background(DS.Color.surfaceRaised) }
-                            }.frame(width: DS.Control.thumbnail, height: DS.Control.thumbnail).clipShape(RoundedRectangle(cornerRadius: DS.Radius.chip)).accessibilityHidden(true)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(game.name).font(DS.Font.body).foregroundStyle(DS.Color.textPrimary).lineLimit(1)
-                                Text(game.entries.map { BuildHeaderLine.platform($0.target, loc.t) }.joined(separator: " · "))
-                                    .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
-                            }
-                            Spacer(minLength: DS.Space.xs)
-                            Text(loc.t("onboarding.queued")).font(DS.Font.callout).foregroundStyle(DS.Color.textTertiary)
-                            DSOverflowMenu(label: String(format: loc.t("queue.removeNamed"), game.name),
-                                           options: [("remove", loc.t("queue.remove"))], padID: "set.build.upnext." + game.titleID) { _ in
-                                for entry in game.entries where entry.status == .queued { queue.remove(entry.id) }
-                            }
-                        }
-                        .padding(.horizontal, DS.Space.m).padding(.vertical, DS.Space.s)
-                        .accessibilityElement(children: .contain)
-                    }
-                }
-            }
         }
     }
 }

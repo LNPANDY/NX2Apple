@@ -660,10 +660,23 @@ extension BuildStore {
         return String(format: t("msg.buildFailed"), status)
     }
 
-    func beginExternalStage(name: String, total: Int? = nil, detail: String = "") {
+    func beginExternalStage(name: String, total: Int? = nil, detail: String = "", scriptIndex: Int? = nil) {
         for idx in stages.indices where stages[idx].state == .running {
             stages[idx].state = .done
             stages[idx].percent = 100
+        }
+        if let scriptIndex {
+            BuildPlan.upsertScriptStage(
+                k: scriptIndex,
+                name: name,
+                state: .running,
+                detail: detail,
+                percent: nil,
+                started: Date(),
+                into: &stages
+            )
+            refreshOverallProgress(parsedTotal: total)
+            return
         }
         if let existing = stages.firstIndex(where: { $0.name == name }) {
             stages[existing].state = .running
@@ -671,8 +684,9 @@ extension BuildStore {
             if !detail.isEmpty { stages[existing].detail = detail }
             stages[existing].percent = nil
         } else {
-            let nextID = (stages.map(\.id).max() ?? 0) + 1
-            stages.append(Stage(id: nextID, name: name, state: .running, detail: detail, percent: nil, started: Date()))
+            let nextPrepID = min(0, (stages.filter { $0.id <= 0 }.map(\.id).max() ?? -100) + 1)
+            stages.append(Stage(id: nextPrepID, name: name, state: .running, detail: detail, percent: nil, started: Date()))
+            stages.sort { $0.id < $1.id }
         }
         refreshOverallProgress(parsedTotal: total)
     }
@@ -692,7 +706,7 @@ extension BuildStore {
 
     func handleExternalUpstreamLogLine(_ line: String) {
         if mngRun, let parsed = MacNativeGamesBuilder.parseStageLine(line) {
-            beginExternalStage(name: "\(parsed.index)/\(parsed.total) \(parsed.name)", total: parsed.total)
+            beginExternalStage(name: "\(parsed.index)/\(parsed.total) \(parsed.name)", total: parsed.total, scriptIndex: parsed.index)
             return
         }
         if s2armRun, let event = S2ArmBuilder.parseStageEvent(line) {

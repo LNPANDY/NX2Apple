@@ -91,9 +91,13 @@ extension BuildStore {
             case ShellInstaller.installStageID: "dev.installStage"
             case ShellInstaller.copyStageID: "dev.copyStage"
             case ShellInstaller.checkStageID: "shell.checkStage"
+            case ShellInstaller.exportBuildStageID: "shell.exportBuildStage"
+            case ShellInstaller.exportPackStageID: "shell.exportPackStage"
             default: nil
             }
-            let nameArgument = s.id == ShellInstaller.projectStageID ? nil : self.devices.deviceName(self.devices.installDevice)
+            let usesDeviceArg = s.id == ShellInstaller.signStageID || s.id == ShellInstaller.installStageID
+                || s.id == ShellInstaller.copyStageID || s.id == ShellInstaller.checkStageID
+            let nameArgument = usesDeviceArg ? self.devices.deviceName(self.devices.installDevice) : nil
             if let i = self.stages.firstIndex(where: { $0.id == s.id }) {
                 self.stages[i].name = s.name; self.stages[i].state = s.state; self.stages[i].detail = s.detail
                 self.stages[i].nameKey = nameKey; self.stages[i].nameArgument = nameKey == nil ? nil : nameArgument

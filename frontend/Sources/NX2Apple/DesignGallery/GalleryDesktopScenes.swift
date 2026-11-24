@@ -95,7 +95,7 @@ enum GalleryDesktopScene: String, CaseIterable {
         case .sendCopying: return "Copy to a drive: copying"
         case .sendCopied: return "Copy to a drive: copied"
         case .queueEveryState: return "Queue: every state"
-        case .queueRunning: return "Queue: running, up next"
+        case .queueRunning: return "Queue: running"
         case .transfersEveryState: return "Transfers: every state"
         case .logOpen: return "Build log open"
         case .footerVerifying: return "Activity: verifying the first start"

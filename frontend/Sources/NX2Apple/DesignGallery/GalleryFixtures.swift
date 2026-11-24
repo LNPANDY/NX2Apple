@@ -184,10 +184,10 @@ import NXLauncher
                 stores.build.overallProgress = 0.4
                 stores.build.stages = [Stage(id: 1, name: "Shaders", state: .running, detail: "20 / 50", percent: 40, started: Date().addingTimeInterval(-95), eta: 140, etaAt: Date())]
             } else {
-                stores.build.overallProgress = 0.62
                 stores.build.stages = [Stage(id: 1, name: "Extract", state: .done), Stage(id: 2, name: "Romfs", state: .done),
                                        Stage(id: 3, name: "Shaders", state: .running, detail: "31 / 50", percent: 62, started: Date().addingTimeInterval(-240), eta: 150, etaAt: Date()),
                                        Stage(id: 4, name: "Package", state: .pending), Stage(id: 5, name: "Sign", state: .pending)]
+                stores.build.overallProgress = BuildProgress.overallFraction(stages: stores.build.stages, totalStages: 5)
             }
             root = AnyView(launcher(.builds, editor: true))
         case .buildFinishedMac:

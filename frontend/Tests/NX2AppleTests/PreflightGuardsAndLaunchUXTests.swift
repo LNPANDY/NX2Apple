@@ -242,7 +242,8 @@ import NXModel
                 "overallProgress regressed at step \(idx): \(observedFractions)"
             )
         }
-        XCTAssertEqual(observedFractions.last ?? 0, 1.5 / 8.0, accuracy: 0.001)
+        // extract (3.0) done + 50% of shader split (3.5) out of total (3.0 + 3.5 + 6 * 3.0 = 24.5) = 4.75 / 24.5
+        XCTAssertEqual(observedFractions.last ?? 0, 4.75 / 24.5, accuracy: 0.001)
     }
 
     func testStagePositionAdvancesBeyondSixOfSevenIntoPostBuildAndCompletion() throws {
@@ -353,5 +354,104 @@ import NXModel
                 XCTAssertFalse(value.contains("\u{003B}") || value.contains("\u{FF1B}"), "\(lang.code) \(key)")
             }
         }
+    }
+
+    @MainActor func testIssue1519BuildPlanWeightedProgressStepsSheetAndNoDuplicateUpNext() throws {
+        let stores = LauncherStores(defaults: testDefaults)
+        stores.localizer.lang = .en
+        let build = stores.build
+        build.target = BuildTarget.mac
+        build.applyKnownTitleID("0100CD801CE5E000")
+
+        let fakeEngine = temporary.appendingPathComponent("repo/engine/dm/games/0100CD801CE5E000")
+        try FileManager.default.createDirectory(at: fakeEngine, withIntermediateDirectories: true)
+        try Data("# capture\n".utf8).write(to: fakeEngine.appendingPathComponent("gl_capture.tsv"))
+        try Data("title_id\t0100CD801CE5E000\nname\tBalatro\n".utf8).write(to: fakeEngine.appendingPathComponent("game.tsv"))
+        stores.repo.path = temporary.appendingPathComponent("repo").path
+
+        build.resetOverallProgress()
+        build.seedBuildPlan()
+        XCTAssertGreaterThanOrEqual(build.stages.count, 6)
+        XCTAssertTrue(build.stages.allSatisfy { $0.state == .pending })
+
+        // Even if script events omit `n` (`n: 0`), pre-seeded full plan prevents 95% jump after Extract + Rewrite.
+        build.handle(#"{"ev":"stage","k":1,"n":0,"name":"extract v851968","step":""}"#)
+        build.handle(#"{"ev":"stage_end","k":1,"name":"extract v851968","ok":true,"elapsed":3}"#)
+        build.handle(#"{"ev":"stage","k":2,"n":0,"name":"rewrite","step":""}"#)
+        build.handle(#"{"ev":"stage_end","k":2,"name":"rewrite","ok":true,"elapsed":2}"#)
+        build.handle(#"{"ev":"stage","k":3,"n":0,"name":"GL shader capture","step":"booting the game"}"#)
+
+        let overall = try XCTUnwrap(build.overallProgress)
+        XCTAssertLessThan(overall, 0.45)
+        XCTAssertGreaterThan(overall, 0.20)
+        XCTAssertEqual(build.stages.filter { $0.state == .pending }.count, build.stages.count - 3)
+
+        // Steps sheet receives the full stage list including pending future steps.
+        let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        let previous = NSApplication.shared.accessibilityAttributeValue(enhanced)
+        NSApplication.shared.accessibilitySetValue(true, forAttribute: enhanced)
+        defer { NSApplication.shared.accessibilitySetValue(previous ?? false, forAttribute: enhanced) }
+
+        func collectLabels(in node: NSObject) -> [String] {
+            var out: [String] = []
+            func visit(_ n: NSObject) {
+                for selName in ["accessibilityLabel", "accessibilityTitle", "accessibilityValue"] {
+                    let sel = NSSelectorFromString(selName)
+                    if n.responds(to: sel), let v = n.perform(sel)?.takeUnretainedValue() as? String, !v.isEmpty {
+                        out.append(v)
+                    }
+                }
+                let children = NSSelectorFromString("accessibilityChildren")
+                if n.responds(to: children), let list = n.perform(children)?.takeUnretainedValue() as? [NSObject] {
+                    list.forEach(visit)
+                }
+            }
+            visit(node)
+            return out
+        }
+
+        let sheet = BuildProcessStepsSheet(build: build, close: {})
+            .environmentObject(stores.localizer)
+            .environmentObject(PadFocus())
+        let sheetWin = OffscreenWindow(size: CGSize(width: 600, height: 440))
+        sheetWin.contentView = NSHostingView(rootView: sheet)
+        sheetWin.orderFront(nil)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        let sheetLabels = collectLabels(in: sheetWin)
+        sheetWin.contentView = nil; sheetWin.orderOut(nil); sheetWin.close()
+        XCTAssertTrue(sheetLabels.contains(where: { $0.contains("GL shaders") }), "missing pending stage in \(sheetLabels)")
+        XCTAssertTrue(sheetLabels.contains(where: { $0.contains("Mac host") }), "missing pending stage in \(sheetLabels)")
+        XCTAssertTrue(sheetLabels.contains(where: { $0.contains("Mac app") }), "missing pending stage in \(sheetLabels)")
+
+        // BuildPage while building with queued games renders BuildQueueCard only once, with no Up next section.
+        let queued = QueueEntry(
+            game: LibraryGame(titleID: "0100000000010000", name: "Queued Game"),
+            engineID: stores.engineSync.selection.engineID,
+            target: BuildTarget.mac,
+            batch: UUID(),
+            packageAfter: false,
+            exportIPA: nil,
+            exportFramework: nil
+        )
+        stores.queue.showForGallery([queued])
+        build.buildingGame = true
+        build.running = true
+        let page = BuildPage(
+            step: .constant(0), build: build, running: true, repo: stores.repo,
+            dependencies: stores.dependencies, devices: stores.deviceStore,
+            queue: stores.queue, transfers: stores.transfers,
+            extrasOpen: .constant(false), logOpen: .constant(false), confirmingCancel: .constant(false)
+        )
+        .environmentObject(stores.localizer)
+        .environmentObject(PadFocus())
+        let pageWin = OffscreenWindow(size: CGSize(width: 900, height: 700))
+        pageWin.contentView = NSHostingView(rootView: page)
+        pageWin.orderFront(nil)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        let pageLabels = collectLabels(in: pageWin)
+        pageWin.contentView = nil; pageWin.orderOut(nil); pageWin.close()
+        XCTAssertFalse(pageLabels.contains("Up next"), "Up next section must not be shown: \(pageLabels)")
+        XCTAssertEqual(pageLabels.filter { $0 == "Build queue" }.count, 1, "Build queue header must appear once: \(pageLabels)")
+        XCTAssertEqual(pageLabels.filter { $0.hasPrefix("Remove ") }.count, 1, "Queued Game actions must appear only once in BuildQueueCard: \(pageLabels)")
     }
 }

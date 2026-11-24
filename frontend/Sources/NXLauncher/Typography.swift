@@ -66,17 +66,33 @@ extension Font {
 
 /// A thick rounded bar on a dark track, the launcher's build progress. Without a value (a step that reports
 /// no percentage) it shows calm diagonal stripes that run steadily to the right: a barber pole, not a bounce.
+/// When `segments` has multiple steps, each step occupies a proportional segment of the bar and fills inside its share.
 package struct LauncherProgressBar: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     package var value: Double?
     package var height: CGFloat = 8
     package var tint: Color = LauncherPalette.building
+    package var segments: [ProgressSegment] = []
 
-    package init(value: Double?, height: CGFloat = 8, tint: Color = LauncherPalette.building) {
-        self.value = value; self.height = height; self.tint = tint
+    package init(value: Double?, height: CGFloat = 8, tint: Color = LauncherPalette.building, segments: [ProgressSegment] = []) {
+        self.value = value; self.height = height; self.tint = tint; self.segments = segments
     }
 
     package var body: some View {
+        Group {
+            if segments.count > 1 {
+                segmentedBody
+            } else {
+                singleBody
+            }
+        }
+        .frame(height: height)
+        .clipShape(Capsule())
+        .accessibilityElement()
+        .accessibilityValue(value.map { "\(Int($0 * 100))%" } ?? "")
+    }
+
+    private var singleBody: some View {
         ZStack(alignment: .leading) {
             Capsule().fill(LauncherPalette.ink(0.12))
             if let value {
@@ -85,31 +101,76 @@ package struct LauncherProgressBar: View {
                         .animation(LauncherMotion.animation(.easeOut(duration: 0.3), reduceMotion: reduceMotion), value: value)
                 }
             } else {
-                Capsule().fill(tint.opacity(0.16))   // an amber-tinted track under soft stripes
-                TimelineView(.animation(paused: reduceMotion)) { context in
-                    Canvas { canvas, size in
-                        // One stripe and one gap per period; the pattern moves one period every 1.2 s, linearly
-                        let period = height * 3, stripe = height * 1.5
-                        let t = context.date.timeIntervalSinceReferenceDate
-                        let phase = CGFloat(t.truncatingRemainder(dividingBy: 1.2) / 1.2) * period
-                        var x = -size.height - period + phase
-                        while x < size.width {
-                            var p = Path()
-                            p.move(to: CGPoint(x: x, y: size.height))
-                            p.addLine(to: CGPoint(x: x + size.height, y: 0))
-                            p.addLine(to: CGPoint(x: x + size.height + stripe, y: 0))
-                            p.addLine(to: CGPoint(x: x + stripe, y: size.height))
-                            p.closeSubpath()
-                            canvas.fill(p, with: .color(tint.opacity(0.45)))
-                            x += period
-                        }
+                indeterminateStripes
+            }
+        }
+    }
+
+    private var segmentedBody: some View {
+        GeometryReader { geo in
+            let spacing: CGFloat = 2
+            let totalSpacing = spacing * CGFloat(max(0, segments.count - 1))
+            let usableWidth = max(0, geo.size.width - totalSpacing)
+            let totalWeight = max(0.1, segments.reduce(0.0) { $0 + max(0.1, $1.weight) })
+            HStack(spacing: spacing) {
+                ForEach(segments) { segment in
+                    let width = usableWidth * CGFloat(max(0.1, segment.weight) / totalWeight)
+                    segmentView(segment, width: width)
+                        .frame(width: max(2, width), height: height)
+                        .clipShape(RoundedRectangle(cornerRadius: 2))
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private func segmentView(_ segment: ProgressSegment, width: CGFloat) -> some View {
+        switch segment.state {
+        case .done:
+            Rectangle().fill(tint)
+        case .pending:
+            Rectangle().fill(LauncherPalette.ink(0.12))
+        case .failed:
+            ZStack(alignment: .leading) {
+                Rectangle().fill(LauncherPalette.ink(0.12))
+                let fillWidth = max(min(width, 2), width * min(max(segment.fraction ?? 1.0, 0), 1))
+                Rectangle().fill(DS.Color.statusError).frame(width: fillWidth)
+            }
+        case .running:
+            ZStack(alignment: .leading) {
+                if let frac = segment.fraction {
+                    Rectangle().fill(LauncherPalette.ink(0.12))
+                    let fillWidth = frac > 0 ? max(min(width, 2), width * min(max(frac, 0), 1)) : 0
+                    Rectangle().fill(tint).frame(width: fillWidth)
+                        .animation(LauncherMotion.animation(.easeOut(duration: 0.3), reduceMotion: reduceMotion), value: frac)
+                } else {
+                    indeterminateStripes
+                }
+            }
+        }
+    }
+
+    private var indeterminateStripes: some View {
+        ZStack {
+            Rectangle().fill(tint.opacity(0.16))   // a tinted track under soft stripes
+            TimelineView(.animation(paused: reduceMotion)) { context in
+                Canvas { canvas, size in
+                    // One stripe and one gap per period; the pattern moves one period every 1.2 s, linearly
+                    let period = height * 3, stripe = height * 1.5
+                    let t = context.date.timeIntervalSinceReferenceDate
+                    let phase = CGFloat(t.truncatingRemainder(dividingBy: 1.2) / 1.2) * period
+                    var x = -size.height - period + phase
+                    while x < size.width {
+                        var p = Path()
+                        p.move(to: CGPoint(x: x, y: size.height))
+                        p.addLine(to: CGPoint(x: x + size.height, y: 0))
+                        p.addLine(to: CGPoint(x: x + size.height + stripe, y: 0))
+                        p.addLine(to: CGPoint(x: x + stripe, y: size.height))
+                        p.closeSubpath()
+                        canvas.fill(p, with: .color(tint.opacity(0.45)))
+                        x += period
                     }
                 }
             }
         }
-        .frame(height: height)
-        .clipShape(Capsule())
-        .accessibilityElement()
-        .accessibilityValue(value.map { "\(Int($0 * 100))%" } ?? "")
     }
 }

@@ -195,6 +195,8 @@ extension BuildStore {
         done = false
         doneNote = ""
         stages = []
+        resetOverallProgress()
+        seedBuildPlan(fastRefresh: true)
         log.clear()
         staleShadersMessageKey = nil
         failure = nil

@@ -491,7 +491,15 @@ extension BuildStore {
                 archiveGeneration &+= 1
                 let gen = archiveGeneration
                 let packStageName = t("upstream.s2armPackingMacApp")
-                beginExternalStage(name: packStageName)
+                if let pendingIdx = stages.firstIndex(where: { $0.state == .pending && $0.id < 1000 && BuildPlan.canonicalKind(of: $0.name) == .macApp }) {
+                    stages[pendingIdx].name = packStageName
+                    stages[pendingIdx].state = .running
+                    stages[pendingIdx].started = Date()
+                    refreshOverallProgress(parsedTotal: nil)
+                } else {
+                    let nextScriptID = (stages.filter { $0.id > 0 && $0.id < 1000 }.map(\.id).max() ?? 0) + 1
+                    beginExternalStage(name: packStageName, scriptIndex: nextScriptID)
+                }
                 say(packStageName)
                 let cancel = installCancel
                 installCancel.set(false)

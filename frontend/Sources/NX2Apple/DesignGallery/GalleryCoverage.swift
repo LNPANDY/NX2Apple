@@ -70,7 +70,7 @@ enum GalleryCoverage {
         "InstallCard": [.wizardInstall], "RefreshDevicesButton": [.wizardInstall], "LauncherBrandMark": [.wizardInstall],
         "BuildMetadataHero": [.buildOneStage, .buildMultiStage], "BuildIconReveal": [.buildOneStage, .motion(.iconReveal)],
         "BuildProcessCard": [.buildMultiStage], "BuildProcessRows": [.buildMultiStage], "CardDisclosure": [.buildOneStage],
-        "ProgressCard": [.buildsRunning, .nxkitFailed], "LauncherProgressBar": [.buildsRunning], "BuildUpNextSection": [.buildsQueued, .desktop(D.queueRunning)],
+        "ProgressCard": [.buildsRunning, .nxkitFailed], "LauncherProgressBar": [.buildsRunning],
         "BuildQueueHero": [.desktop(D.queueRunning)], "QueueArtworkStack": [.desktop(D.queueRunning), .buildsQueued],
         "BuildQueueCard": [.desktop(D.queueEveryState)], "BuildPlatformChip": [.desktop(D.queueEveryState), .sheet(.buildSelected)],
         "ArtworkOutcomeBadge": [.desktop(D.queueEveryState)], "OutcomeCard": [.buildFinishedMac, .buildFinishedIOS],

@@ -6,7 +6,7 @@ popover and alert, every notice and every case of the state enums the views swit
 `NX_WRITE_COVERAGE=1 swift test --package-path frontend --filter GalleryCoverageTests`. The gallery has
 340 scenes.
 
-## Views: 233 of 243 in a scene
+## Views: 232 of 242 in a scene
 
 | View | Scenes |
 |---|---|
@@ -38,7 +38,6 @@ popover and alert, every notice and every case of the state enums the views swit
 | `BuildQueueCard` | `desktop-queueEveryState` |
 | `BuildQueueHero` | `desktop-queueRunning` |
 | `BuildSelectedSheet` | `buildSelected` |
-| `BuildUpNextSection` | `buildsQueued`, `desktop-queueRunning` |
 | `CacheFolderRow` | `settingsTools` |
 | `CardDisclosure` | `buildOneStage` |
 | `CardDivider` | `settings` |
@@ -313,7 +312,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `hero.switch2` | `librarySwitch2` |
 | `library.skippedBanner` | `libraryNoticeWarning` |
 
-## States: 283 of 283 in a scene
+## States: 284 of 284 in a scene
 
 | State | Scenes |
 |---|---|

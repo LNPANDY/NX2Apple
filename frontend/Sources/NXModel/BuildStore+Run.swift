@@ -96,6 +96,7 @@ extension BuildStore {
         s2armEventsPath = ""
         nxkitRun = false
         nxkitFeedback = nil   // the last build's question goes with its result (#1460)
+        seedBuildPlan()
         if isMacNativeGamesSelected {
             startMacNativeGamesBuild()
             return
@@ -673,68 +674,7 @@ extension BuildStore {
         }
     }
 
-    /// The build's last stage: the new app is opened once, hidden, so that macOS checks it now and not at the player's first
-    /// start (#1005, `MacPreflight`). Its end, whatever it is, leaves the build done: a failure is a line in the log and a
-    /// failed stage. Skipped when switched off in Settings, or when the app's launcher would start the game instead.
-    func preflight(_ app: URL) async {
-        guard let open = preflightApp, MacPreflight.enabled(defaults), preflightSupported(app) else { return }
-        operation?.kind = .verifyingFirstStart
-        let id = (stages.map(\.id).max() ?? 0) + 1
-        let started = Date()
-        stages.append(Stage(id: id, name: "preflight", state: .running, started: started))
-        say(t("msg.preflight"))
-        let error: Error?
-        if let run = runPreflight {
-            let check = Task { @MainActor in await run(app, preflightTimeout) }
-            error = await withTaskCancellationHandler {
-                await withCheckedContinuation { (c: CheckedContinuation<Error?, Never>) in
-                    let end: @MainActor (Error?) -> Void = { [weak self] e in
-                        guard let self, self.endPreflight != nil else { return }
-                        self.endPreflight = nil
-                        check.cancel()
-                        c.resume(returning: e)
-                    }
-                    endPreflight = { end($0) }
-                    Task { @MainActor in end(await check.value) }
-                }
-            } onCancel: {
-                check.cancel()
-            }
-        } else {
-            var timer: Task<Void, Never>?
-            error = await withCheckedContinuation { (c: CheckedContinuation<Error?, Never>) in
-                let end: @MainActor (Error?) -> Void = { [weak self] e in
-                    guard let self, self.endPreflight != nil else { return }   // once: the app quit, Stop, or the timeout
-                    self.endPreflight = nil
-                    c.resume(returning: e)
-                }
-                endPreflight = { end($0) }
-                let timeout = preflightTimeout
-                timer = Task {
-                    do { try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000)) } catch { return }
-                    end(MacPreflight.Failure.timedOut)
-                }
-                open(app, end)
-            }
-            timer?.cancel()
-        }
-        guard let i = stages.firstIndex(where: { $0.id == id }) else { return }
-        if let error {
-            let why: String
-            switch error {
-            case MacPreflight.Failure.timedOut: why = String(format: t("msg.preflightTimedOut"), Int(preflightTimeout / 60))
-            case MacPreflight.Failure.stopped: why = t("msg.stopped")
-            default: why = error.localizedDescription
-            }
-            stages[i].state = .failed
-            stages[i].detail = why
-            say("✗ " + String(format: t("msg.preflightFailed"), why))
-        } else {
-            stages[i].state = .done
-            say("✓ " + String(format: t("msg.preflightDone"), Int(Date().timeIntervalSince(started).rounded())))
-        }
-    }
-
+    /// Runs `verifyShellDevice` before building.
     /// Looks the device up in `devicectl list devices` (in the background), then starts the build, or says how to pair it.
     package func verifyShellDevice(then resume: (() -> Void)? = nil) {
         buildingGame = true
