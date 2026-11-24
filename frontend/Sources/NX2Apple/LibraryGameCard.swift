@@ -12,11 +12,20 @@ struct LibraryGameCard: View {
         let fixedWidth: CGFloat?
     }
 
-    static func tunedBadge(built: EngineUpstreamKind?, available: [EngineUpstreamKind], t: (String) -> String) -> TunedBadge? {
-        if let built, built.group == .gameTuned {
+    static func tunedBadge(built: EngineUpstreamKind?, builtUpstreams: [EngineUpstreamKind] = [], available: [EngineUpstreamKind], t: (String) -> String) -> TunedBadge? {
+        if let built, builtUpstreams.count > 1 || built != .nxnative {
+            let help: String
+            if builtUpstreams.count > 1 {
+                let names = builtUpstreams.map(\.displayName).joined(separator: ", ")
+                help = String(format: t("library.engineBuiltSummary.help"), built.displayName, names)
+            } else if built.group == .gameTuned {
+                help = String(format: t("library.tunedBuilt.help"), built.displayName)
+            } else {
+                help = String(format: t("library.engineActive.help"), built.displayName)
+            }
             return TunedBadge(
                 title: built.displayName,
-                help: String(format: t("library.tunedBuilt.help"), built.displayName),
+                help: help,
                 isBuilt: true,
                 fixedWidth: DSTag.engineWidth
             )
@@ -34,7 +43,12 @@ struct LibraryGameCard: View {
     }
 
     static func tunedBadge(for state: LibraryArtworkState, t: (String) -> String) -> TunedBadge? {
-        tunedBadge(built: state.builtTunedEngine, available: state.tunedEngines, t: t)
+        tunedBadge(
+            built: state.mac ? state.macUpstream : nil,
+            builtUpstreams: state.builtMacUpstreams,
+            available: state.tunedEngines,
+            t: t
+        )
     }
 
     let title: String

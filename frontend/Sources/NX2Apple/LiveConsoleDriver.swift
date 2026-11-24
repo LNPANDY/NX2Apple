@@ -87,7 +87,8 @@ struct ConsolePadSnapshot: Equatable {
     var cloudGameID: String?
     var cloudWatch: AnyCancellable?
     var timeoutTask: Task<Void, Never>?
-    private var launchGeneration: UInt64 = 0
+    var launchGeneration: UInt64 = 0
+    var pendingLaunchUpstreamOverride: (gameID: String, upstream: EngineUpstreamKind)? = nil
     private var pendingLaunch: Task<Void, Never>?
     private let launchGracePeriod: TimeInterval
     private var toastTask: Task<Void, Never>?
@@ -228,6 +229,7 @@ struct ConsolePadSnapshot: Equatable {
                                   isMacNativeGames: macUpstream == .macNativeGames,
                                   builtTunedEngineName: builtTunedName,
                                   tunedEngineNames: tunedNames)
+        applyMultiBuildInfo(&console, from: game)
         // built by nxkit without a game profile (v0lumehi/nxkit#54): read here, the views never touch the file
         if game.isReady, let app = game.playableMacBundle, app.upstream == .nxkit, let profile = NxkitBuildProfile.read(app: game.appPath) {
             console.genericBuild = profile
@@ -294,6 +296,7 @@ struct ConsolePadSnapshot: Equatable {
 
     func cancelPendingLaunch() -> Bool {
         guard state.startingGameID != nil else { return false }
+        pendingLaunchUpstreamOverride = nil
         pendingLaunch?.cancel(); pendingLaunch = nil
         timeoutTask?.cancel()
         if launchedPID == nil || launchedGame?.id.uuidString != state.startingGameID {
@@ -308,7 +311,8 @@ struct ConsolePadSnapshot: Equatable {
     }
 
     private func beginLaunch(_ gameID: String, generation: UInt64) {
-        guard launchGeneration == generation, state.startingGameID == gameID, let game = library.games.first(where: { $0.id.uuidString == gameID }) else { return }
+        guard launchGeneration == generation, state.startingGameID == gameID,
+              let game = resolvedLaunchGame(for: gameID) else { return }
         let environment = GameStart.environment(for: game, library: library, controls: controls, repo: repo(), labels: labels, lang: lang(), fullscreen: true, player: player(), saves: saves(game.titleID), sticks: sticks(), homeMenu: true)   // the Home menu's way back here (#952)
             .merging(pointerHidden() ? ["DM_CURSOR_HIDDEN": "1", "NXKIT_CURSOR_HIDDEN": "1"] : [:]) { $1 }   // the game is a new process: without this its pointer shows until its own idle wait ends (nxkit reads its own name)
             .merging(FrameTimes.recordingEnvironment(for: game, library: library.folder)) { $1 }   // a frame-time recording, as the desktop Play adds (FrameTimes.swift)
@@ -320,19 +324,20 @@ struct ConsolePadSnapshot: Equatable {
             self.prepareLaunch { [weak self] in
                 guard let self else { return }
                 guard self.launchGeneration == generation, self.state.startingGameID == gameID else { return }
-                let latest = self.library.games.first(where: { $0.id == game.id }) ?? game
+                let latest = self.resolvedLaunchGame(for: gameID) ?? game
                 MacGameMode.shared.prepareForLaunch(enabled: latest.macGameModeDesired, forApp: latest.appPath) { [weak self] error in
                     MainActor.assumeIsolated {
                         guard let self else { return }
                         guard self.launchGeneration == generation, self.state.startingGameID == gameID else { return }
-                        if let error { self.state.returnFromGame(); self.gameEnded(); self.showToast(error.localizedDescription, kind: "error"); return }
+                        if let error { self.clearLaunchOverrideAndFail(error.localizedDescription); return }
+                        self.pendingLaunchUpstreamOverride = nil
                         self.openGame(latest, environment: environment.merging(choice) { $1 }, gameID: gameID, generation: generation)
                     }
                 }
             }
         }, ended: { [weak self] in
             guard let self, self.launchGeneration == generation else { return }
-            self.state.returnFromGame()
+            self.pendingLaunchUpstreamOverride = nil; self.state.returnFromGame()
         })
     }
 

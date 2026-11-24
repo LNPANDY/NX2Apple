@@ -62,7 +62,16 @@ struct ConsoleGame: Identifiable {
     var isMacNativeGames = false
     var builtTunedEngineName: String? = nil
     var tunedEngineNames: [String] = []
+    var activeMacEngine: EngineUpstreamKind? = nil
+    var builtMacEngines: [EngineUpstreamKind] = []
     var lastSave: Date?
+
+    var activeEngineBadgeName: String? {
+        if let activeMacEngine, builtMacEngines.count > 1 || activeMacEngine != .nxnative {
+            return activeMacEngine.displayName
+        }
+        return builtTunedEngineName ?? (isMacNativeGames ? EngineUpstreamKind.macNativeGames.displayName : nil)
+    }
     /// nxkit built the app without a game profile (NxkitBuildProfile, v0lumehi/nxkit#54), read by the driver: the tile and the page say so.
     var genericBuild: NxkitBuildProfile?
     /// The prefilled report for such a build (NxkitFeedback.genericBuildReportURL), opened only when the player chooses Report.
@@ -537,6 +546,8 @@ struct ConsoleState {
     func stopBuild()
     func openQuickMenu()
     func openManage(_ gameID: String)
+    func setDefaultMacEngine(_ gameID: String, upstream: EngineUpstreamKind)
+    func launchWithMacEngine(_ gameID: String, upstream: EngineUpstreamKind)
     /// #952: the paused game plays again, and the answer Quit to "Quit <game>?" (the paused game quits, then what waited for it runs).
     func resume(_ gameID: String)
     func quitPausedGame()
@@ -595,6 +606,8 @@ extension ConsoleDriver {
     func stopBuild() {}
     func openQuickMenu() {}
     func openManage(_ gameID: String) {}
+    func setDefaultMacEngine(_ gameID: String, upstream: EngineUpstreamKind) {}
+    func launchWithMacEngine(_ gameID: String, upstream: EngineUpstreamKind) {}
     func resume(_ gameID: String) {}
     func quitPausedGame() {}
 }

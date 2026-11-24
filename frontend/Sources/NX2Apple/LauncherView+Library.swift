@@ -304,6 +304,7 @@ extension LauncherView {
     static func tunedMetadataBadge(for game: LibraryGame, t: (String) -> String) -> LibraryGameCard.TunedBadge? {
         LibraryGameCard.tunedBadge(
             built: game.playableMacBundle?.upstream,
+            builtUpstreams: game.sortedMacBuilds.map(\.upstream),
             available: EngineUpstream.tunedEngines(forTitleID: game.titleID),
             t: t
         )

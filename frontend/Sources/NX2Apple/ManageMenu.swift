@@ -7,6 +7,8 @@ import NXLauncher
 struct ManageActions {
     var rebuild: () -> Void = {}
     var openOnDevice: () -> Void = {}
+    var launchWithEngine: (EngineUpstreamKind) -> Void = { _ in }
+    var setDefaultEngine: (EngineUpstreamKind) -> Void = { _ in }
     var options: () -> Void = {}
     var saves: () -> Void = {}
     var cheats: () -> Void = {}
@@ -34,9 +36,23 @@ struct ManageItem: Identifiable {
     /// Build again is off while a build runs or with no recorded inputs, Remove while this game is the one building.
     static func list(game: LibraryGame, labels t: (String) -> String, running: Bool, olderTools: Bool, activeBuildID: UUID?,
                      hasBuildFolder: Bool, buildFilesTitle: String? = nil, hasLog: Bool = false, deviceName: String, launching: Bool = false,
+                     activeUpstream: EngineUpstreamKind? = nil, builtUpstreams: [EngineUpstreamKind] = [],
                      actions a: ManageActions) -> [ManageItem] {
         var items = [ManageItem(id: "rebuild", symbol: "arrow.clockwise", title: t(olderTools ? "library.rebuild" : "library.buildAgain"),
                                 enabled: !running && !game.inputs["base", default: []].isEmpty, run: a.rebuild)]
+        if builtUpstreams.count > 1 {
+            let current = activeUpstream ?? builtUpstreams.first
+            for upstream in builtUpstreams where upstream != current {
+                items.append(.init(id: "launch." + upstream.rawValue, symbol: "play.circle",
+                                   title: String(format: t("library.launchWithEngine"), upstream.displayName),
+                                   enabled: !launching, run: { a.launchWithEngine(upstream) }))
+            }
+            for upstream in builtUpstreams where upstream != current {
+                items.append(.init(id: "default." + upstream.rawValue, symbol: "checkmark.circle",
+                                   title: String(format: t("library.setDefaultEngine"), upstream.displayName),
+                                   run: { a.setDefaultEngine(upstream) }))
+            }
+        }
         if game.isReady {
             if game.onDevice {
                 items.append(.init(id: "device", symbol: "iphone", title: String(format: t("dev.open"), deviceName),
