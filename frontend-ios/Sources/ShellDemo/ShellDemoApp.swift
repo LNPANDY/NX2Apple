@@ -176,6 +176,7 @@ struct DemoScreen: View {
                 if let index = games[g].sections[section].rows.firstIndex(where: { $0.id == row }) {
                     games[g].sections[section].rows[index].value = value
                     games[g].sections[section].rows[index].fromShell = false
+                    games[g].sections[section].rows[index].fromEnvFile = false
                     games[g].sections[section].rows[index].changed = baseline.map { $0 != value } ?? true
                 }
             }

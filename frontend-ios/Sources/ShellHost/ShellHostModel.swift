@@ -698,8 +698,9 @@ public struct ShellHostConfig: Sendable {
     private func settingsSnapshot(for id: String, profile: LauncherProfile) -> (sections: [SettingSection], hasModifiedSettings: Bool) {
         let store = makeSettingsStore(for: id, profile: profile)
         let fromShell = Set(profile.settings.filter(store.isFromShell).map(\.env))
+        let fromEnvFile = Set(profile.settings.filter(store.isFromEnvFile).map(\.env))
         let pad = GamePadMapStore(defaults: config.defaults(id))
-        let sections = SettingsPresenter.sections(profile: profile, values: store.values(), fromShell: fromShell)
+        let sections = SettingsPresenter.sections(profile: profile, values: store.values(), fromShell: fromShell, fromEnvFile: fromEnvFile)
         // A profile-provided DM_PAD_MAP row owns the mapping, so do not offer conflicting shell overrides.
         let padSections = profile.settings.contains { $0.env == "DM_PAD_MAP" } ? [] : [pad.section()]
         return (sections + padSections, store.hasModifiedSettings || !pad.entries.isEmpty)

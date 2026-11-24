@@ -113,6 +113,12 @@ struct HostDemoScreen: View {
                 try? Data("fixture".utf8).write(to: mslFile)
             }
         }
+        if args.contains("--mock-env-override") {
+            let orbitDir = appData.appendingPathComponent("0100000000010000", isDirectory: true)
+            try? fm.createDirectory(at: orbitDir, withIntermediateDirectories: true)
+            try? Data("DM_OPMODE=0\nDM_SHOW_FPS=1\nDM_RENDER_SCALE=1.25\n".utf8)
+                .write(to: orbitDir.appendingPathComponent("env.txt"))
+        }
         let suite = Self.suite
         let config = ShellHostConfig(gamesRoot: gamesRoot, appDataRoot: appData,
                                      environment: HostEnvironment(chain: "b-3f9a2c"),

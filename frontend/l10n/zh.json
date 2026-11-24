@@ -1480,6 +1480,7 @@
   "ios.ui.exit": "退出",
   "ios.ui.fixGameFilesChip": "修复游戏文件",
   "ios.ui.forBugReport": "用于问题报告",
+  "ios.ui.fromGameEnvFile": "在这个游戏的 env.txt 中设置",
   "ios.ui.fromSettings": "来自设置",
   "ios.ui.gameData": "游戏数据",
   "ios.ui.gameDataNote": "游戏会在这里查找游戏数据。请在其中的任意文件夹里为每个游戏放一个 romfs.img。应用会按镜像本身识别游戏，所以文件夹名称不限。每个游戏也可以单独指定文件夹。",

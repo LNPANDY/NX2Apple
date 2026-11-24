@@ -13,12 +13,17 @@ struct NativeGameSettingControl: View {
                 NativeChoiceControl(row: row, menuOnly: row.id == "DM_LANG" || row.id == "DM_LANGUAGE",
                                     inline: true, targetPrefix: targetPrefix, change: change)
             case .toggle(let on, let off):
-                Toggle(isOn: Binding(get: { row.value == on }, set: { change($0 ? on : off) })) {
-                    label
+                VStack(alignment: .leading, spacing: 6) {
+                    Toggle(isOn: Binding(get: { row.value == on }, set: { change($0 ? on : off) })) {
+                        label
+                    }
+                    .toggleStyle(NativeCreamToggleStyle())
+                    .accessibilityIdentifier("setting.\(row.id)")
+                    .shellTarget(targetPrefix + row.id, enabled: row.enabled) { change(row.value == on ? off : on) }
+                    if row.fromEnvFile {
+                        FromEnvFileMark(rowID: row.id)
+                    }
                 }
-                .toggleStyle(NativeCreamToggleStyle())
-                .accessibilityIdentifier("setting.\(row.id)")
-                .shellTarget(targetPrefix + row.id, enabled: row.enabled) { change(row.value == on ? off : on) }
             case .range(let lower, let upper, let step, let unit):
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(alignment: .firstTextBaseline) {
@@ -36,6 +41,9 @@ struct NativeGameSettingControl: View {
                                 let current = Double(row.value) ?? lower
                                 change(String(current >= upper ? lower : min(upper, current + step)))
                             }
+                    }
+                    if row.fromEnvFile {
+                        FromEnvFileMark(rowID: row.id)
                     }
                 }
                 .accessibilityElement(children: .contain)

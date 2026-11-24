@@ -1479,6 +1479,7 @@
   "ios.ui.exit": "Exit",
   "ios.ui.fixGameFilesChip": "Fix Game Files",
   "ios.ui.forBugReport": "For a bug report",
+  "ios.ui.fromGameEnvFile": "Set in this game’s env.txt",
   "ios.ui.fromSettings": "From Settings",
   "ios.ui.gameData": "Game data",
   "ios.ui.gameDataNote": "Games look for their data here. Keep one romfs.img per game in any folder inside. Each game is found by the image itself, so the folder names do not matter. Each game can also have a folder of its own.",

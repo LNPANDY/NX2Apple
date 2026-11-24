@@ -1479,6 +1479,7 @@
   "ios.ui.exit": "終了",
   "ios.ui.fixGameFilesChip": "ゲームファイルを修復",
   "ios.ui.forBugReport": "バグ報告用",
+  "ios.ui.fromGameEnvFile": "このゲームの env.txt で設定",
   "ios.ui.fromSettings": "共通設定を使用",
   "ios.ui.gameData": "ゲームデータ",
   "ios.ui.gameDataNote": "ゲームはここでデータを探します。中のどのフォルダでも、ゲームごとに romfs.img を 1 つ置いてください。各ゲームはイメージ自体で見つけるので、フォルダ名は関係ありません。ゲームごとに専用のフォルダを持たせることもできます。",

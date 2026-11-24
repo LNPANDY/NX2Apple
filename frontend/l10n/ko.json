@@ -1480,6 +1480,7 @@
   "ios.ui.exit": "나가기",
   "ios.ui.fixGameFilesChip": "게임 파일 수정",
   "ios.ui.forBugReport": "버그 신고용",
+  "ios.ui.fromGameEnvFile": "이 게임의 env.txt에서 설정됨",
   "ios.ui.fromSettings": "설정에서",
   "ios.ui.gameData": "게임 데이터",
   "ios.ui.gameDataNote": "게임은 여기서 데이터를 찾습니다. 안쪽 아무 폴더에나 게임당 romfs.img 하나를 두세요. 게임은 이미지 자체로 식별되므로 폴더 이름은 상관없습니다. 게임마다 자체 폴더를 둘 수도 있습니다.",

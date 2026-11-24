@@ -1480,6 +1480,7 @@
   "ios.ui.exit": "Avsluta",
   "ios.ui.fixGameFilesChip": "Reparera spelfiler",
   "ios.ui.forBugReport": "För en felrapport",
+  "ios.ui.fromGameEnvFile": "Satt i spelets env.txt",
   "ios.ui.fromSettings": "Från Inställningar",
   "ios.ui.gameData": "Speldata",
   "ios.ui.gameDataNote": "Spelen letar efter sin data här. Lägg en romfs.img per spel i valfri mapp här inne. Varje spel känns igen på själva filen, så mappnamnen spelar ingen roll. Varje spel kan också ha en egen mapp.",
