@@ -478,12 +478,22 @@ package enum BuildSeedCache {
         isMultiProgram: Bool = false,
         fm: FileManager = .default
     ) -> MetalSourceEntry? {
-        guard let norm = normalizeChain(chain), !norm.isEmpty else { return nil }
+        guard !seedDir.isEmpty, !isSymlink(seedDir, fm: fm),
+              let norm = normalizeChain(chain), !norm.isEmpty else { return nil }
         let metalDir = seedDir + "/metal-sources"
+        guard !isSymlink(metalDir, fm: fm) else { return nil }
+        var metalIsDir: ObjCBool = false
+        guard fm.fileExists(atPath: metalDir, isDirectory: &metalIsDir), metalIsDir.boolValue else { return nil }
+
         let prefixes = isMultiProgram ? ["", "p0"] : [""]
         let tag = "b-" + norm
         for prog in prefixes {
             let parent = prog.isEmpty ? metalDir : (metalDir + "/" + prog)
+            if !prog.isEmpty {
+                guard !isSymlink(parent, fm: fm) else { continue }
+                var parentIsDir: ObjCBool = false
+                guard fm.fileExists(atPath: parent, isDirectory: &parentIsDir), parentIsDir.boolValue else { continue }
+            }
             let relBase = prog.isEmpty ? tag : (prog + "/" + tag)
             let candidates: [(MetalSourceKind, String, String, Bool)] = [
                 (.compressedArchive, parent + "/" + tag + ".img.zst", relBase + ".img.zst", false),
@@ -507,6 +517,7 @@ package enum BuildSeedCache {
         preferCompressed: Bool = true,
         fm: FileManager = .default
     ) -> [MetalSourceEntry] {
+        guard !seedDir.isEmpty, !isSymlink(seedDir, fm: fm) else { return [] }
         let metalDir = seedDir + "/metal-sources"
         guard !isSymlink(metalDir, fm: fm) else { return [] }
         var isDir: ObjCBool = false

@@ -323,7 +323,7 @@ struct LauncherView: View {
         .tint(LauncherPalette.accent)
         .font(DS.Font.body)   // the default for text without a font of its own
         .frame(minWidth: 900, idealWidth: 1280, minHeight: 680, idealHeight: 900)
-        .onDisappear { gamepad.deactivate() }
+        .onDisappear { gamepad.deactivate(); stores.seedAutoPromptHost.isReady = { false } }
         .onAppear {
             gamepad.perform = padAction
             gamepad.capture = { [consoleDriver] id, action in consoleDriver.consumePress(controllerID: id, isBack: action == .b) }

@@ -465,7 +465,24 @@ import XCTest
         }
 
         let seedRoot = tempDir.appendingPathComponent("real-seeds", isDirectory: true)
-        try createUncompressedSeed(root: seedRoot, tid: "0100000000010000", appName: "RealFixture", payloadBytes: 65536)
+        let tid = "0100000000010000"
+        let seedDirURL = seedRoot.appendingPathComponent(tid, isDirectory: true)
+        let metalDirURL = seedDirURL.appendingPathComponent("metal-sources", isDirectory: true)
+        let srcStageDir = tempDir.appendingPathComponent("real-msl-src", isDirectory: true)
+        try fm.createDirectory(at: metalDirURL, withIntermediateDirectories: true)
+        try fm.createDirectory(at: srcStageDir, withIntermediateDirectories: true)
+        let seedJSON = try JSONSerialization.data(withJSONObject: ["schema": 1, "title_id": tid, "app_name": "RealFixture"])
+        try seedJSON.write(to: seedDirURL.appendingPathComponent("seed.json"))
+        let shaderText = String(repeating: "kernel void main0(device float4* out [[buffer(0)]]) { out[0] = float4(1.0); }\n", count: 900)
+        try Data(shaderText.utf8).write(to: srcStageDir.appendingPathComponent("0001a896bf9bd7cc_b.metal"))
+        let romfsTool = repoRoot.appendingPathComponent("engine/dm/tools/romfs_image.py")
+        let targetImg = metalDirURL.appendingPathComponent("b-108c5f92c3c4.img")
+        let packRes = realRunner.capture(ProcessLaunch(
+            executable: py,
+            arguments: ["-I", romfsTool.path, srcStageDir.path, targetImg.path],
+            environment: ["PATH": BuildCommands.toolPath("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin", python: py)]
+        ))
+        XCTAssertTrue(packRes.ok, "romfs_image.py fixture pack failed: \(packRes.err)")
 
         let store = SeedCompressionStore(
             runner: realRunner,
@@ -494,5 +511,175 @@ import XCTest
         let resolved = try XCTUnwrap(BuildSeedCache.resolveMetalSource(in: seedDir, chain: "108c5f92c3c4", fm: fm))
         XCTAssertEqual(resolved.kind, .compressedArchive)
         XCTAssertFalse(fm.fileExists(atPath: seedDir + "/metal-sources/b-108c5f92c3c4.img"))
+    }
+
+    // MARK: - P1 & P2 Regression Tests
+
+    func testQuickScanEarlyReturnDoesNotMarkZstdMissingUnlessConfirmedByPython() async throws {
+        // Case A: empty seed root -> autoPromptOnFind early return never marks zstdMissing
+        let emptyRoot = tempDir.appendingPathComponent("empty-seeds", isDirectory: true)
+        try fm.createDirectory(at: emptyRoot, withIntermediateDirectories: true)
+        let repoLegacy = try makeRepoWithBuildSeedTool(supportsCompression: false)
+        let runner = ScriptedRunner()
+
+        let store = SeedCompressionStore(
+            runner: runner,
+            repo: FakeRepo(path: repoLegacy),
+            python: FakePython(),
+            defaults: defaults,
+            seedRoot: { emptyRoot.path }
+        )
+
+        await store.scan(autoPromptOnFind: true).value
+        XCTAssertFalse(store.zstdMissing, "Unconfirmed quickScan early return must not report zstd missing")
+
+        // Case B: legacy repo fallback with uncompressed seed must also not mark zstdMissing
+        let uncompRoot = tempDir.appendingPathComponent("fallback-seeds", isDirectory: true)
+        try createUncompressedSeed(root: uncompRoot, tid: "0100000000010000", appName: "Fallback", payloadBytes: 2048)
+        let storeFallback = SeedCompressionStore(
+            runner: runner,
+            repo: FakeRepo(path: repoLegacy),
+            python: FakePython(),
+            defaults: defaults,
+            seedRoot: { uncompRoot.path }
+        )
+        await storeFallback.scan(autoPromptOnFind: false).value
+        XCTAssertFalse(storeFallback.zstdMissing, "Fallback without Python scan must not report zstd missing")
+
+        // Case C: Python scan-uncompressed explicitly reports zstd_available: false -> zstdMissing becomes true
+        let repoNew = try makeRepoWithBuildSeedTool(supportsCompression: true)
+        runner.captureHandler = { _ in
+            ProcessResult(status: 0, out: """
+            {"seed_root":"\(uncompRoot.path)","zstd_available":false,"total_games":1,"total_files":1,"uncompressed_bytes":2048,"estimated_compressed_bytes":164,"estimated_saved_bytes":1884,"games":[{"title_id":"0100000000010000","app_name":"Fallback","files":["b-108c5f92c3c4.img"],"uncompressed_bytes":2048,"estimated_compressed_bytes":164}]}
+            """)
+        }
+        let storeConfirmed = SeedCompressionStore(
+            runner: runner,
+            repo: FakeRepo(path: repoNew),
+            python: FakePython(),
+            defaults: defaults,
+            seedRoot: { uncompRoot.path }
+        )
+        await storeConfirmed.scan(autoPromptOnFind: false).value
+        XCTAssertTrue(storeConfirmed.zstdMissing, "Confirmed zstd_available=false from build_seed.py must mark zstdMissing")
+    }
+
+    func testScanAndStartNeverCallFindPythonOnMainThread() async throws {
+        let seedRoot = tempDir.appendingPathComponent("seeds-bg-python", isDirectory: true)
+        try createUncompressedSeed(root: seedRoot, tid: "0100000000010000", appName: "BgGame", payloadBytes: 2048)
+        let repoPath = try makeRepoWithBuildSeedTool()
+        let runner = ScriptedRunner()
+        runner.captureHandler = { _ in
+            ProcessResult(status: 0, out: """
+            {"seed_root":"\(seedRoot.path)","zstd_available":true,"total_games":1,"total_files":1,"uncompressed_bytes":2048,"estimated_compressed_bytes":164,"estimated_saved_bytes":1884,"games":[{"title_id":"0100000000010000","app_name":"BgGame","files":["b-108c5f92c3c4.img"],"uncompressed_bytes":2048,"estimated_compressed_bytes":164}]}
+            """)
+        }
+        runner.streamHandler = { _, started, emit in
+            started(FakeRunningProcess())
+            emit(#"{"event":"done","status":"completed","completed_games":1,"failed_games":0,"before_bytes":2048,"after_bytes":160,"saved_bytes":1888,"elapsed_sec":0.1,"results":[]}"#)
+            return ProcessResult(status: 0)
+        }
+
+        let lock = NSLock()
+        var calledOnMain: [Bool] = []
+        let store = SeedCompressionStore(
+            runner: runner,
+            repo: FakeRepo(path: repoPath),
+            python: FakePython(pythonPath: ""),
+            defaults: defaults,
+            seedRoot: { seedRoot.path },
+            findPython: {
+                lock.withLock { calledOnMain.append(Thread.isMainThread) }
+                return "/usr/bin/python3"
+            }
+        )
+
+        await store.scan(autoPromptOnFind: true).value
+        await store.startCompression().value
+
+        let recorded = lock.withLock { calledOnMain }
+        XCTAssertEqual(recorded.count, 2)
+        XCTAssertTrue(recorded.allSatisfy { !$0 }, "findPython must never run synchronously on MainActor")
+        XCTAssertNil(runner.captures.first?.environment?["DOTNET_ROOT"])
+    }
+
+    func testCompressionFailureWithoutDoneEventProducesPartialAndSetsStartError() async throws {
+        let seedRoot = tempDir.appendingPathComponent("seeds-fail", isDirectory: true)
+        try createUncompressedSeed(root: seedRoot, tid: "0100000000010000", appName: "BrokenGame", payloadBytes: 2048)
+        let repoPath = try makeRepoWithBuildSeedTool()
+        let runner = ScriptedRunner()
+        runner.captureHandler = { _ in
+            ProcessResult(status: 0, out: """
+            {"seed_root":"\(seedRoot.path)","zstd_available":true,"total_games":1,"total_files":1,"uncompressed_bytes":2048,"estimated_compressed_bytes":164,"estimated_saved_bytes":1884,"games":[{"title_id":"0100000000010000","app_name":"BrokenGame","files":["b-108c5f92c3c4.img"],"uncompressed_bytes":2048,"estimated_compressed_bytes":164}]}
+            """)
+        }
+
+        // Subcase A: error event + non-zero exit without done event
+        runner.streamHandler = { _, started, emit in
+            started(FakeRunningProcess())
+            emit(#"{"event":"error","error":"zstd backend missing"}"#)
+            return ProcessResult(status: 1)
+        }
+        let storeA = SeedCompressionStore(
+            runner: runner,
+            repo: FakeRepo(path: repoPath),
+            python: FakePython(),
+            defaults: defaults,
+            seedRoot: { seedRoot.path }
+        )
+        await storeA.scan(autoPromptOnFind: true).value
+        await storeA.startCompression().value
+        guard case .done(let summaryA) = storeA.phase else {
+            return XCTFail("Expected .done after failed exit")
+        }
+        XCTAssertEqual(summaryA.status, .partial, "Non-zero exit without done event must never report .completed")
+        XCTAssertGreaterThanOrEqual(summaryA.failedGames, 1)
+        XCTAssertEqual(storeA.startError, "zstd backend missing")
+
+        // Subcase B: crash mid-item_start without done event
+        runner.streamHandler = { _, started, emit in
+            started(FakeRunningProcess())
+            emit(#"{"event":"start","total_games":1,"total_files":1,"total_bytes":2048}"#)
+            emit(#"{"event":"item_start","index":1,"total_games":1,"title_id":"0100000000010000","before_bytes":2048}"#)
+            return ProcessResult(status: 1)
+        }
+        let storeB = SeedCompressionStore(
+            runner: runner,
+            repo: FakeRepo(path: repoPath),
+            python: FakePython(),
+            defaults: defaults,
+            seedRoot: { seedRoot.path }
+        )
+        await storeB.scan(autoPromptOnFind: true).value
+        await storeB.startCompression().value
+        guard case .done(let summaryB) = storeB.phase else {
+            return XCTFail("Expected .done after mid-item crash")
+        }
+        XCTAssertEqual(summaryB.status, .partial)
+        XCTAssertEqual(summaryB.failedGames, 1)
+        XCTAssertEqual(summaryB.results.first?.status, "error")
+        XCTAssertNotNil(storeB.startError)
+        XCTAssertEqual(storeB.knownNames["0100000000010000"], "BrokenGame")
+    }
+
+    func testBuildSeedCacheRejectsSymlinkParentDirectories() throws {
+        let realSeed = tempDir.appendingPathComponent("real-seed", isDirectory: true)
+        let realMetal = realSeed.appendingPathComponent("metal-sources", isDirectory: true)
+        try fm.createDirectory(at: realMetal, withIntermediateDirectories: true)
+        try Data("img".utf8).write(to: realMetal.appendingPathComponent("b-108c5f92c3c4.img"))
+
+        let symlinkSeed = tempDir.appendingPathComponent("link-seed")
+        try fm.createSymbolicLink(atPath: symlinkSeed.path, withDestinationPath: realSeed.path)
+        XCTAssertNil(BuildSeedCache.resolveMetalSource(in: symlinkSeed.path, chain: "108c5f92c3c4", fm: fm))
+        XCTAssertTrue(BuildSeedCache.metalSourceEntries(in: symlinkSeed.path, fm: fm).isEmpty)
+
+        let parentWithSymlinkMetal = tempDir.appendingPathComponent("seed-link-metal", isDirectory: true)
+        try fm.createDirectory(at: parentWithSymlinkMetal, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(
+            atPath: parentWithSymlinkMetal.appendingPathComponent("metal-sources").path,
+            withDestinationPath: realMetal.path
+        )
+        XCTAssertNil(BuildSeedCache.resolveMetalSource(in: parentWithSymlinkMetal.path, chain: "108c5f92c3c4", fm: fm))
+        XCTAssertTrue(BuildSeedCache.metalSourceEntries(in: parentWithSymlinkMetal.path, fm: fm).isEmpty)
     }
 }

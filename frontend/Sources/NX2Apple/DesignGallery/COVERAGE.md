@@ -229,7 +229,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `RootView` | Reason: The app's roots: they choose the onboarding, the launcher or the console demo, whose scenes show what they draw. |
 | `SaveImportSheet` | `saveImport` |
 | `SavesView` | `saves`, `desktop-savesReady` |
-| `SeedCompressionSettingsRow` | `settingsTools` |
+| `SeedCompressionSettingsRow` | `settingsTools`, `desktop-seedCompressionStorage` |
 | `SeedCompressionSheet` | `seedCompressionPrompt`, `seedCompressionProgress`, `seedCompressionDone` |
 | `SendSelectedSheet` | `sendSelectedDevice`, `desktop-sendSelectedDrive` |
 | `SettingsPage` | `settings`, `settingsTools` |
@@ -313,7 +313,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `hero.switch2` | `librarySwitch2` |
 | `library.skippedBanner` | `libraryNoticeWarning` |
 
-## States: 278 of 278 in a scene
+## States: 282 of 282 in a scene
 
 | State | Scenes |
 |---|---|
@@ -433,6 +433,10 @@ popover and alert, every notice and every case of the state enums the views swit
 | `SeedCompressionStore.ItemStatus.compressing` | `seedCompressionProgress` |
 | `SeedCompressionStore.ItemStatus.done` | `seedCompressionProgress` |
 | `SeedCompressionStore.ItemStatus.failed` | `seedCompressionProgress` |
+| `SeedCompressionStore.ScanState.idle` | `settingsTools` |
+| `SeedCompressionStore.ScanState.scanning` | `settingsTools` |
+| `SeedCompressionStore.ScanState.ready` | `desktop-seedCompressionStorage` |
+| `SeedCompressionStore.ScanState.failed` | `settingsTools` |
 | `SeedCompressSummary.Status.completed` | `seedCompressionDone` |
 | `SeedCompressSummary.Status.partial` | `seedCompressionDonePartial` |
 | `SeedCompressSummary.Status.stopped` | `seedCompressionDoneStopped` |

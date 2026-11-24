@@ -20,6 +20,7 @@ enum GalleryCoverage {
         ("NXCore/ActiveOperation.swift", "ActiveOperation.Kind"), ("NXLauncher/SendSelectedSheet.swift", "SendSelectedSheet.Mode"),
         ("NXModel/AppUpdateStore.swift", "AppUpdateStore.Phase"), ("NXCore/EngineUpdater.swift", "EngineChannel"),
         ("NXModel/SeedCompressionStore.swift", "SeedCompressionStore.Phase"), ("NXModel/SeedCompressionStore.swift", "SeedCompressionStore.ItemStatus"),
+        ("NXModel/SeedCompressionStore.swift", "SeedCompressionStore.ScanState"),
         ("NXCore/SeedCompression.swift", "SeedCompressSummary.Status"),
         ("NXModel/BuildStore+Nxkit.swift", "NxkitUpdateState"), ("NXCore/NxkitUpdate.swift", "NxkitUpdate.Rejection"),
         ("NXCore/NxkitBuilder.swift", "NxkitBuilder.Availability"), ("NXModel/BuildStore+Nxkit.swift", "NxkitFeedbackPrompt.Moment"),
@@ -84,7 +85,7 @@ enum GalleryCoverage {
         "PersonalDefaultsCard": [.settings], "MissingToolRow": [.desktop(D.missingTool)], "LibraryFoldersCard": [.settingsLibrary, .desktop(D.libraryFolders)],
         "GlobalSavesCard": [.settingsLibrary], "CloudSavesCard": [.settingsLibrary, .gameOptions], "PlayersCard": [.desktop(D.players)],
         "ControlsCard": [.settingsControls], "StickDeadzoneCard": [.settingsControls], "StickVisualizer": [.settingsControls],
-        "KeysCard": [.settingsTools], "ToolsCard": [.settingsTools], "ShellCacheRow": [.settingsTools], "CacheFolderRow": [.settingsTools], "BuildCacheRows": [.settingsTools], "SeedCompressionSettingsRow": [.settingsTools], "DiagnosticsButton": [.settingsTools],
+        "KeysCard": [.settingsTools], "ToolsCard": [.settingsTools], "ShellCacheRow": [.settingsTools], "CacheFolderRow": [.settingsTools], "BuildCacheRows": [.settingsTools], "SeedCompressionSettingsRow": [.settingsTools, .desktop(D.seedCompressionStorage)], "DiagnosticsButton": [.settingsTools],
         "BuildFilesCard": [.settingsTools], "DSOverflowMenu": [.settingsTools], "LauncherDropdown": [.settingsTools, .settings],
         "UpstreamPicker": [.nxkitEngine, .desktop(D.mngBlocked)], "UpstreamBuilderRow": [.desktop(D.mngUpdateAvailable), .desktop(D.mngBlocked), .desktop(D.mngDownloadingSettings)],
         "DSRowMessageView": [.nxkitUnavailable, .desktop(D.nxkitUnreachable)],
@@ -225,6 +226,7 @@ enum GalleryCoverage {
         add("EngineChannel", ["stable": [.settingsTools], "experimental": [.desktop(D.engineExperimental)]])
         add("SeedCompressionStore.Phase", ["prompt": [.sheet(.seedCompressionPrompt)], "running": [.sheet(.seedCompressionProgress)], "done": [.sheet(.seedCompressionDone)]])
         add("SeedCompressionStore.ItemStatus", ["waiting": [.sheet(.seedCompressionProgress)], "compressing": [.sheet(.seedCompressionProgress)], "done": [.sheet(.seedCompressionProgress)], "failed": [.sheet(.seedCompressionProgress)]])
+        add("SeedCompressionStore.ScanState", ["idle": [.settingsTools], "scanning": [.settingsTools], "ready": [.desktop(D.seedCompressionStorage)], "failed": [.settingsTools]])
         add("SeedCompressSummary.Status", ["completed": [.sheet(.seedCompressionDone)], "partial": [.sheet(.seedCompressionDonePartial)], "stopped": [.sheet(.seedCompressionDoneStopped)]])
         add("NxkitUpdateState", ["idle": [.desktop(D.nxkitIdle)], "checking": [.desktop(D.nxkitChecking)], "upToDate": [.nxkitEngine],
                                  "waitingForBuild": [.desktop(D.nxkitWaiting)], "rejected": [.nxkitUnsigned], "unreachable": [.desktop(D.nxkitUnreachable)]])

@@ -223,7 +223,10 @@ package enum RefreshPrecheck {
             macPlan = .fullRebuild(missingPackage: false)
         } else {
             let macReachable = macAppPath.isEmpty || fm.fileExists(atPath: macAppPath) || !candidates.isEmpty
-            let hasSeedMetalSources = hasUsableSeed && fm.fileExists(atPath: inspection.seedDir + "/metal-sources")
+            let metalSourcesDir = inspection.seedDir + "/metal-sources"
+            let hasSeedMetalSources = hasUsableSeed
+                && (try? fm.destinationOfSymbolicLink(atPath: metalSourcesDir)) == nil
+                && isDirectory(metalSourcesDir, fm: fm)
             let hasMacPrefill = !candidates.isEmpty || hasSeedMetalSources
 
             if !isNVN {

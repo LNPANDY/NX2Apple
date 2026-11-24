@@ -300,6 +300,24 @@ package enum SeedCompression {
         }
     }
 
+    /// Returns true if a `zstd` CLI binary is available in bundled tools or `searchPath` without spawning subprocesses.
+    package static func probeLocalZstd(
+        searchPath: String = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+        resources: URL? = BundledTools.resources,
+        fm: FileManager = .default
+    ) -> Bool {
+        if BundledTools.tool("zstd", in: resources) != nil {
+            return true
+        }
+        for dir in searchPath.split(separator: ":").map(String.init) where !dir.isEmpty {
+            let candidate = (dir.hasSuffix("/") ? dir : dir + "/") + "zstd"
+            if fm.isExecutableFile(atPath: candidate) {
+                return true
+            }
+        }
+        return false
+    }
+
     /// Returns true if `seedRoot` contains at least one valid `<16-hex-TID>` directory (non-symlink).
     package static func hasAnySeedDirectory(in seedRoot: String, fm: FileManager = .default) -> Bool {
         guard !seedRoot.isEmpty, !isSymlink(seedRoot, fm: fm) else { return false }

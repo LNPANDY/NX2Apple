@@ -6,12 +6,16 @@ import NXLauncher
 /// Wiring and startup hook for build-seed zstd compression sheet, keeping `LauncherView.swift` within the 800-line limit.
 extension LauncherView {
     func runSeedCompressionStartupCheck() {
+        stores.seedAutoPromptHost.isReady = {
+            !m.running && !launching && libraryInputAvailable && NSApp.modalWindow == nil
+        }
         guard performStartupChecks,
               !m.running,
               !stores.queue.active,
               !stores.transfers.entries.contains(where: \.active),
               !launching,
-              libraryInputAvailable else { return }
+              libraryInputAvailable,
+              NSApp.modalWindow == nil else { return }
         let tool = SeedCompression.toolPath(repoPath: stores.repo.path)
         guard !tool.isEmpty, FileManager.default.fileExists(atPath: tool) else { return }
         stores.seedCompression.scanOnStartupIfNeeded()

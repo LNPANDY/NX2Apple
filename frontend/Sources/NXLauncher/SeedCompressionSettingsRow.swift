@@ -20,7 +20,7 @@ package struct SeedCompressionSettingsRow: View {
             return nil
         case .failed:
             return DSTone.warning.color
-        case .ready(let hasAny, let scan):
+        case .ready(let hasAny, let scan, _):
             if scan.hasUncompressed {
                 return DSTone.warning.color
             }
@@ -37,7 +37,7 @@ package struct SeedCompressionSettingsRow: View {
             return loc.t("seedCompress.settings.statusEmpty")
         case .failed(let message):
             return message
-        case .ready(let hasAny, let scan):
+        case .ready(let hasAny, let scan, _):
             if scan.hasUncompressed {
                 return String(format: loc.t("seedCompress.settings.statusFound"), scan.totalGames, ShellInstall.sizeText(scan.uncompressedBytes))
             }
@@ -46,7 +46,7 @@ package struct SeedCompressionSettingsRow: View {
     }
 
     private var warningMessage: DSRowMessage? {
-        if case .ready(_, let scan) = store.scanState, !scan.zstdAvailable {
+        if store.zstdMissing {
             return .warning(loc.t("seedCompress.settings.zstdMissing"))
         }
         return nil

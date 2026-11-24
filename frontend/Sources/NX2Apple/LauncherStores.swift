@@ -23,6 +23,7 @@ import NXModel
     let appUpdates: AppUpdateStore
     let build: BuildStore
     let seedCompression: SeedCompressionStore
+    let seedAutoPromptHost = SeedAutoPromptHost()
     /// The one build queue (#943), kept in Application Support so it survives a restart. A test suite of defaults keeps it in memory.
     let queue: BuildQueueStore
     /// The transfer queue (#1036): game data on its way to devices, beside any build.
@@ -139,10 +140,11 @@ import NXModel
             seedEnvironment: { build.seedEnvironment },
             dotnetPath: { dependencies.dotnetPath },
             buildRunning: { build.running },
-            canAutoPrompt: {
+            canAutoPrompt: { [seedAutoPromptHost] in
                 !build.running && !queue.active && !transfers.entries.contains(where: \.active)
                     && devices.shellCopy == nil && !devices.shellWaiting
                     && !updates.showUpdateSheet && updates.uninstallPlan == nil
+                    && seedAutoPromptHost.isReady()
             }
         )
         // A device that comes back continues the transfers that waited for it. The list is read again every few seconds while one waits.
@@ -311,6 +313,10 @@ import NXModel
 /// A store that a closure reaches before it exists: the closures of the stores created first read it, the app fills it in last.
 @MainActor private final class Later<T: AnyObject> {
     weak var value: T?
+}
+
+@MainActor final class SeedAutoPromptHost {
+    var isReady: () -> Bool = { false }
 }
 
 protocol RunningPreflightApp: AnyObject {

@@ -90,7 +90,7 @@ import Foundation
     package enum ScanState: Equatable, Sendable {
         case idle
         case scanning
-        case ready(hasAnySeeds: Bool, scan: SeedScanResult)
+        case ready(hasAnySeeds: Bool, scan: SeedScanResult, zstdConfirmed: Bool)
         case failed(String)
     }
 
@@ -99,6 +99,7 @@ import Foundation
     @Published package private(set) var isScanning = false
     @Published package private(set) var noneNoticeVisible = false
     @Published package private(set) var startError: String?
+    @Published package private(set) var knownNames: [String: String] = [:]
 
     package var promptDismissed: Bool {
         get { defaults.bool(forKey: Self.promptDismissedKey) }
@@ -111,7 +112,7 @@ import Foundation
     }
 
     package var currentScan: SeedScanResult? {
-        if case .ready(_, let scan) = scanState { return scan }
+        if case .ready(_, let scan, _) = scanState { return scan }
         return nil
     }
 
@@ -119,9 +120,10 @@ import Foundation
         currentScan?.hasUncompressed == true
     }
 
+    /// Only true after Python `scan-uncompressed` explicitly confirmed `zstd_available == false`.
     package var zstdMissing: Bool {
-        guard case .ready(_, let scan) = scanState else { return false }
-        return !scan.zstdAvailable
+        guard case .ready(_, let scan, let confirmed) = scanState else { return false }
+        return confirmed && !scan.zstdAvailable
     }
 
     private let runner: ProcessRunner
@@ -130,12 +132,12 @@ import Foundation
     private let defaults: UserDefaults
     private let seedRoot: () -> String
     private let seedEnvironment: () -> [String: String]
-    private let dotnetPath: () -> String
     private let buildRunning: () -> Bool
-    private let canAutoPrompt: () -> Bool
+    package var canAutoPrompt: () -> Bool
     private let home: String
     private let findPython: @Sendable () -> String
     private let sendSignal: @Sendable (pid_t, Int32) -> Void
+    private let sendGroupSignal: @Sendable (pid_t, Int32) -> Void
 
     private var scanGeneration: UInt64 = 0
     private var runGeneration: UInt64 = 0
@@ -155,20 +157,25 @@ import Foundation
         canAutoPrompt: @escaping () -> Bool = { true },
         home: String = NSHomeDirectory(),
         findPython: (@Sendable () -> String)? = nil,
-        sendSignal: (@Sendable (pid_t, Int32) -> Void)? = nil
+        sendSignal: (@Sendable (pid_t, Int32) -> Void)? = nil,
+        sendGroupSignal: (@Sendable (pid_t, Int32) -> Void)? = nil
     ) {
+        _ = dotnetPath
         self.runner = runner
         self.repo = repo
         self.python = python
         self.defaults = defaults
         self.seedRoot = seedRoot
         self.seedEnvironment = seedEnvironment
-        self.dotnetPath = dotnetPath
         self.buildRunning = buildRunning
         self.canAutoPrompt = canAutoPrompt
         self.home = home
         self.findPython = findPython ?? { Toolchain.findPython().path }
         self.sendSignal = sendSignal ?? { pid, sig in _ = Darwin.kill(pid, sig) }
+        self.sendGroupSignal = sendGroupSignal ?? { pid, sig in
+            _ = Darwin.killpg(pid, sig)
+            _ = Darwin.kill(pid, sig)
+        }
     }
 
     /// Triggers the startup scan at most once per store instance.
@@ -192,51 +199,61 @@ import Foundation
 
         let root = seedRoot()
         let repoPath = repo.path
-        let py = resolvePython()
-        let env = toolEnvironment(python: py)
+        let cachedPython = python.pythonPath
+        let seedEnv = seedEnvironment()
+        let homeDir = home
+        let pyFinder = self.findPython
         let runner = self.runner
 
         return Task { @MainActor [weak self] in
-            let outcome: (hasAny: Bool, scan: SeedScanResult, error: String?) = await Task.detached(priority: .utility) {
+            let outcome: (hasAny: Bool, scan: SeedScanResult, zstdConfirmed: Bool, error: String?) = await Task.detached(priority: .utility) {
                 let fm = FileManager.default
                 let hasAny = SeedCompression.hasAnySeedDirectory(in: root, fm: fm)
-                let local = SeedCompression.quickScanLocal(seedRoot: root, zstdAvailable: false, fm: fm)
+                let localZstd = SeedCompression.probeLocalZstd(fm: fm)
+                let local = SeedCompression.quickScanLocal(seedRoot: root, zstdAvailable: localZstd, fm: fm)
 
                 if autoPromptOnFind && !local.hasUncompressed {
-                    return (hasAny, local, nil)
+                    return (hasAny, local, localZstd, nil)
                 }
 
                 let tool = SeedCompression.toolPath(repoPath: repoPath)
                 guard !tool.isEmpty, fm.fileExists(atPath: tool), RepoLayout.supportsSeedCompression(repoPath) else {
-                    return (hasAny, local, nil)
+                    return (hasAny, local, localZstd, nil)
                 }
 
+                let ctx = Self.resolveExecutionContext(
+                    cachedPython: cachedPython,
+                    home: homeDir,
+                    seedEnvironment: seedEnv,
+                    findPython: pyFinder
+                )
                 let args = SeedCompression.scanArguments(toolPath: tool, seedRoot: root)
                 let res = runner.capture(ProcessLaunch(
-                    executable: py,
+                    executable: ctx.python,
                     arguments: args,
-                    environment: env,
+                    environment: ctx.environment,
                     mergesErrors: false,
                     timeout: 30
                 ))
                 if res.ok, let parsed = SeedCompression.parseScanJSON(res.out) {
-                    return (hasAny || parsed.totalGames > 0, parsed, nil)
+                    return (hasAny || parsed.totalGames > 0, parsed, true, nil)
                 }
                 let errText = res.err.trimmingCharacters(in: .whitespacesAndNewlines)
                 let fallbackErr = errText.isEmpty ? res.out.trimmingCharacters(in: .whitespacesAndNewlines) : errText
                 if local.hasUncompressed {
-                    return (hasAny, local, nil)
+                    return (hasAny, local, localZstd, nil)
                 }
-                return (hasAny, local, res.started ? nil : fallbackErr)
+                return (hasAny, local, localZstd, res.started ? nil : fallbackErr)
             }.value
 
             guard let self, gen == self.scanGeneration else { return }
             self.isScanning = false
+            self.recordKnownNames(from: outcome.scan.games)
             if let error = outcome.error, !error.isEmpty {
                 self.scanState = .failed(error)
                 return
             }
-            self.scanState = .ready(hasAnySeeds: outcome.hasAny, scan: outcome.scan)
+            self.scanState = .ready(hasAnySeeds: outcome.hasAny, scan: outcome.scan, zstdConfirmed: outcome.zstdConfirmed)
 
             if autoPromptOnFind,
                outcome.scan.hasUncompressed,
@@ -257,11 +274,15 @@ import Foundation
         noneNoticeVisible = false
         startError = nil
 
-        if case .ready(_, let scan) = scanState, scan.hasUncompressed {
-            if scan.zstdAvailable {
-                phase = .prompt(scan)
+        if case .ready(_, let scan, let confirmed) = scanState, scan.hasUncompressed {
+            if confirmed && !scan.zstdAvailable {
+                return nil
             }
-            return nil
+            if scan.zstdAvailable {
+                recordKnownNames(from: scan.games)
+                phase = .prompt(scan)
+                return nil
+            }
         }
 
         scanGeneration &+= 1
@@ -269,35 +290,45 @@ import Foundation
         isScanning = true
         let root = seedRoot()
         let repoPath = repo.path
-        let py = resolvePython()
-        let env = toolEnvironment(python: py)
+        let cachedPython = python.pythonPath
+        let seedEnv = seedEnvironment()
+        let homeDir = home
+        let pyFinder = self.findPython
         let runner = self.runner
 
         return Task { @MainActor [weak self] in
-            let outcome: (hasAny: Bool, scan: SeedScanResult) = await Task.detached(priority: .userInitiated) {
+            let outcome: (hasAny: Bool, scan: SeedScanResult, zstdConfirmed: Bool) = await Task.detached(priority: .userInitiated) {
                 let fm = FileManager.default
                 let hasAny = SeedCompression.hasAnySeedDirectory(in: root, fm: fm)
-                let local = SeedCompression.quickScanLocal(seedRoot: root, zstdAvailable: false, fm: fm)
+                let localZstd = SeedCompression.probeLocalZstd(fm: fm)
+                let local = SeedCompression.quickScanLocal(seedRoot: root, zstdAvailable: localZstd, fm: fm)
                 let tool = SeedCompression.toolPath(repoPath: repoPath)
                 if !tool.isEmpty, fm.fileExists(atPath: tool), RepoLayout.supportsSeedCompression(repoPath) {
+                    let ctx = Self.resolveExecutionContext(
+                        cachedPython: cachedPython,
+                        home: homeDir,
+                        seedEnvironment: seedEnv,
+                        findPython: pyFinder
+                    )
                     let args = SeedCompression.scanArguments(toolPath: tool, seedRoot: root)
                     let res = runner.capture(ProcessLaunch(
-                        executable: py,
+                        executable: ctx.python,
                         arguments: args,
-                        environment: env,
+                        environment: ctx.environment,
                         mergesErrors: false,
                         timeout: 30
                     ))
                     if res.ok, let parsed = SeedCompression.parseScanJSON(res.out) {
-                        return (hasAny || parsed.totalGames > 0, parsed)
+                        return (hasAny || parsed.totalGames > 0, parsed, true)
                     }
                 }
-                return (hasAny, local)
+                return (hasAny, local, localZstd)
             }.value
 
             guard let self, gen == self.scanGeneration else { return }
             self.isScanning = false
-            self.scanState = .ready(hasAnySeeds: outcome.hasAny, scan: outcome.scan)
+            self.recordKnownNames(from: outcome.scan.games)
+            self.scanState = .ready(hasAnySeeds: outcome.hasAny, scan: outcome.scan, zstdConfirmed: outcome.zstdConfirmed)
             guard self.phase == nil, !self.buildRunning() else { return }
             if outcome.scan.hasUncompressed {
                 if outcome.scan.zstdAvailable {
@@ -322,6 +353,7 @@ import Foundation
     package func finishDone() {
         guard case .done = phase else { return }
         phase = nil
+        startError = nil
         _ = scan(autoPromptOnFind: false)
     }
 
@@ -335,12 +367,7 @@ import Foundation
             return Task {}
         }
 
-        let tool = SeedCompression.toolPath(repoPath: repo.path)
-        let fm = FileManager.default
-        guard !tool.isEmpty, fm.fileExists(atPath: tool), RepoLayout.supportsSeedCompression(repo.path) else {
-            return Task {}
-        }
-
+        recordKnownNames(from: scan.games)
         runGeneration &+= 1
         let gen = runGeneration
         stopRequested = false
@@ -363,25 +390,37 @@ import Foundation
         phase = .running(initial)
 
         let root = scan.seedRoot.isEmpty ? seedRoot() : scan.seedRoot
-        let py = resolvePython()
-        let env = toolEnvironment(python: py)
-        let args = SeedCompression.compressArguments(toolPath: tool, seedRoot: root, level: level)
+        let repoPath = repo.path
+        let cachedPython = python.pythonPath
+        let seedEnv = seedEnvironment()
+        let homeDir = home
+        let pyFinder = self.findPython
         let runner = self.runner
         let signalFn = self.sendSignal
 
         return Task { @MainActor [weak self] in
-            var capturedSummary: SeedCompressSummary?
-            var capturedError: String?
+            let outcome: (result: ProcessResult, summary: SeedCompressSummary?, error: String?) = await Task.detached(priority: .userInitiated) {
+                let fm = FileManager.default
+                let tool = SeedCompression.toolPath(repoPath: repoPath)
+                guard !tool.isEmpty, fm.fileExists(atPath: tool), RepoLayout.supportsSeedCompression(repoPath) else {
+                    return (ProcessResult.failedToStart("build_seed.py tool unavailable"), nil, "build_seed.py tool unavailable")
+                }
 
-            let result = await Task.detached(priority: .userInitiated) {
+                let ctx = Self.resolveExecutionContext(
+                    cachedPython: cachedPython,
+                    home: homeDir,
+                    seedEnvironment: seedEnv,
+                    findPython: pyFinder
+                )
+                let args = SeedCompression.compressArguments(toolPath: tool, seedRoot: root, level: level)
                 var finalSummary: SeedCompressSummary?
                 var finalError: String?
                 let launch = ProcessLaunch(
-                    executable: py,
+                    executable: ctx.python,
                     arguments: args,
-                    environment: env,
+                    environment: ctx.environment,
                     mergesErrors: false,
-                    groupPython: py
+                    groupPython: ctx.python
                 )
                 let res = runner.streamLines(
                     launch,
@@ -390,8 +429,8 @@ import Foundation
                             MainActor.assumeIsolated {
                                 guard let self, gen == self.runGeneration else { return }
                                 self.activeProcess = proc
-                                if self.stopRequested, proc.processIdentifier > 1 {
-                                    signalFn(proc.processIdentifier, SIGTERM)
+                                if self.stopRequested {
+                                    self.terminateActiveProcess(proc, generation: gen, sendImmediateTerm: true, signalFn: signalFn)
                                 }
                             }
                         }
@@ -418,21 +457,30 @@ import Foundation
 
             guard let self, gen == self.runGeneration else { return }
             self.activeProcess = nil
-            capturedSummary = result.1
-            capturedError = result.2
 
-            if let summary = capturedSummary {
+            if let summary = outcome.summary {
                 self.phase = .done(summary)
                 return
             }
 
             if case .running(let state) = self.phase {
-                if let err = capturedError, !err.isEmpty {
-                    self.startError = err
-                } else if !result.0.started, !result.0.out.isEmpty {
-                    self.startError = result.0.out
+                let rawErr = [
+                    outcome.error?.trimmingCharacters(in: .whitespacesAndNewlines),
+                    outcome.result.started ? nil : outcome.result.out.trimmingCharacters(in: .whitespacesAndNewlines),
+                    outcome.result.ok ? nil : "exit status \(outcome.result.status)"
+                ]
+                    .compactMap { $0 }
+                    .first { !$0.isEmpty }
+                let hasFailure = !self.stopRequested && (!outcome.result.ok || rawErr != nil)
+                if hasFailure {
+                    self.startError = rawErr ?? "Compression failed"
                 }
-                let fallback = self.syntheticSummary(from: state, stopped: self.stopRequested)
+                let fallback = self.syntheticSummary(
+                    from: state,
+                    stopped: self.stopRequested,
+                    failedExit: hasFailure,
+                    errorMessage: self.startError
+                )
                 self.phase = .done(fallback)
             }
         }
@@ -447,11 +495,49 @@ import Foundation
 
         let gen = runGeneration
         guard let proc = activeProcess else { return }
+        terminateActiveProcess(proc, generation: gen, sendImmediateTerm: true, signalFn: sendSignal)
+    }
+
+    /// Preview helper for DesignGallery scenes.
+    package func setGalleryState(phase: Phase?, scanState: ScanState? = nil) {
+        switch phase {
+        case .prompt(let scan):
+            recordKnownNames(from: scan.games)
+        case .running(let state):
+            for item in state.items where !item.appName.isEmpty {
+                knownNames[item.titleID.uppercased()] = item.appName
+            }
+        case .done, nil:
+            break
+        }
+        self.phase = phase
+        if let scanState {
+            if case .ready(_, let scan, _) = scanState {
+                recordKnownNames(from: scan.games)
+            }
+            self.scanState = scanState
+        }
+    }
+
+    /// Preview helper for DesignGallery scenes displaying a top-level start failure.
+    package func setGalleryStartError(_ error: String?) {
+        self.startError = error
+    }
+
+    // MARK: - Private helpers
+
+    private func terminateActiveProcess(
+        _ proc: RunningProcess,
+        generation gen: UInt64,
+        sendImmediateTerm: Bool,
+        signalFn: @escaping @Sendable (pid_t, Int32) -> Void
+    ) {
         let pid = proc.processIdentifier
         guard pid > 1 else { return }
-        sendSignal(pid, SIGTERM)
-
-        let signalFn = self.sendSignal
+        if sendImmediateTerm {
+            signalFn(pid, SIGTERM)
+        }
+        let groupSignalFn = self.sendGroupSignal
         DispatchQueue.global().asyncAfter(deadline: .now() + 5) { [weak self] in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
@@ -459,21 +545,20 @@ import Foundation
                           let current = self.activeProcess, current.isRunning, current.processIdentifier == pid else {
                         return
                     }
-                    signalFn(pid, SIGKILL)
+                    groupSignalFn(pid, SIGKILL)
                 }
             }
         }
     }
 
-    /// Preview helper for DesignGallery scenes.
-    package func setGalleryState(phase: Phase?, scanState: ScanState? = nil) {
-        self.phase = phase
-        if let scanState {
-            self.scanState = scanState
+    private func recordKnownNames(from games: [SeedScanGame]) {
+        for game in games {
+            let trimmed = game.appName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                knownNames[game.titleID.uppercased()] = trimmed
+            }
         }
     }
-
-    // MARK: - Private helpers
 
     private func ingest(_ event: SeedCompressEvent) {
         guard case .running(var state) = phase else { return }
@@ -515,12 +600,19 @@ import Foundation
         phase = .running(state)
     }
 
-    private func syntheticSummary(from state: RunningState, stopped: Bool) -> SeedCompressSummary {
+    private func syntheticSummary(
+        from state: RunningState,
+        stopped: Bool,
+        failedExit: Bool,
+        errorMessage: String?
+    ) -> SeedCompressSummary {
         var completed = 0
         var failed = 0
         var beforeTotal: Int64 = 0
         var afterTotal: Int64 = 0
         var results: [SeedCompressItemResult] = []
+        var promotedFailure = false
+
         for item in state.items {
             switch item.status {
             case .done:
@@ -548,11 +640,47 @@ import Foundation
                     filesCompressed: 0,
                     error: item.error
                 ))
-            case .waiting, .compressing:
+            case .compressing:
+                if !stopped && failedExit {
+                    promotedFailure = true
+                    failed += 1
+                    beforeTotal += item.beforeBytes
+                    afterTotal += item.beforeBytes
+                    results.append(SeedCompressItemResult(
+                        titleID: item.titleID,
+                        status: "error",
+                        beforeBytes: item.beforeBytes,
+                        afterBytes: item.beforeBytes,
+                        savedBytes: 0,
+                        filesCompressed: 0,
+                        error: errorMessage
+                    ))
+                }
+            case .waiting:
                 continue
             }
         }
-        let status: SeedCompressSummary.Status = stopped ? .stopped : (failed > 0 ? .partial : .completed)
+
+        if !stopped && failedExit && failed == 0 && !promotedFailure {
+            if let firstWaiting = state.items.first(where: { $0.status == .waiting }) {
+                failed += 1
+                beforeTotal += firstWaiting.beforeBytes
+                afterTotal += firstWaiting.beforeBytes
+                results.append(SeedCompressItemResult(
+                    titleID: firstWaiting.titleID,
+                    status: "error",
+                    beforeBytes: firstWaiting.beforeBytes,
+                    afterBytes: firstWaiting.beforeBytes,
+                    savedBytes: 0,
+                    filesCompressed: 0,
+                    error: errorMessage
+                ))
+            } else {
+                failed = 1
+            }
+        }
+
+        let status: SeedCompressSummary.Status = stopped ? .stopped : ((failed > 0 || failedExit) ? .partial : .completed)
         return SeedCompressSummary(
             status: status,
             completedGames: completed,
@@ -565,17 +693,16 @@ import Foundation
         )
     }
 
-    private func resolvePython() -> String {
-        let cached = python.pythonPath
-        let isManagedMNG = MacNativeGamesBuilder.isManagedUVPython(cached, home: home)
-            || MacNativeGamesBuilder.isManagedUVPython(cached)
-        if !cached.isEmpty, !isManagedMNG {
-            return cached
-        }
-        return findPython()
-    }
+    nonisolated private static func resolveExecutionContext(
+        cachedPython: String,
+        home: String,
+        seedEnvironment: [String: String],
+        findPython: @Sendable () -> String
+    ) -> (python: String, environment: [String: String]) {
+        let isManagedMNG = MacNativeGamesBuilder.isManagedUVPython(cachedPython, home: home)
+            || MacNativeGamesBuilder.isManagedUVPython(cachedPython)
+        let py = (!cachedPython.isEmpty && !isManagedMNG) ? cachedPython : findPython()
 
-    private func toolEnvironment(python py: String) -> [String: String] {
         var env: [String: String] = [
             "PATH": BuildCommands.toolPath("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", python: py),
             "USER": NSUserName(),
@@ -583,13 +710,8 @@ import Foundation
             "LANG": "en_US.UTF-8",
             "TMPDIR": NSTemporaryDirectory(),
         ]
-        let dn = dotnetPath()
-        if let droot = Toolchain.dotnetRoot(for: dn.isEmpty ? "dotnet" : dn) {
-            env["DOTNET_ROOT"] = droot
-            env["DOTNET_ROOT_ARM64"] = droot
-        }
         env.merge(BundledTools.environment(for: py)) { $1 }
-        env.merge(seedEnvironment()) { $1 }
-        return ProxyEnvironment.merged(into: env)
+        env.merge(seedEnvironment) { $1 }
+        return (py, ProxyEnvironment.merged(into: env))
     }
 }

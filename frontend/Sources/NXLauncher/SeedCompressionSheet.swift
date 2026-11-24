@@ -48,10 +48,16 @@ package struct SeedCompressionSheet: View {
     private func setInitialFocus() {
         pad.scope = "seedCompress"
         switch store.phase {
-        case .prompt: pad.focused = "seedCompress.compressNow"
-        case .running: pad.focused = "seedCompress.stop"
-        case .done: pad.focused = "seedCompress.finish"
-        case nil: break
+        case .prompt:
+            showAllPromptGames = false
+            dontAskAgain = store.promptDismissed
+            pad.focused = "seedCompress.compressNow"
+        case .running:
+            pad.focused = "seedCompress.stop"
+        case .done:
+            pad.focused = "seedCompress.finish"
+        case nil:
+            break
         }
     }
 
@@ -127,7 +133,7 @@ package struct SeedCompressionSheet: View {
                                     .font(DS.Font.callout.weight(.medium))
                                     .foregroundStyle(DS.Color.textSecondary)
                                 Spacer()
-                                Image(systemName: "chevron.down")
+                                Image(systemName: "chevron.right")
                                     .font(.system(size: 11, weight: .semibold))
                                     .foregroundStyle(DS.Color.symbolDefault)
                             }
@@ -388,6 +394,13 @@ package struct SeedCompressionSheet: View {
             .background(DS.Color.surfaceRaised, in: RoundedRectangle(cornerRadius: DS.Radius.card))
             .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(DS.Color.separator))
 
+            if let startError = store.startError, !startError.isEmpty {
+                DSRowMessageView(.error(startError))
+                    .padding(DS.Space.s)
+                    .background(DS.Color.surfaceRaised, in: RoundedRectangle(cornerRadius: DS.Radius.chip))
+                    .overlay(RoundedRectangle(cornerRadius: DS.Radius.chip).strokeBorder(DS.Color.separator))
+            }
+
             if !summary.results.isEmpty {
                 VStack(alignment: .leading, spacing: DS.Space.xs) {
                     Text(loc.t("seedCompress.done.detailsTitle"))
@@ -445,7 +458,7 @@ package struct SeedCompressionSheet: View {
                 .foregroundStyle(isError ? DS.Color.statusError : DS.Color.statusSuccess)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(displayName(for: item.titleID, fallback: ""))
+                Text(displayName(for: item.titleID, fallback: store.knownNames[item.titleID.uppercased()] ?? ""))
                     .font(DS.Font.body)
                     .foregroundStyle(DS.Color.textPrimary)
                     .lineLimit(1)
