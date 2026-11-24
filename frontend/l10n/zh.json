@@ -1916,6 +1916,7 @@
   "library.chip.notBuilt": "未构建",
   "library.chip.olderIOS": "旧版 iOS 构建",
   "library.chip.tuned": "有特调",
+  "library.chip.tunedAvailable": "有特调",
   "library.chooseFolder": "游戏文件夹…",
   "library.clearSearch": "清除搜索",
   "library.collection": "你的游戏",

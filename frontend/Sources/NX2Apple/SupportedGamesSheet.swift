@@ -75,6 +75,11 @@ struct SupportedGamesSheet: View {
         !tunedEngines(for: game).isEmpty
     }
 
+    /// Unified localized pill title when `game` has one or more game-tuned engines available, else nil.
+    static func tunedBadgeTitle(for game: SupportedGame, t: (String) -> String) -> String? {
+        isTunedSupported(game) ? t("library.chip.tunedAvailable") : nil
+    }
+
     /// The release as the tag says it: "1.5" for 1.5.0, a patch release in full.
     static func shortVersion(_ version: String) -> String {
         let parts = version.split(separator: ".")
@@ -105,6 +110,7 @@ struct SupportedGamesSheet: View {
             fields.append("tuned")
             fields.append("特调")
             fields.append(contentsOf: Lang.all.map { L10n.string("library.chip.tuned", $0) })
+            fields.append(contentsOf: Lang.all.map { L10n.string("library.chip.tunedAvailable", $0) })
             for engine in tuned {
                 fields.append(engine.displayName)
                 if engine == .macNativeGames {
@@ -340,8 +346,11 @@ private struct SupportedGameRow: View {
                                 ForEach(platforms, id: \.self) { platform in
                                     DSTag(platform, width: DSTag.platformWidth)
                                 }
-                                ForEach(tuned, id: \.self) { engine in
-                                    DSTag(engine.displayName, emphasized: true, width: DSTag.engineWidth)
+                                if let badge = SupportedGamesSheet.tunedBadgeTitle(for: game, t: { loc.t($0) }) {
+                                    let help = String(format: loc.t("library.tuned.help"), tuned.map(\.displayName).joined(separator: ", "))
+                                    DSTag(badge, emphasized: true)
+                                        .help(help)
+                                        .accessibilityLabel(help)
                                 }
                             }
                         }

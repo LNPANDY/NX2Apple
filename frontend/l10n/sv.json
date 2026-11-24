@@ -1916,6 +1916,7 @@
   "library.chip.notBuilt": "Inte byggda",
   "library.chip.olderIOS": "Äldre iOS-bygge",
   "library.chip.tuned": "Anpassad",
+  "library.chip.tunedAvailable": "Anpassad tillgänglig",
   "library.chooseFolder": "Byt mapp …",
   "library.clearSearch": "Rensa sökning",
   "library.collection": "Din samling",
