@@ -3,6 +3,7 @@ or a folder that is an engine tree itself (an installed release's engine)."""
 from __future__ import annotations
 
 import importlib
+import io
 import os
 import shutil
 import sys
@@ -565,6 +566,19 @@ class OnlineSync(unittest.TestCase):
         ok, kind = engine.run_sync(self.tool("import sys\nprint('boom')\nsys.exit(1)\n"), str(self.r), lambda _l: None)
         self.assertEqual((ok, kind), (False, engine.ENGINE_SYNC))
         self.assertEqual(engine.run_sync(self.tool("print('engine: ready')\n"), str(self.r), lambda _l: None), (True, None))
+
+    def test_sync_closes_the_output_pipe_after_success_or_failure(self):
+        for status in (0, 1):
+            with self.subTest(status=status):
+                output = io.StringIO('engine: sync output\n')
+                process = mock.Mock(stdout=output, **{'wait.return_value': status})
+                self.addCleanup(output.close)
+                lines: list[str] = []
+                with mock.patch.object(engine.subprocess, 'Popen', return_value=process):
+                    engine.run_sync(['unused'], str(self.r), lines.append)
+                self.assertTrue(output.closed)
+                self.assertEqual(lines, ['engine: sync output\n'])
+                process.wait.assert_called_once_with()
 
     def test_a_tool_that_cannot_start_is_a_general_stop(self):
         lines: list[str] = []
