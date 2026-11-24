@@ -53,7 +53,7 @@ final class SupportedGamesTests: XCTestCase {
         XCTAssertTrue(text.hasSuffix("profile."))
     }
 
-    func testIncludeMacNativeGamesCompletesAllTwelveWithoutDuplicates() throws {
+    func testIncludeMacNativeGamesCompletesAllThirteenWithoutDuplicates() throws {
         try profile(
             "0100F2C0115B6000",
             tsv: "# The Legend of Zelda: Tears of the Kingdom (Switch, update 1.4.3).\ntitle_id\t0100F2C0115B6000\nname\tThe Legend of Zelda: Tears of the Kingdom\npackage\tv720896\nbuild\tv720896\t1.4.3\tmain=aa\n",
@@ -77,7 +77,7 @@ final class SupportedGamesTests: XCTestCase {
         let ids = completed.map(\.titleID)
         XCTAssertEqual(ids.count, Set(ids).count, "must not duplicate existing profiles")
         XCTAssertEqual(Set(ids), MacNativeGamesBuilder.supportedTitleIDs.union(["0100152000022000"]))
-        XCTAssertEqual(ids.count, 13)
+        XCTAssertEqual(ids.count, 14)
 
         let totk = try XCTUnwrap(completed.first { $0.titleID == "0100F2C0115B6000" })
         XCTAssertEqual(totk.version, "1.4.3")

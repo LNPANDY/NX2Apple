@@ -62,6 +62,7 @@ TUNED_TITLE_ALLOWLISTS: dict[str, frozenset[str]] = {
         '01006F8002326000',
         '01008CF01BAAC000',
         '0100000000010000',
+        '010074F013262000',
     }),
 }
 

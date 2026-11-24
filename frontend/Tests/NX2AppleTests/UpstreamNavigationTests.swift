@@ -216,14 +216,14 @@ private struct OfflineUpstreamTransport: EngineTransport {
         XCTAssertTrue(build.isMNGBlockedByCurrentGame)
         XCTAssertEqual(build.detectedGameTitleID16, "0100152000022000")
 
-        // 3. SupportedGamesSheet search matches "MacNativeGames" and "MNG" for all 12 titles.
+        // 3. SupportedGamesSheet search matches "MacNativeGames" and "MNG" for all 13 titles.
         let full = SupportedGames.list(engineRoot: root.path, includeMacNativeGames: true)
             + [SupportedGame(titleID: "0100152000022000", name: "Mario Kart 8 Deluxe", edition: .switch1, version: "3.0.3", notes: "")]
         let mngHits = full.filter { SupportedGamesSheet.matchesSearch($0, needle: "MacNativeGames", ownedName: "") }
         let shortHits = full.filter { SupportedGamesSheet.matchesSearch($0, needle: "mng", ownedName: "") }
         XCTAssertEqual(Set(mngHits.map(\.titleID)), MacNativeGamesBuilder.supportedTitleIDs)
         XCTAssertEqual(Set(shortHits.map(\.titleID)), MacNativeGamesBuilder.supportedTitleIDs)
-        XCTAssertEqual(mngHits.count, 12)
+        XCTAssertEqual(mngHits.count, 13)
 
         // 4. LibraryArtworkState carries MNG upstream flag for built MNG bundles only.
         let mngApp = root.appendingPathComponent("TOTK.app")

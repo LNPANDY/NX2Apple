@@ -409,6 +409,7 @@ package enum EngineUpstream {
         "org.macnativegames.acnh": "01006F8002326000",
         "org.macnativegames.eow": "01008CF01BAAC000",
         "org.macnativegames.odyssey": "0100000000010000",
+        "org.macnativegames.xc3": "010074F013262000",
         "org.macnativegames.alc": "01007300020FA000",
         "org.macnativegames.aoc": "01002B00111A2000",
         "org.macnativegames.by3": "01004A4010FEA000",

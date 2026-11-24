@@ -117,7 +117,7 @@ package enum MacNativeGamesBuilder {
     }
 
     /// True when `path` is a compressed Switch container that must be pre-decompressed before invoking `route`.
-    /// `build_app.py` handles `.nsz` in its own venv, while `.xcz` and all 7 per-game scripts require pre-unpacked `.nsp`/`.xci`.
+    /// `build_app.py` handles `.nsz` in its own venv, while `.xcz` and all 8 per-game scripts require pre-unpacked `.nsp`/`.xci`.
     package static func needsPreDecompress(route: Route, path: String) -> Bool {
         let ext = (path as NSString).pathExtension.lowercased()
         switch route {
@@ -218,6 +218,7 @@ package enum MacNativeGamesBuilder {
         case acnh
         case eow
         case odyssey
+        case xc3
 
         package var scriptRelativePath: String {
             "games/\(rawValue)/build.py"
@@ -225,20 +226,21 @@ package enum MacNativeGamesBuilder {
 
         package var supportsUpdate: Bool {
             switch self {
-            case .dread, .ss, .acnh, .eow, .odyssey:
+            case .dread, .ss, .acnh, .eow, .odyssey, .xc3:
                 return true
             case .worldend, .tmnt:
                 return false
             }
         }
 
+        /// `--dlc`, once per add-on: ACNH, and Xenoblade Chronicles 3's four add-ons (games/xc3/build.py, 2.2.1 only).
         package var supportsDLC: Bool {
-            self == .acnh
+            self == .acnh || self == .xc3
         }
 
         package var supportsSharedFonts: Bool {
             switch self {
-            case .dread, .tmnt, .acnh, .eow, .odyssey:
+            case .dread, .tmnt, .acnh, .eow, .odyssey, .xc3:
                 return true
             case .ss, .worldend:
                 return false
@@ -252,7 +254,7 @@ package enum MacNativeGamesBuilder {
                 return "fonts/manifest.json"
             case .eow, .odyssey:
                 return "extracted/firmware/shared-fonts/manifest.json"
-            case .dread, .ss, .worldend, .tmnt:
+            case .dread, .ss, .worldend, .tmnt, .xc3:   // XC3's shared fonts are optional: it has its own
                 return nil
             }
         }
@@ -279,6 +281,7 @@ package enum MacNativeGamesBuilder {
         "01006F8002326000": .acnh,     // Animal Crossing: New Horizons
         "01008CF01BAAC000": .eow,      // The Legend of Zelda: Echoes of Wisdom
         "0100000000010000": .odyssey,  // Super Mario Odyssey
+        "010074F013262000": .xc3,      // Xenoblade Chronicles 3 (MacNativeGames#2269)
     ]
 
     package static let supportedTitleIDs: Set<String> = unifiedTitleIDs.union(perGameTitleIDs.keys)
@@ -290,7 +293,7 @@ package enum MacNativeGamesBuilder {
         "0400486024DEC000", // The Legend of Zelda: Ocarina of Time (Switch 2)
     ]
 
-    /// Returns true only when `titleID` normalizes to one of the 12 official MacNativeGames 16-hex IDs.
+    /// Returns true only when `titleID` normalizes to one of the 13 official MacNativeGames 16-hex IDs.
     package static func supportsTitleID(_ titleID: String?) -> Bool {
         normalizedHex16(titleID).map { supportedTitleIDs.contains($0) } ?? false
     }
