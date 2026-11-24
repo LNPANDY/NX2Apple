@@ -576,33 +576,21 @@ enum PKCS12FallbackParser {
 
     private static func derivePBKDF2Key(password: String, salt: Data, iterations: Int,
                                         prf: CCPseudoRandomAlgorithm, keyLength: Int) -> Data? {
-        let passData = Data(password.utf8)
+        guard keyLength > 0 else { return nil }
+        let passBytes = [Int8](password.utf8.map { Int8(bitPattern: $0) })
+        let saltBytes = [UInt8](salt)
+        let passStorage: [Int8] = passBytes.isEmpty ? [0] : passBytes
+        let saltStorage: [UInt8] = saltBytes.isEmpty ? [0] : saltBytes
         var derived = [UInt8](repeating: 0, count: keyLength)
-        let status: Int32 = salt.withUnsafeBytes { saltBuf in
-            let saltPtr = saltBuf.bindMemory(to: UInt8.self).baseAddress
-            if passData.isEmpty {
-                // CommonCrypto rejects a NULL password pointer even when passwordLen == 0.
-                var dummy: Int8 = 0
-                return CCKeyDerivationPBKDF(
+
+        let status: Int32 = passStorage.withUnsafeBufferPointer { passBuf in
+            saltStorage.withUnsafeBufferPointer { saltBuf in
+                CCKeyDerivationPBKDF(
                     CCPBKDFAlgorithm(kCCPBKDF2),
-                    &dummy,
-                    0,
-                    saltPtr,
-                    salt.count,
-                    prf,
-                    UInt32(iterations),
-                    &derived,
-                    keyLength
-                )
-            }
-            return passData.withUnsafeBytes { passBuf in
-                let passPtr = passBuf.bindMemory(to: Int8.self).baseAddress
-                return CCKeyDerivationPBKDF(
-                    CCPBKDFAlgorithm(kCCPBKDF2),
-                    passPtr,
-                    passData.count,
-                    saltPtr,
-                    salt.count,
+                    passBuf.baseAddress,
+                    passBytes.count,
+                    saltBuf.baseAddress,
+                    saltBytes.count,
                     prf,
                     UInt32(iterations),
                     &derived,
@@ -615,20 +603,26 @@ enum PKCS12FallbackParser {
     }
 
     private static func ccDecryptCBC(algorithm: CCAlgorithm, key: Data, iv: Data, ciphertext: Data) -> Data? {
+        guard !key.isEmpty, !iv.isEmpty, !ciphertext.isEmpty else { return nil }
         let outCap = ciphertext.count + 32
         var outBytes = [UInt8](repeating: 0, count: outCap)
         var moved = 0
         let status: CCCryptorStatus = key.withUnsafeBytes { keyBuf in
             iv.withUnsafeBytes { ivBuf in
                 ciphertext.withUnsafeBytes { inBuf in
-                    CCCrypt(
+                    guard let keyPtr = keyBuf.baseAddress,
+                          let ivPtr = ivBuf.baseAddress,
+                          let inPtr = inBuf.baseAddress else {
+                        return CCCryptorStatus(kCCParamError)
+                    }
+                    return CCCrypt(
                         CCOperation(kCCDecrypt),
                         algorithm,
                         CCOptions(kCCOptionPKCS7Padding),
-                        keyBuf.baseAddress,
+                        keyPtr,
                         key.count,
-                        ivBuf.baseAddress,
-                        inBuf.baseAddress,
+                        ivPtr,
+                        inPtr,
                         ciphertext.count,
                         &outBytes,
                         outCap,
@@ -800,7 +794,7 @@ enum PKCS12FallbackParser {
                bitStr.count == 1 + (1 + 2 * scalarLen),
                bitStr[bitStr.startIndex] == 0x00,
                bitStr[bitStr.startIndex + 1] == 0x04 {
-                x963Pub = bitStr.dropFirst()
+                x963Pub = Data(bitStr.dropFirst())
             } else if scalarLen == 32, let p256 = try? P256.Signing.PrivateKey(rawRepresentation: dPadded) {
                 x963Pub = p256.publicKey.x963Representation
             } else if scalarLen == 48, let p384 = try? P384.Signing.PrivateKey(rawRepresentation: dPadded) {

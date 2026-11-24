@@ -681,7 +681,8 @@ private struct FakeCertPicker: SideloadCertificatePicker {
             == "identifier \"\(hostID)\" and anchor apple generic and certificate leaf[subject.OU] = TXM16KTEAM")
 
         // 3. Verify CMS SignedData.certificates (`[0] IMPLICIT CertificateSet`) is sorted in ascending X.690 DER order,
-        //    and verify CoreTrust / AMFI CMS evaluation via `/usr/lib/libmis.dylib` when available.
+        //    and verify detached RFC 5652 CMS signature integrity over the 16 KiB CodeDirectory via public Security CMSDecoder
+        //    and OpenSSL CMS verification (never private dlopen/dlsym symbols).
         let signedBytes = try Data(contentsOf: exeURL)
         let sigInfo = try #require(FrameworkSignature.inspect(executable: exeURL))
         let sb = signedBytes.subdata(in: Int(sigInfo.signatureOffset)..<(Int(sigInfo.signatureOffset) + Int(sigInfo.signatureSize)))
@@ -714,34 +715,33 @@ private struct FakeCertPicker: SideloadCertificatePicker {
         let sortedCerts = certElements.sorted { $0.lexicographicallyPrecedes($1) }
         #expect(certElements == sortedCerts, "CMS SignedData.certificates must be sorted in X.690 DER order")
 
-        if let misHandle = Darwin.dlopen("/usr/lib/libmis.dylib", RTLD_LAZY | RTLD_LOCAL),
-           let sym = Darwin.dlsym(misHandle, "CTEvaluateAMFICodeSignatureCMS") {
-            defer { Darwin.dlclose(misHandle) }
-            typealias CTEvalFn = @convention(c) (
-                UnsafePointer<UInt8>, Int,
-                UnsafePointer<UInt8>, Int,
-                Bool,
-                UnsafeMutablePointer<UnsafePointer<UInt8>?>, UnsafeMutablePointer<Int>,
-                UnsafeMutablePointer<UInt32>, UnsafeMutablePointer<UInt32>
-            ) -> Int32
-            let fn = unsafeBitCast(sym, to: CTEvalFn.self)
-            var leafPtr: UnsafePointer<UInt8>?
-            var leafLen = 0
-            var digestType: UInt32 = 0
-            var policyFlags: UInt32 = 0
-            let rc = cmsDER.withUnsafeBytes { cmsBuf in
-                cdSlice.withUnsafeBytes { cdBuf in
-                    fn(
-                        cmsBuf.bindMemory(to: UInt8.self).baseAddress!, cmsDER.count,
-                        cdBuf.bindMemory(to: UInt8.self).baseAddress!, cdSlice.count,
-                        true,
-                        &leafPtr, &leafLen, &digestType, &policyFlags
-                    )
-                }
-            }
-            #expect(rc == 0, "CoreTrust CTEvaluateAMFICodeSignatureCMS rejected CMS blob (rc=\(rc))")
-            #expect(leafLen == identity.leafCertificateDER.count)
+        var cmsDecoderOpt: CMSDecoder?
+        #expect(CMSDecoderCreate(&cmsDecoderOpt) == errSecSuccess)
+        let cmsDecoder = try #require(cmsDecoderOpt)
+        let cmsUpdateStatus = cmsDER.withUnsafeBytes { rawBuf -> OSStatus in
+            guard let base = rawBuf.baseAddress else { return errSecParam }
+            return CMSDecoderUpdateMessage(cmsDecoder, base, rawBuf.count)
         }
+        #expect(cmsUpdateStatus == errSecSuccess)
+        #expect(CMSDecoderSetDetachedContent(cmsDecoder, cdSlice as CFData) == errSecSuccess)
+        #expect(CMSDecoderFinalizeMessage(cmsDecoder) == errSecSuccess)
+        var numSigners = 0
+        #expect(CMSDecoderGetNumSigners(cmsDecoder, &numSigners) == errSecSuccess)
+        #expect(numSigners == 1)
+        var signerCertOpt: SecCertificate?
+        #expect(CMSDecoderCopySignerCert(cmsDecoder, 0, &signerCertOpt) == errSecSuccess)
+        let signerCert = try #require(signerCertOpt)
+        #expect((SecCertificateCopyData(signerCert) as Data) == identity.leafCertificateDER)
+
+        let cmsFile = root.appendingPathComponent("cms.der")
+        let cdFile = root.appendingPathComponent("cd.bin")
+        try cmsDER.write(to: cmsFile)
+        try cdSlice.write(to: cdFile)
+        let cmsVerify = try Self.run("/usr/bin/openssl", [
+            "cms", "-verify", "-binary", "-inform", "DER",
+            "-in", cmsFile.path, "-content", cdFile.path, "-noverify", "-out", "/dev/null",
+        ])
+        #expect(cmsVerify.status == 0, "openssl cms -verify failed: \(cmsVerify.stderr)")
 
         // 4. Legacy schema=1 `.nx-local-sign.json` receipt (from pre-fix 4 KiB builds) must invalidate and force re-signing.
         let receiptURL = MachOLocalSigner.receiptURL(for: fwURL)
