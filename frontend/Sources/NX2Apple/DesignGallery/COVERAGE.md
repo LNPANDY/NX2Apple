@@ -313,7 +313,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `hero.switch2` | `librarySwitch2` |
 | `library.skippedBanner` | `libraryNoticeWarning` |
 
-## States: 283 of 283 in a scene
+## States: 284 of 284 in a scene
 
 | State | Scenes |
 |---|---|
