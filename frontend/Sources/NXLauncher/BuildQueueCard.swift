@@ -177,7 +177,7 @@ package struct BuildQueueCard: View {
                         }
                     }.fixedSize(horizontal: false, vertical: true)
                 }
-                ForEach(game.entries.filter { $0.status == .done && $0.packagePending == nil }) { doneJob in
+                ForEach(game.entries.filter { ($0.status == .done || $0.status == .failed) && $0.packagePending == nil }) { doneJob in
                     imgStatusView(for: doneJob)
                 }
 

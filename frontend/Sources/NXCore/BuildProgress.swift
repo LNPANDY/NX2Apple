@@ -396,10 +396,21 @@ package enum BuildProgress {
             let raw = min((doneBefore + share) / Double(total), 0.95)
             return max(clampedFloor, raw)
         }
+        let postStages = stages.filter { $0.id >= 1000 }
+        let scriptDone = !scriptStages.contains(where: { $0.state != .done })
         let doneCount = Double(scriptStages.filter { $0.state == .done }.count)
-        var raw = min(doneCount / Double(total), 0.95)
-        if let active, active.id >= 1000, doneCount >= Double(total) {
-            let postShare = min(max((active.percent ?? 0) / 100.0, 0), 0.99)
+        let effectiveTotal = (!postStages.isEmpty && scriptDone) ? Double(scriptStages.count) : Double(total)
+        var raw = min(doneCount / max(effectiveTotal, 1), 0.95)
+        if !postStages.isEmpty && scriptDone {
+            let postShare: Double
+            if let active, active.id >= 1000 {
+                let donePost = Double(postStages.filter { $0.state == .done && $0.id != active.id }.count)
+                let cur = min(max((active.percent ?? 0) / 100.0, 0), 0.99)
+                postShare = min((donePost + cur) / Double(postStages.count), 0.99)
+            } else {
+                let donePost = Double(postStages.filter { $0.state == .done }.count)
+                postShare = donePost / Double(postStages.count)
+            }
             raw = max(raw, min(0.95 + postShare * 0.045, 0.995))
         }
         return max(clampedFloor, raw)

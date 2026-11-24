@@ -635,6 +635,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         for i in stages.indices where stages[i].state != .failed {
             stages[i].state = .done
         }
+        reconcileScriptStageTotal()
     }
 
     private static func isPSOStage(_ name: String) -> Bool {

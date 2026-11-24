@@ -216,6 +216,10 @@ import XCTest
         tid = (val('--title-id') or '').upper()
         work_dir = val('--work-dir')
         fw_parent = val('--shell-framework')
+        if os.path.exists('\(stateDir)/emit-6of7'):
+            for k, name in enumerate(['extract', 'check files', 'rewrite', 'shader split', 'iOS shaders', 'game framework'], 1):
+                print(json.dumps({'ev': 'stage', 'k': k, 'n': 7, 'name': name, 'step': ''}), flush=True)
+                print(json.dumps({'ev': 'stage_end', 'k': k, 'ok': True, 'summary': 'ok', 'elapsed': 0.1}), flush=True)
         os.makedirs(fw_parent, exist_ok=True)
         fw = fw_parent + '/DmGame' + tid + '.framework'
         os.makedirs(fw, exist_ok=True)
@@ -563,6 +567,197 @@ import XCTest
                 try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: captureDir.appendingPathComponent("after-sheet-\(suffix).png"))
             }
             sheetWin.orderOut(nil)
+        }
+    }
+
+    func testAutoTransferModeWithRebuiltShadersReachesDeviceAndAdvancesPastSixOfSeven() throws {
+        let env = try makeStandIns()
+        try write(stateDir + "/emit-6of7", "1")
+        let stores = LauncherStores(xcrun: env.xcrun, defaults: testDefaults)
+        let library = GameLibrary(file: temporary.appendingPathComponent("library-\(UUID().uuidString).json"))
+        let recorder = BuildRecorder(stores: stores, library: library)
+        defer { withExtendedLifetime(recorder) {} }
+
+        stores.repo.path = env.repo
+        stores.dependencies.pythonPath = "/usr/bin/python3"
+        stores.dependencies.deps = [Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: true, installCmd: [])]
+        stores.dependencies.checked = true
+        stores.deviceStore.devices = [AppleDevice(id: deviceID, name: "Andy's iPhone", model: "iPhone 17 Pro", os: "27.0",
+                                                  reachable: true, transport: "wired")]
+        stores.deviceStore.teams = [SigningTeam(id: teamID, identity: "Apple Development: Player")]
+        stores.deviceStore.checked = true
+        stores.deviceStore.installDevice = deviceID
+        stores.deviceStore.signingTeam = teamID
+        stores.deviceStore.exportIPA = false
+        stores.deviceStore.postBuildTransferMode = .auto
+        stores.build.outDir = env.outDir
+        stores.build.launcherEnvironment = ["DM_SEED_CACHE_DIR": env.seedRoot]
+
+        var stardew = LibraryGame(titleID: stardewTID, name: "Stardew Valley")
+        stardew.archivePath = env.outDir + "/games/Stardew Valley"
+        stardew.outputDirectory = env.outDir
+        library.upsert(stardew)
+
+        let batch = UUID()
+        let entry = RefreshQueueBuilder.makeEntry(
+            game: stardew, target: BuildTarget.ios, fastRefresh: true, rebuildsShaders: true,
+            batch: batch, stores: stores, libraryFolder: env.outDir
+        )
+        stores.queue.enqueue([entry])
+
+        var promptCount = 0
+        let copySub = stores.deviceStore.$shellCopy.compactMap { $0 }.sink { _ in
+            promptCount += 1
+            DispatchQueue.main.async { stores.deviceStore.answerCopy(.copy) }
+        }
+        defer { copySub.cancel() }
+
+        stores.build.startBuildOrQueue()
+        waitUntil { !stores.build.running && !stores.queue.hasWaiting && stores.queue.running == nil && stores.queue.packaging.isEmpty }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.08))
+
+        XCTAssertEqual(promptCount, 0, "postBuildTransferMode = .auto must transfer directly without prompting")
+        XCTAssertTrue(stores.build.done, stores.build.doneNote)
+        XCTAssertEqual(stores.build.overallProgress, 1.0)
+        let pos = try XCTUnwrap(stores.build.currentStagePosition)
+        XCTAssertGreaterThanOrEqual(pos.total, 7)
+        XCTAssertEqual(pos.current, pos.total)
+        XCTAssertEqual(pos.total, stores.build.stages.count)
+
+        let xcrunCalls = try String(contentsOfFile: stateDir + "/xcrun-calls.txt", encoding: .utf8)
+        XCTAssertTrue(xcrunCalls.contains("devicectl device copy to"))
+        XCTAssertEqual(stores.queue.entries.first?.status, .done)
+        XCTAssertEqual(
+            stores.queue.entries.first?.imgStatus,
+            .transferred(imgName: "Stardew Valley.img", deviceName: "Andy's iPhone")
+        )
+        XCTAssertFalse(stores.build.needsReplaceOldImgReminder)
+
+        let bundle = ShellLibrary.load(root: env.shellRoot).bundleID
+        let deviceImg = "\(deviceContainer)/\(bundle)/Documents/games/\(stardewTID)/romfs.img"
+        XCTAssertTrue(fm.fileExists(atPath: deviceImg))
+        let inspectOut = try runPython(["-I", env.romfsImageTool, "--inspect-msl", deviceImg])
+        let status = try XCTUnwrap(BuildSeedCache.parseTrailerStatus(from: inspectOut))
+        XCTAssertTrue(status.hasTrailer)
+        XCTAssertEqual(status.chain, "b-" + chainHex)
+    }
+
+    func testAutoTransferFailureAndMissingDeviceSettleAsManualReplaceWithoutHanging() throws {
+        // 1) Copy failure under .auto marks copy stage failed, ends running, and sets .manualReplace
+        do {
+            let env = try makeStandIns()
+            try write(stateDir + "/emit-6of7", "1")
+            try write(stateDir + "/fail-copy", "1")
+            let stores = LauncherStores(xcrun: env.xcrun, defaults: testDefaults)
+            let library = GameLibrary(file: temporary.appendingPathComponent("library-fail-\(UUID().uuidString).json"))
+            let recorder = BuildRecorder(stores: stores, library: library)
+            defer { withExtendedLifetime(recorder) {} }
+
+            stores.repo.path = env.repo
+            stores.dependencies.pythonPath = "/usr/bin/python3"
+            stores.dependencies.deps = [Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: true, installCmd: [])]
+            stores.dependencies.checked = true
+            stores.deviceStore.devices = [AppleDevice(id: deviceID, name: "Andy's iPhone", model: "iPhone 17 Pro", os: "27.0",
+                                                      reachable: true, transport: "wired")]
+            stores.deviceStore.teams = [SigningTeam(id: teamID, identity: "Apple Development: Player")]
+            stores.deviceStore.checked = true
+            stores.deviceStore.installDevice = deviceID
+            stores.deviceStore.signingTeam = teamID
+            stores.deviceStore.postBuildTransferMode = .auto
+            stores.build.outDir = env.outDir
+            stores.build.launcherEnvironment = ["DM_SEED_CACHE_DIR": env.seedRoot]
+
+            var stardew = LibraryGame(titleID: stardewTID, name: "Stardew Valley")
+            stardew.archivePath = env.outDir + "/games/Stardew Valley"
+            stardew.outputDirectory = env.outDir
+            library.upsert(stardew)
+
+            let entry = RefreshQueueBuilder.makeEntry(
+                game: stardew, target: BuildTarget.ios, fastRefresh: true, rebuildsShaders: true,
+                batch: UUID(), stores: stores, libraryFolder: env.outDir
+            )
+            stores.queue.enqueue([entry])
+
+            stores.build.startBuildOrQueue()
+            waitUntil { !stores.build.running && !stores.queue.hasWaiting && stores.queue.running == nil && stores.queue.packaging.isEmpty }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.08))
+
+            XCTAssertFalse(stores.build.running)
+            XCTAssertFalse(stores.build.done)
+            XCTAssertEqual(stores.build.stages.first(where: { $0.id == ShellInstaller.copyStageID })?.state, .failed)
+            XCTAssertEqual(stores.queue.entries.first?.status, .failed)
+            guard case .manualReplace(let imgPath, let reason)? = stores.queue.entries.first?.imgStatus else {
+                return XCTFail("Expected .manualReplace when copy fails")
+            }
+            XCTAssertTrue(imgPath.hasSuffix("Stardew Valley.img"))
+            XCTAssertFalse((reason ?? "").isEmpty)
+
+            let summary = try XCTUnwrap(stores.build.refreshCompletionSummary)
+            for lang in [Lang.en, Lang.zh] {
+                let text = RefreshCompletionFormatter.notificationText(for: summary, t: { L10n.string($0, lang) })
+                XCTAssertTrue(text.body.contains("Stardew Valley.img"))
+                XCTAssertFalse(text.body.contains(";"))
+            }
+        }
+
+        // 2) Device disappears during build -> post-build install/transfer settles cleanly as .manualReplace without hanging
+        do {
+            try fm.removeItem(atPath: temporary.path)
+            try fm.createDirectory(at: temporary, withIntermediateDirectories: true)
+            let env = try makeStandIns()
+            try write(stateDir + "/emit-6of7", "1")
+
+            let stores = LauncherStores(xcrun: env.xcrun, defaults: testDefaults)
+            let library = GameLibrary(file: temporary.appendingPathComponent("library-nodev-\(UUID().uuidString).json"))
+            let recorder = BuildRecorder(stores: stores, library: library)
+            defer { withExtendedLifetime(recorder) {} }
+
+            stores.repo.path = env.repo
+            stores.dependencies.pythonPath = "/usr/bin/python3"
+            stores.dependencies.deps = [Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: true, installCmd: [])]
+            stores.dependencies.checked = true
+            stores.deviceStore.devices = [AppleDevice(id: deviceID, name: "Andy's iPhone", model: "iPhone 17 Pro", os: "27.0",
+                                                      reachable: true, transport: "wired")]
+            stores.deviceStore.teams = [SigningTeam(id: teamID, identity: "Apple Development: Player")]
+            stores.deviceStore.checked = true
+            stores.deviceStore.installDevice = deviceID
+            stores.deviceStore.signingTeam = teamID
+            stores.deviceStore.postBuildTransferMode = .auto
+            stores.build.outDir = env.outDir
+            stores.build.launcherEnvironment = ["DM_SEED_CACHE_DIR": env.seedRoot]
+
+            var stardew = LibraryGame(titleID: stardewTID, name: "Stardew Valley")
+            stardew.archivePath = env.outDir + "/games/Stardew Valley"
+            stardew.outputDirectory = env.outDir
+            library.upsert(stardew)
+
+            let entry = RefreshQueueBuilder.makeEntry(
+                game: stardew, target: BuildTarget.ios, fastRefresh: true, rebuildsShaders: true,
+                batch: UUID(), stores: stores, libraryFolder: env.outDir
+            )
+            stores.queue.enqueue([entry])
+
+            // Drop the device from devicectl once the build process starts so post-build install hits no-device cleanly.
+            let stageSub = stores.build.$stages.sink { stages in
+                if !stages.isEmpty {
+                    let emptyDevicesJSON: [String: Any] = ["info": ["outcome": "success"], "result": ["devices": []]]
+                    if let data = try? JSONSerialization.data(withJSONObject: emptyDevicesJSON) {
+                        try? data.write(to: URL(fileURLWithPath: self.stateDir + "/devices.json"))
+                    }
+                }
+            }
+            defer { stageSub.cancel() }
+
+            stores.build.startBuildOrQueue()
+            waitUntil { !stores.build.running && !stores.queue.hasWaiting && stores.queue.running == nil && stores.queue.packaging.isEmpty }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.08))
+
+            XCTAssertFalse(stores.build.running)
+            XCTAssertEqual(stores.queue.entries.first?.status, .failed)
+            guard case .manualReplace(let imgPath, _)? = stores.queue.entries.first?.imgStatus else {
+                return XCTFail("Expected .manualReplace when device is absent")
+            }
+            XCTAssertTrue(imgPath.hasSuffix("Stardew Valley.img"))
         }
     }
 }

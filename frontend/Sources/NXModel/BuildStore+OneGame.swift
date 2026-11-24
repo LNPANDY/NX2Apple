@@ -29,6 +29,7 @@ extension BuildStore {
                 }
                 self.exportedIPAPath = made ? ipa : ""
                 self.done = made
+                if made { self.completeOverallProgress() }
                 self.doneNote = String(format: self.t(made ? "shell.exportDone" : "shell.oneGameMissing"), ipa)
                 self.running = false
                 self.cleanupStaging()

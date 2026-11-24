@@ -78,7 +78,7 @@ struct RefreshCompletionSheet: View {
         let statusLine = RefreshCompletionFormatter.itemLineStatus(item, t: loc.t)
         let platformLabel = item.target == BuildTarget.mac ? loc.t("batchRefresh.platformMac") : loc.t("batchRefresh.platformIOS")
         let manualPath: String? = {
-            if item.succeeded, case .manualReplace(let path, _) = item.imgStatus, !path.isEmpty {
+            if case .manualReplace(let path, _) = item.imgStatus, !path.isEmpty {
                 return path
             }
             return nil

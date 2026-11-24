@@ -95,13 +95,42 @@ extension BuildStore {
         }
     }
 
-    /// Active `(current, total)` script stage badge (such as `(3, 8)`), nil before any `[k/n]` stage is known.
+    package func reconcileScriptStageTotal() {
+        let scriptStages = stages.filter { $0.id > 0 && $0.id < 1000 }
+        let postStages = stages.filter { $0.id >= 1000 }
+        if postStages.isEmpty, !scriptStages.isEmpty, !stages.contains(where: { $0.state == .failed }) {
+            totalStages = scriptStages.count
+        }
+        refreshOverallProgress(parsedTotal: nil)
+    }
+
+    package func completeOverallProgress() {
+        peakOverallProgress = 1.0
+        overallProgress = 1.0
+    }
+
+    /// Active `(current, total)` stage badge (such as `(3, 8)` or `(7, 7)`), nil before any stage is known.
     package var currentStagePosition: (current: Int, total: Int)? {
         let scriptStages = stages.filter { $0.id > 0 && $0.id < 1000 }
-        let total = max(totalStages, scriptStages.map(\.id).max() ?? 0)
-        guard total > 0, !scriptStages.isEmpty else { return nil }
-        let currentStage = scriptStages.last(where: { $0.state == .running }) ?? scriptStages.last
+        let postStages = stages.filter { $0.id >= 1000 }
+        let scriptTotal = max(totalStages, scriptStages.map(\.id).max() ?? 0)
+        if let runningScript = scriptStages.last(where: { $0.state == .running }) {
+            guard scriptTotal > 0 else { return nil }
+            return (min(runningScript.id, scriptTotal), scriptTotal)
+        }
+        if !postStages.isEmpty {
+            let scriptDone = !scriptStages.isEmpty && !scriptStages.contains(where: { $0.state != .done })
+            let scriptBase = scriptStages.isEmpty ? 0 : (scriptDone ? scriptStages.count : max(scriptTotal, scriptStages.count))
+            let total = scriptBase + postStages.count
+            let activeIndex = postStages.lastIndex(where: { $0.state == .running })
+                ?? postStages.lastIndex(where: { $0.state != .pending })
+                ?? 0
+            return (min(scriptBase + activeIndex + 1, total), total)
+        }
+        guard scriptTotal > 0, !scriptStages.isEmpty else { return nil }
+        let currentStage = scriptStages.last(where: { $0.state != .pending }) ?? scriptStages.last
         guard let currentStage else { return nil }
-        return (min(currentStage.id, total), total)
+        let resolvedTotal = (done && failure == nil) ? scriptStages.count : scriptTotal
+        return (min(currentStage.id, resolvedTotal), resolvedTotal)
     }
 }

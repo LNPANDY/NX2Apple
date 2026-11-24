@@ -104,6 +104,7 @@ extension BuildStore {
                                          started: s.state == .running ? Date() : nil, nameKey: nameKey,
                                          nameArgument: nameKey == nil ? nil : nameArgument))
             }
+            self.refreshOverallProgress(parsedTotal: nil)
         } }
         installer.runner = runner
         installer.processStarted = { @Sendable p in hop { self.proc = p } }
@@ -371,9 +372,14 @@ extension BuildStore {
         return true
     }
 
-    package func finishInstall(_ failure: String?, note: String? = nil) {
+    package func finishInstall(_ failure: String?, note: String? = nil, completeProgress: Bool = true) {
         running = false
         done = failure == nil
+        if failure == nil && completeProgress {
+            completeOverallProgress()
+        } else {
+            refreshOverallProgress(parsedTotal: nil)
+        }
         var resolved = failure ?? note ?? String(format: t("dev.installed"), devices.deviceName(devices.installDevice))
         if failure == nil, !deferShellPackaging, needsReplaceOldImgReminder {
             let imgName = updatedImgPath.isEmpty ? "romfs.img" : (updatedImgPath as NSString).lastPathComponent

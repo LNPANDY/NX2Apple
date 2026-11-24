@@ -245,6 +245,41 @@ import NXModel
         XCTAssertEqual(observedFractions.last ?? 0, 1.5 / 8.0, accuracy: 0.001)
     }
 
+    func testStagePositionAdvancesBeyondSixOfSevenIntoPostBuildAndCompletion() throws {
+        let stores = LauncherStores(defaults: testDefaults)
+        stores.localizer.lang = .en
+        let build = stores.build
+        build.resetOverallProgress()
+
+        for k in 1...6 {
+            build.handle("{\"ev\":\"stage\",\"k\":\(k),\"n\":7,\"name\":\"step\(k)\",\"step\":\"\"}")
+            XCTAssertEqual(build.currentStagePosition?.current, k)
+            XCTAssertEqual(build.currentStagePosition?.total, 7)
+            build.handle("{\"ev\":\"stage_end\",\"k\":\(k),\"ok\":true,\"sec\":1.0}")
+        }
+
+        // Script exited at 6/7 (--shell-framework): markAllDone + Archive (stage 1000) advances badge to 7/7 instead of stalling at 6/7.
+        build.markAllDone()
+        build.stages.append(Stage(id: 1000, name: "Archive", state: .running))
+        build.refreshOverallProgress(parsedTotal: nil)
+        XCTAssertEqual(build.currentStagePosition?.current, 7)
+        XCTAssertEqual(build.currentStagePosition?.total, 7)
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(build.overallProgress), 0.95)
+
+        build.stages[build.stages.count - 1].state = .done
+        build.stages.append(Stage(id: ShellInstaller.copyStageID, name: "Copy", state: .running, percent: 50))
+        build.refreshOverallProgress(parsedTotal: nil)
+        XCTAssertEqual(build.currentStagePosition?.current, 8)
+        XCTAssertEqual(build.currentStagePosition?.total, 8)
+        XCTAssertEqual(build.currentStagePosition?.total, build.stages.count)
+
+        build.stages[build.stages.count - 1].state = .done
+        build.finishInstall(nil, note: "Done")
+        XCTAssertEqual(build.overallProgress, 1.0)
+        XCTAssertEqual(build.currentStagePosition?.current, 8)
+        XCTAssertEqual(build.currentStagePosition?.total, 8)
+    }
+
     // MARK: Module 3B & Module 4A/4C - Hero launch Gatekeeper hint, failure fix buttons, and install/olderTools guides
 
     func testFirstMacLaunchGatekeeperHintEligibilityAndFailureFixActions() throws {

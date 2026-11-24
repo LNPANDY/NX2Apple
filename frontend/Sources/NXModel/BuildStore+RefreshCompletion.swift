@@ -102,10 +102,17 @@ package enum RefreshCompletionFormatter {
 
     package static func itemLineStatus(_ item: RefreshNoticeItem, t: (String) -> String) -> String {
         guard item.succeeded else {
+            let base: String
             if let reason = item.reason, !reason.isEmpty {
-                return String(format: t("refreshDone.itemFailedReason"), reason)
+                base = String(format: t("refreshDone.itemFailedReason"), reason)
+            } else {
+                base = t("refreshDone.itemFailed")
             }
-            return t("refreshDone.itemFailed")
+            if case .manualReplace(let imgPath, _) = item.imgStatus {
+                let imgName = imgPath.isEmpty ? "romfs.img" : (imgPath as NSString).lastPathComponent
+                return base + " · " + String(format: t("refreshDone.statusImgManual"), imgName)
+            }
+            return base
         }
         switch item.imgStatus {
         case .unchanged:

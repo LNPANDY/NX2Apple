@@ -317,8 +317,7 @@ extension BuildStore {
                         self.updatedImgPath = didUpdate ? targetImg : ""
                     }
                     self.archivePath = dest
-                    self.stages.append(Stage(id: idx, name: self.t("prog.archive"), state: .done,
-                                             detail: String(format: self.t("prog.archiveReused"), reused), nameKey: "prog.archive"))
+                    self.upsertArchiveStage(id: idx, state: .done, detail: String(format: self.t("prog.archiveReused"), reused))
                     self.say(String(format: self.t("msg.archiveReused"), dest))
                     if aocCount > 0 { self.say(String(format: self.t("msg.aocCopied"), aocCount)) }
                     let outcome = ArchivePackOutcome(archiveDir: dest, primaryImgPath: targetImg, didUpdateImg: didUpdate, usedMSLFallback: false)
@@ -437,6 +436,7 @@ extension BuildStore {
         } else {
             stages.append(Stage(id: id, name: t("prog.archive"), state: state, detail: detail, nameKey: "prog.archive"))
         }
+        refreshOverallProgress(parsedTotal: nil)
     }
 
     private func failArchiveTrailer(stageID: Int, error: TrailerInjectionError) {

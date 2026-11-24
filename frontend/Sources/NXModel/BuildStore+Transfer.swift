@@ -117,7 +117,7 @@ extension BuildStore {
             updatedImgPath: updatedImgPath
         ))
         let noteKey = deferredExportsIPA ? "queue.packageLater" : "queue.installLater"
-        finishInstall(nil, note: String(format: t(noteKey), name))
+        finishInstall(nil, note: String(format: t(noteKey), name), completeProgress: false)
     }
 
     /// The batch ended: the shared app is exported or signed and installed once from the games that were built. A game that failed is not in it.

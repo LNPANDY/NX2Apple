@@ -650,6 +650,7 @@ extension BuildStore {
                 await preflight(app)
                 guard archiveGeneration == generation else { return }
                 done = true
+                completeOverallProgress()
                 doneNote = t("msg.macAppDone")
                 if nxkitRun { finishNxkitBuild(app: app) }   // BuildStore+Nxkit.swift: the game's record and "Did it work?"
                 running = false
