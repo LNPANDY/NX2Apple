@@ -358,14 +358,10 @@ extension BuildStore {
                 return
             }
 
-            let workTmp = workDir + "/.tmp"
-            let effectiveTmpDir: String
-            if (try? FileManager.default.createDirectory(atPath: workTmp, withIntermediateDirectories: true)) != nil,
-               FileManager.default.fileExists(atPath: workTmp) {
-                effectiveTmpDir = workTmp
-            } else {
-                effectiveTmpDir = NSTemporaryDirectory()
-            }
+            let effectiveTmpDir = MacNativeGamesBuilder.resolveTemporaryDirectory(
+                workDir: workDir,
+                home: homeDir
+            )
 
             let pyBin = (py314 as NSString).deletingLastPathComponent
             let basePathEnv = BuildCommands.toolPath(python: py314)

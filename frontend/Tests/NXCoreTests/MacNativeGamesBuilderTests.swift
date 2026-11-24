@@ -604,4 +604,59 @@ final class MacNativeGamesBuilderTests: XCTestCase {
         XCTAssertTrue(MacNativeGamesBuilder.supportsInput(titleID: "040074A01BF12000", isNUP: true, tree: oldTree))
         XCTAssertFalse(MacNativeGamesBuilder.supportsInput(titleID: "0400C3F00006E000", isNUP: true, tree: oldTree))
     }
+
+    func testResolveTemporaryDirectoryNeverUsesSpacePaths() throws {
+        let spacelessHome = temporary.appendingPathComponent("home_no_space")
+        try FileManager.default.createDirectory(at: spacelessHome, withIntermediateDirectories: true)
+
+        // 1. Spaceless workDir keeps same-volume .tmp.
+        let plainWork = temporary.appendingPathComponent("oot_build")
+        try FileManager.default.createDirectory(at: plainWork, withIntermediateDirectories: true)
+        let sameVolumeTmp = MacNativeGamesBuilder.resolveTemporaryDirectory(
+            workDir: plainWork.path,
+            home: spacelessHome.path,
+            systemTempDir: temporary.path
+        )
+        XCTAssertEqual(sameVolumeTmp, plainWork.path + "/.tmp")
+        XCTAssertFalse(sameVolumeTmp.contains(" "))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sameVolumeTmp))
+
+        // 2. Spaced workDir with spaceless home falls back to ~/Library/Caches/NX2Apple/tmp (never Application Support).
+        let spacedWork = temporary.appendingPathComponent("The Legend of Zelda Ocarina of Time [0400486024DEC000]/0400486024DEC000_build")
+        try FileManager.default.createDirectory(at: spacedWork, withIntermediateDirectories: true)
+        let cachesTmp = MacNativeGamesBuilder.resolveTemporaryDirectory(
+            workDir: spacedWork.path,
+            home: spacelessHome.path,
+            systemTempDir: temporary.path
+        )
+        XCTAssertEqual(cachesTmp, spacelessHome.path + "/Library/Caches/NX2Apple/tmp")
+        XCTAssertFalse(cachesTmp.contains(" "))
+        XCTAssertFalse(cachesTmp.contains("Application Support"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cachesTmp))
+
+        // 3. Spaced workDir and spaced home fall back to spaceless systemTempDir.
+        let spacedHome = temporary.appendingPathComponent("John Doe")
+        let spacedSysTmp = temporary.appendingPathComponent("spaced sys tmp")
+        let spacelessSysTmp = temporary.appendingPathComponent("sys_tmp_ok")
+        try FileManager.default.createDirectory(at: spacedHome, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: spacedSysTmp, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: spacelessSysTmp, withIntermediateDirectories: true)
+
+        let sysResolved = MacNativeGamesBuilder.resolveTemporaryDirectory(
+            workDir: spacedWork.path,
+            home: spacedHome.path,
+            systemTempDir: spacelessSysTmp.path
+        )
+        XCTAssertEqual(sysResolved, spacelessSysTmp.path)
+        XCTAssertFalse(sysResolved.contains(" "))
+
+        // 4. Even if workDir, home, and systemTempDir all have spaces, fallback is still spaceless.
+        let finalFallback = MacNativeGamesBuilder.resolveTemporaryDirectory(
+            workDir: spacedWork.path,
+            home: spacedHome.path,
+            systemTempDir: spacedSysTmp.path
+        )
+        XCTAssertFalse(finalFallback.contains(" "))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: finalFallback))
+    }
 }

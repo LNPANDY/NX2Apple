@@ -453,6 +453,46 @@ package enum MacNativeGamesBuilder {
         ["MNG_LANG": languageCode, "PYTHONUNBUFFERED": "1"]
     }
 
+    /// Returns a writable `TMPDIR` without spaces for MacNativeGames builds.
+    /// Keeps `<workDir>/.tmp` on the same volume when `workDir` has no spaces, and otherwise falls back to
+    /// `~/Library/Caches/NX2Apple/tmp` (when `home` has no spaces), `systemTempDir`, or `/tmp/nx2apple-mng-tmp`
+    /// — never `~/Library/Application Support/...` because `Application Support` itself contains a space.
+    package static func resolveTemporaryDirectory(
+        workDir: String,
+        home: String = NSHomeDirectory(),
+        systemTempDir: String = NSTemporaryDirectory(),
+        fileManager fm: FileManager = .default
+    ) -> String {
+        func usable(_ candidate: String) -> String? {
+            let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, !trimmed.contains(" ") else { return nil }
+            var isDir: ObjCBool = false
+            if fm.fileExists(atPath: trimmed, isDirectory: &isDir) {
+                return isDir.boolValue ? trimmed : nil
+            }
+            guard (try? fm.createDirectory(atPath: trimmed, withIntermediateDirectories: true)) != nil,
+                  fm.fileExists(atPath: trimmed, isDirectory: &isDir),
+                  isDir.boolValue else {
+                return nil
+            }
+            return trimmed
+        }
+
+        if !workDir.isEmpty, let sameVolume = usable(workDir + "/.tmp") {
+            return sameVolume
+        }
+        if !home.isEmpty, let caches = usable(home + "/Library/Caches/NX2Apple/tmp") {
+            return caches
+        }
+        if let sys = usable(systemTempDir) {
+            return sys
+        }
+        if let fallback = usable("/tmp/nx2apple-mng-tmp") {
+            return fallback
+        }
+        return "/tmp"
+    }
+
     package static func lastError(in log: String) -> String? {
         let lines = log.split(separator: "\n", omittingEmptySubsequences: true)
         for line in lines.reversed() {

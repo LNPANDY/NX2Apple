@@ -840,4 +840,52 @@ import XCTest
         XCTAssertFalse(store.isMNGBlockedByCurrentGame)
         XCTAssertTrue(store.isCurrentGameMNGSupported)
     }
+
+    func testStartMacNativeGamesBuildWithSpacedWorkDirInjectsSpacelessTMPDIR() throws {
+        repo.isRepo = false
+        let validTree = try makeFakeMNGTree()
+        let runner = ChunkedRunner()
+        runner.captureAnswer = { self.defaultMNGCaptureAnswer($0) }
+
+        var capturedLaunch: ProcessLaunch?
+        runner.onStartInspect = { launch in
+            capturedLaunch = launch
+        }
+
+        let spacelessHome = temporary.appendingPathComponent("home_no_space")
+        try FileManager.default.createDirectory(at: spacelessHome, withIntermediateDirectories: true)
+
+        let spacedGameDir = temporary.appendingPathComponent("The Legend of Zelda Ocarina of Time [0400486024DEC000]")
+        try FileManager.default.createDirectory(at: spacedGameDir, withIntermediateDirectories: true)
+        let nupFile = spacedGameDir.appendingPathComponent("The Legend of Zelda Ocarina of Time [0400486024DEC000][v131072].nup")
+        try Data([0]).write(to: nupFile)
+
+        let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
+        store.home = spacelessHome.path
+        store.buildUpstream = .macNativeGames
+        store.macNativeGamesPath = validTree
+        store.target = BuildTarget.mac
+        store.updateSlot("base") { $0.paths = [nupFile.path] }
+
+        store.startBuild()
+        let dl = Date().addingTimeInterval(3)
+        while capturedLaunch == nil && Date() < dl {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+
+        let launch = try XCTUnwrap(capturedLaunch)
+        guard let workIdx = launch.arguments.firstIndex(of: "--work"), workIdx + 1 < launch.arguments.count else {
+            XCTFail("Missing --work argument: \(launch.arguments)")
+            return
+        }
+        let workArg = launch.arguments[workIdx + 1]
+        XCTAssertTrue(workArg.contains(" "), "Expected spaced work folder for regression coverage, got \(workArg)")
+
+        let tmpDir = try XCTUnwrap(launch.environment?["TMPDIR"])
+        XCTAssertFalse(tmpDir.isEmpty)
+        XCTAssertFalse(tmpDir.contains(" "), "MNG TMPDIR must not contain spaces, got \(tmpDir)")
+        XCTAssertFalse(tmpDir.contains("Application Support"))
+        XCTAssertEqual(tmpDir, spacelessHome.path + "/Library/Caches/NX2Apple/tmp")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: tmpDir))
+    }
 }
