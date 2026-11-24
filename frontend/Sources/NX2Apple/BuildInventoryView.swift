@@ -15,10 +15,14 @@ struct BuildInventoryEntry: Identifiable {
     enum Mobile { case none, app, ipa }
     var id: UUID { game.id }
     init(_ game: LibraryGame) {
+        self.init(game, onConnectedDevice: false)
+    }
+
+    init(_ game: LibraryGame, onConnectedDevice: Bool) {
         self.game = game
         let app = game.playableMacBundle   // one read for `isReady` and `playVersion`
         mac = app != nil
-        installed = game.onDevice
+        installed = game.onDevice || onConnectedDevice
         mobile = game.hasIOSApp ? .app : (game.hasIPA ? .ipa : .none)
         version = app?.version ?? (mac ? nil : game.unbuiltVersion)
     }

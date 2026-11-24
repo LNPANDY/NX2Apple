@@ -905,6 +905,8 @@
   "dev.none": "Välj en enhet",
   "dev.notConnected": "inte ansluten",
   "dev.note": "Xcode signerar den gemensamma appen för den här enheten och installerar den där. Därefter kopieras speldata (romfs.img) till appens Dokument. Första kopieringen av ett stort spel tar några minuter. Aktivera utvecklarläge på enheten och lita på utvecklaren första gången (Inställningar → Allmänt → VPN och enhetshantering).",
+  "dev.onDeviceFrameworkBadge": "På iPhone",
+  "dev.onDeviceFrameworkHelp": "Installerat i den delade appen på %@.",
   "dev.open": "Öppna på %@",
   "dev.openIOS": "Öppna i iOS",
   "dev.personalTeam": "Personligt team",

@@ -89,6 +89,12 @@ package enum SendWhere {
     @Published package private(set) var shellWaiting = false
     /// True when the active cable wait is waiting to upgrade a USB 2.0 link to USB 3 / Thunderbolt.
     @Published package private(set) var shellWaitingForHighSpeed = false
+    /// Hot-loaded `DmGame<TID>.framework` bundles discovered on the currently active paired device, keyed by uppercase Title ID.
+    @Published package internal(set) var deviceFrameworks: [String: DeviceFrameworkEntry] = [:]
+    @Published package internal(set) var deviceFrameworksDeviceID = ""
+    @Published package internal(set) var deviceFrameworksDeviceName = ""
+    @Published package internal(set) var deviceFrameworksShellBundleID = ""
+    @Published package internal(set) var deviceFrameworksState: DeviceFrameworkProbeState = .idle
 
     /// The `xcrun` the device tools and the install run through.
     package let xcrun: String
@@ -96,6 +102,8 @@ package enum SendWhere {
     package var readTeams: @Sendable () -> [SigningTeam]
     /// Physical USB link speed lookup for a device UDID (bps); injectable for unit tests.
     package var usbSpeedLookup: @Sendable (String) -> Int64?
+    /// Probes `Documents/Frameworks` on a paired iOS device; injectable for unit tests.
+    package var discoverDeviceFrameworks: @Sendable (_ deviceUDID: String, _ deviceName: String, _ preferredBundleID: String) -> DeviceFrameworkDiscoveryResult
 
     private let defaults: UserDefaults
     private let listDevices: @Sendable (_ xcrun: String) -> [AppleDevice]
@@ -103,6 +111,7 @@ package enum SendWhere {
     private let waitCancel = LockedFlag()
     private let transferModeBox = LockedTransferMode()
     private var refreshGeneration = 0
+    internal var frameworkProbeGeneration: UInt64 = 0
 
     /// - Parameters:
     ///   - listDevices: the paired devices for an `xcrun` path. Runs off the main actor.
@@ -111,12 +120,22 @@ package enum SendWhere {
     package init(runner: ProcessRunner, xcrun: String = "/usr/bin/xcrun", defaults: UserDefaults = .standard,
                  listDevices: (@Sendable (String) -> [AppleDevice])? = nil,
                  readTeams: (@Sendable () -> [SigningTeam])? = nil,
-                 usbSpeedLookup: (@Sendable (String) -> Int64?)? = nil) {
+                 usbSpeedLookup: (@Sendable (String) -> Int64?)? = nil,
+                 discoverDeviceFrameworks: (@Sendable (String, String, String) -> DeviceFrameworkDiscoveryResult)? = nil) {
         self.xcrun = xcrun
         self.defaults = defaults
         self.listDevices = listDevices ?? { DeviceTools.devices(xcrun: $0, runner: runner) }
         self.readTeams = readTeams ?? { DeviceTools.teams(runner: runner) }
         self.usbSpeedLookup = usbSpeedLookup ?? { USBLinkSpeed.linkSpeedBps(forUDID: $0) }
+        self.discoverDeviceFrameworks = discoverDeviceFrameworks ?? { udid, name, preferredBundleID in
+            let control = DeviceControl.xcrun(xcrun, runner: runner)
+            return DeviceFrameworkSync.discoverFrameworks(
+                deviceUDID: udid,
+                deviceName: name,
+                preferredBundleID: preferredBundleID,
+                control: control
+            )
+        }
         self.installDevice = defaults.string(forKey: Self.deviceKey) ?? ""
         self.signingTeam = defaults.string(forKey: Self.teamKey) ?? ""
         self.exportIPA = defaults.bool(forKey: Self.exportKey)

@@ -905,6 +905,8 @@
   "dev.none": "기기 선택",
   "dev.notConnected": "연결되지 않음",
   "dev.note": "Xcode가 이 기기용으로 공유 앱을 서명해 설치한 다음 게임 데이터(romfs.img)를 앱의 Documents에 복사합니다. 용량이 큰 게임은 처음 복사에 몇 분 걸립니다. 처음에는 기기에서 개발자 모드를 켜고 개발자를 신뢰하세요 (설정 → 일반 → VPN 및 기기 관리).",
+  "dev.onDeviceFrameworkBadge": "iPhone에 있음",
+  "dev.onDeviceFrameworkHelp": "%@의 공유 셸에 설치되어 있습니다.",
   "dev.open": "%@에서 열기",
   "dev.openIOS": "iOS에서 열기",
   "dev.personalTeam": "개인 팀",

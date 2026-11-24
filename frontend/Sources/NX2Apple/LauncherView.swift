@@ -458,7 +458,7 @@ struct LauncherView: View {
                 .environmentObject(loc).environmentObject(padFocus)
         }
         .refreshSheetsWiring(batchOpen: $batchRefreshOpen, imgGuide: $missingImgGuideFor, stores: stores, library: library, toolsAge: toolsAge, page: $page, buildEditorOpen: $buildEditorOpen, editingBuildResult: $editingBuildResult, buildStep: $buildStep, pad: padFocus, scope: { currentPadScope })
-        .shellCopySheetWiring(devices: devices, loc: loc, pad: padFocus, scope: { currentPadScope })
+        .shellCopySheetWiring(devices: devices, loc: loc, pad: padFocus, scope: { currentPadScope }).deviceFrameworkSyncWiring(devices: devices, library: library, build: m, performStartupChecks: performStartupChecks, checkTools: checkTools)
         .onChange(of: selectingGames) { _ in padFocus.scope = currentPadScope }
         .sheet(isPresented: Binding(get: { supportedGames != nil }, set: { if !$0 { supportedGames = nil } })) {
             SupportedGamesSheet(games: supportedGames ?? [], owned: { id in library.games.first { $0.titleID.uppercased() == id } },

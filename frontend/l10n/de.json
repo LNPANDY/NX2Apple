@@ -906,6 +906,8 @@
   "dev.none": "Gerät wählen",
   "dev.notConnected": "nicht verbunden",
   "dev.note": "Xcode signiert die gemeinsame App für dieses Gerät und installiert sie dort. Danach kopiert es die Spieldaten (romfs.img) in die Dokumente der App. Das erste Kopieren eines großen Spiels dauert einige Minuten. Aktiviere beim ersten Mal den Entwicklermodus auf dem Gerät und vertraue dem Entwickler („Einstellungen → Allgemein → VPN & Geräteverwaltung“).",
+  "dev.onDeviceFrameworkBadge": "Auf iPhone",
+  "dev.onDeviceFrameworkHelp": "In der geteilten Shell auf %@ installiert.",
   "dev.open": "Auf %@ öffnen",
   "dev.openIOS": "In iOS öffnen",
   "dev.personalTeam": "Persönliches Team",
