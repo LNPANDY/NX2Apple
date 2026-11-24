@@ -204,9 +204,9 @@ package enum EngineUpstreamKind: String, Codable, CaseIterable, Equatable, Senda
     /// True when this engine uses the same `dm/host` save layout as `nxnative`.
     package var sharesSaveWithNxnative: Bool {
         switch self {
-        case .nxnative, .macNativeGames, .kidWithSword, .noLagKart:
+        case .nxnative, .kidWithSword, .noLagKart:
             return true
-        case .s2arm, .nxkit:
+        case .macNativeGames, .s2arm, .nxkit:
             return false
         }
     }

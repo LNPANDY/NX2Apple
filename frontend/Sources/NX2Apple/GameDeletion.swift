@@ -61,14 +61,18 @@ struct GameDeletion: Equatable {
             if !logs.isEmpty { items.append(Item(kind: .log, paths: logs)) }
 
             var saves: [String] = builds.map { $0 + "/run" }
-            let otherSharesSave = game.sortedMacBuilds.contains { $0.upstream != upstream && $0.upstream.sharesSaveWithNxnative && exists($0.appPath) }
-            if !upstream.sharesSaveWithNxnative || !otherSharesSave {
-                if exists(targetMacPath) {
-                    let mac = SaveTransfer.macSave(titleID: game.titleID, appPath: targetMacPath, support: support)
-                    saves += [mac.save, mac.legacy ?? SaveTransfer.legacyMacSave(titleID: game.titleID, support: support)].flatMap { save in
-                        [save.path, save.path + "_device", save.path + "-backups"] + SaveUsers.userPaths(save: save)
-                    }
+            let engine = SaveEngines.forUpstream(upstream)
+            if upstream.sharesSaveWithNxnative {
+                let otherSharesSave = game.sortedMacBuilds.contains { $0.upstream != upstream && $0.upstream.sharesSaveWithNxnative && exists($0.appPath) }
+                if !otherSharesSave, exists(targetMacPath) {
+                    saves += Self.managedSavePaths(titleID: game.titleID, appPath: targetMacPath, engine: engine, support: support)
                 }
+            } else if engine.managesSavesInLauncher {
+                if exists(targetMacPath) {
+                    saves += Self.managedSavePaths(titleID: game.titleID, appPath: targetMacPath, engine: engine, support: support)
+                }
+            } else {
+                saves += engine.deletionPaths(titleID: game.titleID, support: support)
             }
             saves = Array(Set(saves)).sorted().filter(exists)
             var plan = GameDeletion(titleID: game.titleID, items: items, saves: saves.isEmpty ? nil : Item(kind: .saves, paths: saves), shellRoot: nil)
@@ -140,10 +144,11 @@ struct GameDeletion: Equatable {
         if !logs.isEmpty { items.append(Item(kind: .log, paths: logs)) }
 
         var saves = logApps.flatMap { app -> [String] in
-            let mac = SaveTransfer.macSave(titleID: game.titleID, appPath: app, support: support)
-            return [mac.save, mac.legacy ?? SaveTransfer.legacyMacSave(titleID: game.titleID, support: support)].flatMap { save in
-                [save.path, save.path + "_device", save.path + "-backups"] + SaveUsers.userPaths(save: save)
+            let engine = SaveEngines.forApp(app)
+            if engine.managesSavesInLauncher {
+                return Self.managedSavePaths(titleID: game.titleID, appPath: app, engine: engine, support: support)
             }
+            return engine.deletionPaths(titleID: game.titleID, support: support)
         }
         for build in builds { saves.append(build + "/run") }
         saves = Array(Set(saves)).sorted().filter(exists)
@@ -180,5 +185,12 @@ struct GameDeletion: Equatable {
             do { try library.save(root: shellRoot) } catch { failed.append(ShellLibrary.stateFile(root: shellRoot)) }
         }
         return failed
+    }
+
+    private static func managedSavePaths(titleID: String, appPath: String, engine: any SaveEngine, support: URL) -> [String] {
+        let mac = SaveTransfer.macSave(titleID: titleID, appPath: appPath, support: support, engine: engine)
+        return [mac.save, mac.legacy ?? engine.defaultSave(titleID: titleID, support: support)].flatMap { save in
+            [save.path, save.path + "_device", save.path + "-backups"] + SaveUsers.userPaths(save: save)
+        }
     }
 }

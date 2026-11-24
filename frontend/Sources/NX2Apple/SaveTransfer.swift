@@ -51,8 +51,9 @@ struct SaveTransfer {
     /// The second value is the ~/Library save the app copies across on its first start in a library folder (nil without the marker).
     /// An app nxkit built keeps its save in its engine's place, ~/Library/Application Support/nxkit/<TITLE ID>/save (SaveEngine).
     static func macSave(titleID: String, appPath: String,
-                        support: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]) -> (save: URL, legacy: URL?) {
-        let engine = SaveEngines.forApp(appPath)
+                        support: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0],
+                        engine: (any SaveEngine)? = nil) -> (save: URL, legacy: URL?) {
+        let engine = engine ?? SaveEngines.forApp(appPath)
         let legacy = engine.defaultSave(titleID: titleID, support: support)
         guard !appPath.isEmpty, engine.savesInLibraryFolder else { return (legacy, nil) }
         let folder = URL(fileURLWithPath: appPath).deletingLastPathComponent()
@@ -383,6 +384,7 @@ struct SavesView: View {
     }
 
     private var game: LibraryGame? { library.games.first { $0.id == gameID } }
+    private var engineManaged: Bool { game.map { SaveEngines.forApp($0.appPath).managesSavesInLauncher } ?? true }
     private var macSave: SaveTransfer.Contents { model.macSave }
     private var deviceSave: SaveTransfer.Contents? { model.deviceSave }
     /// Which folder the Mac save is read from, so "No save yet" says where it looked.
@@ -478,21 +480,27 @@ struct SavesView: View {
 
     /// The two copies, Refresh and the backups folder. A copy needs both sides readable and a save on the side it copies from.
     private var actions: some View {
-        let toDevice = !busy && deviceSave != nil && !macSave.folders.isEmpty
-        let toMac = !busy && !(deviceSave?.folders.isEmpty ?? true)
-        return DSFlowRow(spacing: DS.Space.xs) {
-            Button(String(format: loc.t("saves.toDevice"), deviceName)) { ask(.device) }.disabled(!toDevice)
-                .padTarget("saves.toDevice", scope: "saves", enabled: toDevice) { if toDevice { ask(.device) } }
-            Button(String(format: loc.t("saves.toMac"), deviceName)) { ask(.mac) }.disabled(!toMac)
-                .padTarget("saves.toMac", scope: "saves", enabled: toMac) { if toMac { ask(.mac) } }
-            Button(loc.t("dev.refresh")) { model.refresh() }.disabled(busy || !model.canRefresh)
-                .padTarget("saves.refresh", scope: "saves", enabled: !busy && model.canRefresh) { if !busy { model.refresh() } }
-            if FileManager.default.fileExists(atPath: transfer.backups.path) {
-                Button(loc.t("saves.backups")) { NSWorkspace.shared.open(transfer.backups) }
-                    .padTarget("saves.backups", scope: "saves") { NSWorkspace.shared.open(transfer.backups) }
+        let toDevice = engineManaged && !busy && deviceSave != nil && !macSave.folders.isEmpty
+        let toMac = engineManaged && !busy && !(deviceSave?.folders.isEmpty ?? true)
+        return VStack(alignment: .leading, spacing: DS.Space.xs) {
+            DSFlowRow(spacing: DS.Space.xs) {
+                Button(String(format: loc.t("saves.toDevice"), deviceName)) { ask(.device) }.disabled(!toDevice)
+                    .padTarget("saves.toDevice", scope: "saves", enabled: toDevice) { if toDevice { ask(.device) } }
+                Button(String(format: loc.t("saves.toMac"), deviceName)) { ask(.mac) }.disabled(!toMac)
+                    .padTarget("saves.toMac", scope: "saves", enabled: toMac) { if toMac { ask(.mac) } }
+                Button(loc.t("dev.refresh")) { model.refresh() }.disabled(busy || !model.canRefresh)
+                    .padTarget("saves.refresh", scope: "saves", enabled: !busy && model.canRefresh) { if !busy { model.refresh() } }
+                if FileManager.default.fileExists(atPath: transfer.backups.path) {
+                    Button(loc.t("saves.backups")) { NSWorkspace.shared.open(transfer.backups) }
+                        .padTarget("saves.backups", scope: "saves") { NSWorkspace.shared.open(transfer.backups) }
+                }
+            }
+            .buttonStyle(DSRowButtonStyle())
+            if !engineManaged, let game {
+                Text(String(format: loc.t("savesloc.externalNote"), LibraryGame.inferMacUpstream(appPath: game.appPath, titleID: game.titleID).displayName))
+                    .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
             }
         }
-        .buttonStyle(DSRowButtonStyle())
     }
 
     /// Asking before a copy replaces a save: which one, where its backup goes, and that the game must be closed on the device.

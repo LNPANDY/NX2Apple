@@ -24,65 +24,76 @@ struct GameSavesSection: View {
     @State private var generation: UInt64 = 0
 
     private var override: SaveGameOverride { settings.game(game.titleID) }
+    private var engine: any SaveEngine { SaveEngines.forApp(game.appPath) }
+    private var upstreamDisplayName: String { LibraryGame.inferMacUpstream(appPath: game.appPath, titleID: game.titleID).displayName }
     private var effective: SaveLocations.EffectiveSave {
-        SaveLocations.effectiveSave(titleID: game.titleID, appPath: game.appPath, global: settings.global, game: override)
+        SaveLocations.effectiveSave(titleID: game.titleID, appPath: game.appPath, global: settings.global, game: override, engine: engine)
     }
 
     var body: some View {
         let _ = settings.revision
         let save = effective
+        let managed = engine.managesSavesInLauncher
         VStack(alignment: .leading, spacing: 10) {
             Text(loc.t("saves.title")).font(DS.Font.headline).foregroundStyle(DS.Color.textSecondary).padding(.leading, 2)
             VStack(spacing: 0) {
                 CardRow(loc.t("savesloc.folder"), detail: SaveLocationText.shown(save.path.path), detail2: "", help: save.path.path) {
                     Button(loc.t("savesloc.show")) { reveal(save.path) }
                         .padTarget("saves.show", scope: "launch") { reveal(save.path) }
-                    Button(loc.t("savesloc.change")) { change() }
-                        .disabled(busy)
-                        .padTarget("saves.change", scope: "launch", enabled: !busy) { if !busy { change() } }
-                    if override.saveFolder != nil {
-                        Button(loc.t("savesloc.reset")) { resetFolder() }
+                    if managed {
+                        Button(loc.t("savesloc.change")) { change() }
                             .disabled(busy)
-                            .accessibilityLabel(String(format: loc.t("savesloc.resetFor"), game.name))
-                            .padTarget("saves.reset", scope: "launch", enabled: !busy) { if !busy { resetFolder() } }
+                            .padTarget("saves.change", scope: "launch", enabled: !busy) { if !busy { change() } }
+                        if override.saveFolder != nil {
+                            Button(loc.t("savesloc.reset")) { resetFolder() }
+                                .disabled(busy)
+                                .accessibilityLabel(String(format: loc.t("savesloc.resetFor"), game.name))
+                                .padTarget("saves.reset", scope: "launch", enabled: !busy) { if !busy { resetFolder() } }
+                        }
                     }
                 }
-                CardDivider()
-                originRow(save)
-                CardDivider()
-                CardRow(loc.t("savesloc.transfer"), detail: loc.t("savesloc.importNote")) {
-                    Button(loc.t("savesloc.import")) { pickImport() }
-                        .disabled(busy)
-                        .padTarget("saves.import", scope: "launch", enabled: !busy) { if !busy { pickImport() } }
-                    Button(loc.t("savesloc.export")) { export(save.path) }
-                        .disabled(busy)
-                        .padTarget("saves.export", scope: "launch", enabled: !busy) { if !busy { export(save.path) } }
-                }
-                CardDivider()
-                CardRow(loc.t("savesloc.jksv"), detail: loc.t("savesloc.jksvNote")) {
-                    Button(loc.t("savesloc.importZip")) { pickJKSVImport() }
-                        .disabled(busy)
-                        .padTarget("saves.importZip", scope: "launch", enabled: !busy) { if !busy { pickJKSVImport() } }
-                    Button(loc.t("savesloc.exportZip")) { exportJKSV(save.path) }
-                        .disabled(busy)
-                        .padTarget("saves.exportZip", scope: "launch", enabled: !busy) { if !busy { exportJKSV(save.path) } }
-                }
-                if let backups = backupsFolder(save.path) {
+                if managed {
                     CardDivider()
-                    CardRow(loc.t("saves.backups"), detail: SaveLocationText.shown(backups.path), help: backups.path) {
-                        Button(loc.t("saves.backups")) { reveal(backups) }
-                            .padTarget("saves.backups", scope: "launch") { reveal(backups) }
+                    originRow(save)
+                    CardDivider()
+                    CardRow(loc.t("savesloc.transfer"), detail: loc.t("savesloc.importNote")) {
+                        Button(loc.t("savesloc.import")) { pickImport() }
+                            .disabled(busy)
+                            .padTarget("saves.import", scope: "launch", enabled: !busy) { if !busy { pickImport() } }
+                        Button(loc.t("savesloc.export")) { export(save.path) }
+                            .disabled(busy)
+                            .padTarget("saves.export", scope: "launch", enabled: !busy) { if !busy { export(save.path) } }
                     }
-                }
-                if let secondary = secondaryPlayer {
                     CardDivider()
-                    CardRow(String(format: loc.t("savesloc.secondary"), secondary), detail: loc.t("savesloc.secondaryNote"), dot: LauncherPalette.building) {}
+                    CardRow(loc.t("savesloc.jksv"), detail: loc.t("savesloc.jksvNote")) {
+                        Button(loc.t("savesloc.importZip")) { pickJKSVImport() }
+                            .disabled(busy)
+                            .padTarget("saves.importZip", scope: "launch", enabled: !busy) { if !busy { pickJKSVImport() } }
+                        Button(loc.t("savesloc.exportZip")) { exportJKSV(save.path) }
+                            .disabled(busy)
+                            .padTarget("saves.exportZip", scope: "launch", enabled: !busy) { if !busy { exportJKSV(save.path) } }
+                    }
+                    if let backups = backupsFolder(save.path) {
+                        CardDivider()
+                        CardRow(loc.t("saves.backups"), detail: SaveLocationText.shown(backups.path), help: backups.path) {
+                            Button(loc.t("saves.backups")) { reveal(backups) }
+                                .padTarget("saves.backups", scope: "launch") { reveal(backups) }
+                        }
+                    }
+                    if let secondary = secondaryPlayer {
+                        CardDivider()
+                        CardRow(String(format: loc.t("savesloc.secondary"), secondary), detail: loc.t("savesloc.secondaryNote"), dot: LauncherPalette.building) {}
+                    }
                 }
             }
             .buttonStyle(LauncherSecondaryButtonStyle())
             .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
-            if busy {
+            if !managed {
+                Text(String(format: loc.t("savesloc.externalNote"), upstreamDisplayName))
+                    .font(DS.Font.callout).foregroundStyle(Color.secondary)
+                    .padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
+            } else if busy {
                 HStack(spacing: DS.Space.xs) {
                     ProgressView().controlSize(.small)
                     Text(loc.t("cloud.sync.syncing")).font(DS.Font.callout).foregroundStyle(Color.secondary)

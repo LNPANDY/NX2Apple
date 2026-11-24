@@ -42,6 +42,8 @@ struct CloudSavesCard: View {
     }
 
     private var store: GameCloudSaves { saves ?? GameCloudSaves(titleID: game.titleID, appPath: game.appPath) }
+    private var engineManaged: Bool { preview != nil || previewSync != nil || SaveEngines.forApp(game.appPath).managesSavesInLauncher }
+    private var upstreamDisplayName: String { LibraryGame.inferMacUpstream(appPath: game.appPath, titleID: game.titleID).displayName }
     static let attention = DS.Color.statusWarning
 
     var body: some View {
@@ -49,29 +51,38 @@ struct CloudSavesCard: View {
         let _ = overrides?.revision
         let setting = shownSetting
         let check = preview?.check ?? setting.folder.map { CloudSaveSync.check(folder: $0, titleID: game.titleID) }
-        let plan = syncPlan(setting: setting)
+        let plan = engineManaged ? syncPlan(setting: setting) : nil
         VStack(alignment: .leading, spacing: 10) {
             Text(loc.t("cloud.title")).font(DS.Font.headline).foregroundStyle(DS.Color.textSecondary).padding(.leading, 2)
-            VStack(alignment: .leading, spacing: 0) {
-                folderRow(setting)
-                if let check, let notice = notice(check) {
+            if engineManaged {
+                VStack(alignment: .leading, spacing: 0) {
+                    folderRow(setting)
+                    if let check, let notice = notice(check) {
+                        Divider().opacity(0.25).padding(.leading, 18)
+                        notice
+                    }
+                    if let plan, (preview == nil || previewSync != nil) {
+                        Divider().opacity(0.25).padding(.leading, 18)
+                        syncRow(plan)
+                    }
                     Divider().opacity(0.25).padding(.leading, 18)
-                    notice
+                    lastRow
                 }
-                if let plan, (preview == nil || previewSync != nil) {
-                    Divider().opacity(0.25).padding(.leading, 18)
-                    syncRow(plan)
+                .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
+                Text(problem ?? loc.t(setting.isOn ? "cloud.applies" : "cloud.offNote")).font(DS.Font.callout)
+                    .foregroundStyle(problem == nil ? .secondary : Self.attention)
+                    .padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    noticeRow("icloud.slash", String(format: loc.t("cloud.externalNote"), upstreamDisplayName), .secondary)
                 }
-                Divider().opacity(0.25).padding(.leading, 18)
-                lastRow
+                .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
             }
-            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
-            Text(problem ?? loc.t(setting.isOn ? "cloud.applies" : "cloud.offNote")).font(DS.Font.callout)
-                .foregroundStyle(problem == nil ? .secondary : Self.attention)
-                .padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
         }
         .onAppear {
+            guard engineManaged else { return }
             readLog()
             inspectSync(plan: plan)
         }
