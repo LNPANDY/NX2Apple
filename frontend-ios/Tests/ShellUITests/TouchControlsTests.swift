@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Testing
 @testable import ShellUI
 
@@ -278,6 +279,42 @@ import Testing
         #expect(!model.hasChanges)
         model.setStick("higher")
         #expect(model.hasChanges && !model.requestExit())
+    }
+
+    @MainActor @Test func editorSwitchesBetweenLandscapeAndPortraitIndependently() {
+        let store = store()
+        let phoneWindowPortrait = CGSize(width: 440, height: 956)
+        let portraitInsets = EdgeInsets(top: 62, leading: 0, bottom: 34, trailing: 0)
+        let model = TouchLayoutEditorModel.forDevice(window: phoneWindowPortrait, insets: portraitInsets, store: store)
+        #expect(model.kind == .threeDSplit)
+
+        let livePortrait = PadScreen(size: phoneWindowPortrait, insets: .init(top: 62, bottom: 34))
+        model.updateScreen(livePortrait)
+        #expect(model.kind == .threeDSplit)
+
+        model.select(.stick)
+        #expect(model.nudge(dx: -1, dy: 0) == .moved)
+
+        model.apply(row: TouchLayoutEditorView.poseRow, value: "over")
+        #expect(model.kind == .threeD && model.editing.screen.size.width > model.editing.screen.size.height)
+
+        // A redundant live-geometry update in the unchanged physical orientation must not clobber the manual switch.
+        model.updateScreen(livePortrait)
+        #expect(model.kind == .threeD)
+
+        model.select(.face)
+        #expect(model.nudge(dx: -1, dy: 0) == .moved)
+
+        // A real physical rotation clears the manual override and follows the live surface.
+        let liveLandscape = PadScreen(size: CGSize(width: 956, height: 440), insets: .init(left: 62, bottom: 21, right: 62))
+        model.updateScreen(liveLandscape)
+        #expect(model.kind == .threeD)
+        model.updateScreen(livePortrait)
+        #expect(model.kind == .threeDSplit)
+
+        model.commit()
+        #expect(store.touchLayout[.threeDSplit, .stick] == TouchLayout.Offset(dx: -1, dy: 0))
+        #expect(store.touchLayout[.threeD, .face] == TouchLayout.Offset(dx: -1, dy: 0))
     }
 
 }

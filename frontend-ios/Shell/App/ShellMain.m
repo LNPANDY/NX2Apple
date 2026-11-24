@@ -28,6 +28,15 @@
 #include <unistd.h>
 #include "SegSnap.h"
 #include "ShellEngine.h"
+#include "ShellOrientation.h"
+
+_Static_assert(DM_SHELL_ORIENT_PORTRAIT == UIInterfaceOrientationMaskPortrait, "Portrait mask mismatch");
+_Static_assert(DM_SHELL_ORIENT_PORTRAIT_UPSIDE_DOWN == UIInterfaceOrientationMaskPortraitUpsideDown, "PortraitUpsideDown mask mismatch");
+_Static_assert(DM_SHELL_ORIENT_LANDSCAPE_RIGHT == UIInterfaceOrientationMaskLandscapeRight, "LandscapeRight mask mismatch");
+_Static_assert(DM_SHELL_ORIENT_LANDSCAPE_LEFT == UIInterfaceOrientationMaskLandscapeLeft, "LandscapeLeft mask mismatch");
+_Static_assert(DM_SHELL_ORIENT_LANDSCAPE == UIInterfaceOrientationMaskLandscape, "Landscape mask mismatch");
+_Static_assert(DM_SHELL_ORIENT_ALL_BUT_UPSIDE_DOWN == UIInterfaceOrientationMaskAllButUpsideDown, "AllButUpsideDown mask mismatch");
+_Static_assert(DM_SHELL_ORIENT_ALL == UIInterfaceOrientationMaskAll, "All mask mismatch");
 #include "ShellGlue.h"
 #include "ShellSnap.h"
 #import "DmShell-Swift.h"
@@ -363,7 +372,11 @@ void dm_shell_return_to_library(void) {
             window.rootViewController = g_library_vc;
             [g_library_vc setNeedsUpdateOfSupportedInterfaceOrientations];
             if (@available(iOS 16.0, *)) {
-                [window.windowScene requestGeometryUpdateWithPreferences:[[UIWindowSceneGeometryPreferencesIOS alloc] initWithInterfaceOrientations:UIInterfaceOrientationMaskAllButUpsideDown] errorHandler:nil];
+                BOOL isPhone = window.traitCollection.userInterfaceIdiom != UIUserInterfaceIdiomUnspecified
+                    ? (window.traitCollection.userInterfaceIdiom == UIUserInterfaceIdiomPhone)
+                    : (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone);
+                UIInterfaceOrientationMask libraryMask = (UIInterfaceOrientationMask)dm_shell_library_orientation_mask(isPhone);
+                [window.windowScene requestGeometryUpdateWithPreferences:[[UIWindowSceneGeometryPreferencesIOS alloc] initWithInterfaceOrientations:libraryMask] errorHandler:nil];
             }
         }
         [NSNotificationCenter.defaultCenter postNotificationName:@"DMShellDidReturnToLibrary" object:nil];
@@ -608,22 +621,13 @@ void dm_shell_request_stop_game(void) {
 
 @interface App : UIResponder <UIApplicationDelegate>
 @end
-// Browsing may be portrait. Phone gameplay honors DM_ROTATION (defaulting to landscape). UIKit manages unrestricted rotation on the Duo inner display.
+// Browsing may be portrait. Gameplay honors DM_ROTATION (auto follows the device: all except upside down on iPhone, all on iPad).
 static UIInterfaceOrientationMask shell_orientations(UITraitCollection *traits) {
     BOOL isPhone = (traits && traits.userInterfaceIdiom != UIUserInterfaceIdiomUnspecified)
         ? (traits.userInterfaceIdiom == UIUserInterfaceIdiomPhone)
         : (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone);
-    if (g_boot_ok) {
-        const char *rot = getenv("DM_ROTATION");
-        if (rot && strcmp(rot, "portrait") == 0) {
-            return isPhone
-                ? UIInterfaceOrientationMaskPortrait
-                : (UIInterfaceOrientationMaskPortrait | UIInterfaceOrientationMaskPortraitUpsideDown);
-        }
-        if (rot && strcmp(rot, "landscape") == 0) return UIInterfaceOrientationMaskLandscape;
-    }
-    if (!isPhone) return UIInterfaceOrientationMaskAll;
-    return g_boot_ok ? UIInterfaceOrientationMaskLandscape : UIInterfaceOrientationMaskAllButUpsideDown;
+    const char *rot = g_boot_ok ? getenv("DM_ROTATION") : NULL;
+    return (UIInterfaceOrientationMask)dm_shell_orientation_mask(g_boot_ok != 0, rot, isPhone);
 }
 @implementation App
 - (UIInterfaceOrientationMask)application:(UIApplication *)application supportedInterfaceOrientationsForWindow:(UIWindow *)window {

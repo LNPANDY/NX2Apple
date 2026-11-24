@@ -62,8 +62,11 @@ import UIKit
     var layoutIsBuiltIn: Bool { editing.layout.isEmpty(editing.kind) }
 
     /// The live game surface supplied by the in-context editor. The legacy sideways/upright pair remains the initial fallback for
-    /// settings previews and captures; once a live surface arrives it owns the active geometry and split-layout choice.
+    /// settings previews and captures; once a live surface arrives it owns the active geometry and split-layout choice unless the
+    /// player explicitly picks an orientation in the options menu while rotation is locked.
     private(set) var actualScreen: PadScreen?
+    private var pinnedSplit: Bool?
+    private var lastPhysicalPortrait: Bool?
 
     /// Rebase the draft's geometry on the current game surface. A split layout is available whenever the engine geometry separates
     /// gameplay and controls; device identity is deliberately not part of this decision. Keep the complete layout object untouched:
@@ -72,6 +75,23 @@ import UIKit
         guard screen.size.width.isFinite, screen.size.height.isFinite,
               screen.size.width > 0, screen.size.height > 0 else { return }
 
+        let physicalPortrait = screen.size.height > screen.size.width
+        if let lastPhysicalPortrait, lastPhysicalPortrait != physicalPortrait {
+            pinnedSplit = nil
+        }
+        lastPhysicalPortrait = physicalPortrait
+
+        if let pinnedSplit, !screen.partiallyOpen {
+            let nextKind = TouchLayout.Kind.of(full: editing.kind.full, split: pinnedSplit)
+            let targetScreen = (pinnedSplit == physicalPortrait) ? screen : (pinnedSplit ? (upright ?? sideways) : sideways)
+            guard actualScreen != screen || editing.screen != targetScreen || editing.kind != nextKind else { return }
+            actualScreen = screen
+            editing.screen = targetScreen
+            editing.kind = nextKind
+            resetTransientState(for: nextKind)
+            return
+        }
+
         let split = PadGeo.region(screen).separated
         let nextKind = TouchLayout.Kind.of(full: editing.kind.full, split: split)
         guard actualScreen != screen || editing.screen != screen || editing.kind != nextKind else { return }
@@ -79,6 +99,26 @@ import UIKit
         actualScreen = screen
         editing.screen = screen
         editing.kind = nextKind
+        resetTransientState(for: nextKind)
+    }
+
+    func selectOrientation(portrait: Bool) {
+        if let actualScreen, actualScreen.partiallyOpen { return }
+        pinnedSplit = portrait
+        let nextKind = TouchLayout.Kind.of(full: editing.kind.full, split: portrait)
+        let targetScreen: PadScreen
+        if let actualScreen, (actualScreen.size.height > actualScreen.size.width) == portrait {
+            targetScreen = actualScreen
+        } else {
+            targetScreen = portrait ? (upright ?? sideways) : sideways
+        }
+        guard editing.kind != nextKind || editing.screen != targetScreen else { return }
+        editing.kind = nextKind
+        editing.screen = targetScreen
+        resetTransientState(for: nextKind)
+    }
+
+    private func resetTransientState(for nextKind: TouchLayout.Kind) {
         if let selected, !selected.drawn(full: nextKind.full) { self.selected = nil }
         held = false
         rejected = false
@@ -88,7 +128,9 @@ import UIKit
 
     func setKind(_ kind: TouchLayout.Kind) {
         let nextKind: TouchLayout.Kind
-        if let actualScreen {
+        if let pinnedSplit, !(actualScreen?.partiallyOpen ?? false) {
+            nextKind = .of(full: kind.full, split: pinnedSplit)
+        } else if let actualScreen {
             nextKind = .of(full: kind.full, split: PadGeo.region(actualScreen).separated)
         } else {
             guard !kind.split || upright != nil else { return }
@@ -99,8 +141,7 @@ import UIKit
         if actualScreen == nil {
             editing.screen = nextKind.split ? (upright ?? sideways) : sideways
         }
-        if let s = selected, !s.drawn(full: nextKind.full) { selected = nil }
-        held = false; rejected = false; invalidPlacement = false; confirmingReset = false
+        resetTransientState(for: nextKind)
     }
     func setSize(_ size: String) {
         guard ShellSettingsStore.touchSizes.contains(size) else { return }
@@ -198,18 +239,20 @@ extension TouchLayoutEditorModel {
     /// Opens the saved global layout; live geometry decides the overlay/split variant.
     static func forDevice(window: CGSize, insets: EdgeInsets, store: ShellSettingsStore = .current) -> TouchLayoutEditorModel {
         #if os(iOS)
-        let screens = TouchLayoutScreens.device(window: window, insets: insets, isPad: UIDevice.current.userInterfaceIdiom == .pad)
+        let isPad = UIDevice.current.userInterfaceIdiom == .pad
         #else
-        let screens = (sideways: PadScreen.proMax, upright: PadScreen?.none)
+        let isPad = false
         #endif
-        return TouchLayoutEditorModel(store: store, sideways: screens.sideways, upright: screens.upright)
+        let screens = TouchLayoutScreens.device(window: window, insets: insets, isPad: isPad)
+        let initialKind: TouchLayout.Kind = .of(full: store.touchMode == "3d", split: window.height > window.width)
+        return TouchLayoutEditorModel(store: store, sideways: screens.sideways, upright: screens.upright, kind: initialKind)
     }
 
     /// A change of one of the editor's rows from the list of choices (a row too narrow for its segments).
     func apply(row id: String, value: String) {
         switch id {
         case TouchLayoutEditorView.layoutRow: setKind(.of(full: value == "3d", split: kind.split))
-        case TouchLayoutEditorView.poseRow: setKind(.of(full: kind.full, split: value == "below"))
+        case TouchLayoutEditorView.poseRow: selectOrientation(portrait: value == "below")
         case TouchLayoutEditorView.togetherRow: setTogether(value == "1")
         default: break
         }
@@ -217,9 +260,9 @@ extension TouchLayoutEditorModel {
 }
 
 /// The game's screen on this device, for the editor: the shell's window (on a phone the screen) held sideways, and upright where a
-/// game puts the controls below the picture (an iPad, and a foldable's inner display, which is about 1.4 to 1 where a phone is above 2
-/// to 1). The side insets of a phone held sideways are its top inset upright (the Dynamic Island or the notch), and the home indicator
-/// takes 21 points. An approximation for the preview: the engine places the controls on the real screen.
+/// game puts the controls below the picture (every phone, iPad, and foldable). The side insets of a phone held sideways are its top
+/// inset upright (the Dynamic Island or the notch), and the home indicator takes 21 points. An approximation for the preview: the
+/// engine places the controls on the real screen.
 enum TouchLayoutScreens {
     static func device(window: CGSize, insets: EdgeInsets, isPad: Bool) -> (sideways: PadScreen, upright: PadScreen?) {
         let long = max(window.width, window.height), short = min(window.width, window.height)
@@ -233,10 +276,13 @@ enum TouchLayoutScreens {
         let home: CGFloat = insets.bottom > 0 ? 21 : 0
         let side = island > 30 ? island : 0
         let sideways = PadScreen(size: CGSize(width: long, height: short), insets: PadScreen.Insets(left: side, bottom: home, right: side))
-        guard long / short < 1.7 else { return (sideways, nil) }
+        let top = upright ? insets.top : max(insets.leading, insets.trailing)
+        let bottom: CGFloat = upright ? insets.bottom : (insets.bottom > 0 ? 34 : 0)
+        guard long / short < 1.7 else {
+            return (sideways, PadScreen(size: CGSize(width: short, height: long), insets: PadScreen.Insets(top: top, bottom: bottom)))
+        }
         // A foldable's inner display upright: the fold across the middle, the picture above it keeps only the top inset.
         let fold = CGRect(x: 0, y: long / 2 - 20, width: short, height: 40)
-        let top = upright ? insets.top : max(insets.leading, insets.trailing)
         return (sideways, PadScreen(size: CGSize(width: short, height: long), insets: PadScreen.Insets(top: top, bottom: insets.bottom > 0 ? 34 : 0),
                                     division: fold, topSafeOnly: true))
     }

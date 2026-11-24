@@ -70,7 +70,18 @@ struct TouchEditorPresentation: UIViewControllerRepresentable {
 
         func updateContent(_ content: AnyView) {
             guard !closing else { return }
-            rootView = AnyView(content.environment(\.shellDismissTouchEditor, { [weak self] in self?.closeEditor() }))
+            rootView = AnyView(
+                content
+                    .environment(\.shellDismissTouchEditor, { [weak self] in self?.closeEditor() })
+                    .environment(\.shellRotateTouchEditor, { [weak self] portrait in self?.rotate(portrait: portrait) })
+            )
+        }
+
+        func rotate(portrait: Bool) {
+            let mask: UIInterfaceOrientationMask = portrait
+                ? (traitCollection.userInterfaceIdiom == .phone ? .portrait : [.portrait, .portraitUpsideDown])
+                : .landscape
+            view.window?.windowScene?.requestGeometryUpdate(.iOS(interfaceOrientations: mask)) { _ in }
         }
 
         func closeEditor() {
@@ -92,9 +103,6 @@ struct TouchEditorPresentation: UIViewControllerRepresentable {
                     guard inner != self.hasInnerDisplay else { return }
                     self.hasInnerDisplay = inner
                     self.setNeedsUpdateOfSupportedInterfaceOrientations()
-                    if !inner, self.traitCollection.userInterfaceIdiom == .phone {
-                        self.view.window?.windowScene?.requestGeometryUpdate(.iOS(interfaceOrientations: .landscape))
-                    }
                 }
                 view.addInteraction(interaction)
                 hingeInteraction = interaction
@@ -102,15 +110,22 @@ struct TouchEditorPresentation: UIViewControllerRepresentable {
         }
 
         override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
-            traitCollection.userInterfaceIdiom == .phone && !hasInnerDisplay ? .landscape : .all
+            traitCollection.userInterfaceIdiom == .phone && !hasInnerDisplay ? .allButUpsideDown : .all
         }
         override var preferredInterfaceOrientationForPresentation: UIInterfaceOrientation {
-            guard traitCollection.userInterfaceIdiom == .phone, !hasInnerDisplay else {
-                return presentingViewController?.view.window?.windowScene?.effectiveGeometry.interfaceOrientation ?? .portrait
-            }
-            let current = presentingViewController?.view.window?.windowScene?.effectiveGeometry.interfaceOrientation
-            return current == .landscapeLeft ? .landscapeLeft : .landscapeRight
+            presentingViewController?.view.window?.windowScene?.effectiveGeometry.interfaceOrientation ?? .portrait
         }
+    }
+}
+
+private struct ShellRotateTouchEditorKey: EnvironmentKey {
+    nonisolated(unsafe) static let defaultValue: ((Bool) -> Void)? = nil
+}
+
+extension EnvironmentValues {
+    var shellRotateTouchEditor: ((Bool) -> Void)? {
+        get { self[ShellRotateTouchEditorKey.self] }
+        set { self[ShellRotateTouchEditorKey.self] = newValue }
     }
 }
 #endif

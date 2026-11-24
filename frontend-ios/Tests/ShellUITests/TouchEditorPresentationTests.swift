@@ -100,6 +100,14 @@ struct TouchEditorPresentationTests {
         #expect(presenter.editors.count == 2)
     }
 
+    @Test func editorAllowsPortraitAndLandscapeOrientations() {
+        let editor = TouchEditorPresentation.Editor(rootView: AnyView(EmptyView()))
+        let expected: UIInterfaceOrientationMask = UIDevice.current.userInterfaceIdiom == .phone ? .allButUpsideDown : .all
+        #expect(editor.supportedInterfaceOrientations == expected)
+        editor.hasInnerDisplay = true
+        #expect(editor.supportedInterfaceOrientations == .all)
+    }
+
     private func host() -> (UIWindow, LifecycleDouble) {
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
         let presenter = LifecycleDouble()

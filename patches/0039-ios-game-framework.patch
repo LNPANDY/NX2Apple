@@ -10,7 +10,7 @@ Issue: LNPANDY/NX2Apple#392
  dm/ios/Sources/DmGameMenu.h          |   1 +
  dm/ios/Sources/FrameworkBootstrap.h  |  25 ++
  dm/ios/Sources/FrameworkBootstrap.m  |  47 ++++
- dm/ios/Sources/front_ios.m           |   7 +-
+ dm/ios/Sources/front_ios.m           |   5 +-
  dm/ios/Sources/main.m                |  25 +-
  dm/ios/framework/DmGameMarker.m      |  10 +
  dm/ios/framework/ShellGlue.h         |  11 +
@@ -25,7 +25,7 @@ Issue: LNPANDY/NX2Apple#392
  dm/ios/tools/gen_manifest.py         | 130 +++++++++++
  dm/tools/tests/test_nsp_progress.py  | 329 +++++++++++++++++++++++++++
  scripts/build_ipa_from_nsp.py        | 214 ++++++++++++++---
- 18 files changed, 1732 insertions(+), 46 deletions(-)
+ 18 files changed, 1730 insertions(+), 46 deletions(-)
  create mode 100644 dm/ios/Sources/FrameworkBootstrap.h
  create mode 100644 dm/ios/Sources/FrameworkBootstrap.m
  create mode 100644 dm/ios/framework/DmGameMarker.m
@@ -149,15 +149,6 @@ index e763931d..1ecbae9d 100644
      dm_haptics_apple_init();
      self.pad = dm_gamepad_view(self.view.bounds);
      self.pad.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-@@ -266,6 +269,8 @@ - (UIInterfaceOrientationMask)supportedInterfaceOrientations { return dm_rotatio
- // all four; the app delegate (main.m) answers with this, which replaces that list, so portrait can be chosen on a phone too while auto keeps each device's list
- UIInterfaceOrientationMask dm_rotation_vc_mask(void) { return dm_rotation_mask(getenv("DM_ROTATION"), UIInterfaceOrientationMaskAll); }
- static UIInterfaceOrientationMask plist_orientations(void) {
-+    if ([NSBundle bundleForClass:DmRootVC.class] != NSBundle.mainBundle)
-+        return UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ? UIInterfaceOrientationMaskAll : UIInterfaceOrientationMaskLandscape;
-     NSArray *list = nil;
-     if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad) list = [NSBundle.mainBundle objectForInfoDictionaryKey:@"UISupportedInterfaceOrientations~ipad"];
-     if (![list isKindOfClass:NSArray.class]) list = [NSBundle.mainBundle objectForInfoDictionaryKey:@"UISupportedInterfaceOrientations"];
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
 index 693e0cc0..e1355af0 100644
 --- a/dm/ios/Sources/main.m
