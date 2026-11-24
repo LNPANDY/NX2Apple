@@ -319,7 +319,7 @@ import XCTest
             func checkCenter() throws {
                 let targets = focus.frames["main", default: []]
                 let library = try XCTUnwrap(targets.first { $0.id == "tab.library" })
-                let builds = try XCTUnwrap(targets.first { $0.id == "tab.builds" })
+                let builds = try XCTUnwrap(targets.first { $0.id == "tab.saves" })   // the last tab (Saves, #1079)
                 let middle = (library.frame.minX + builds.frame.maxX) / 2
                 XCTAssertEqual(middle, window.contentView!.bounds.width / 2, accuracy: 1)
                 for id in ["top.player", "top.update", "top.settings"] {

@@ -263,6 +263,10 @@ struct LauncherView: View {
                     libraryPage.transaction { if reduceMotion { $0.animation = nil } }
                     if !m.running && !completedActivityVisible { activityBar }
                 }
+            } else if page == .saves {   // every game's save (SavesPage.swift, #1079)
+                SavesPage(library: library, saveSettings: stores.saveSettings, players: stores.players, repo: stores.repo.path,
+                          openSaves: { savesFor = $0 })
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 let allowsArtworkFetch = performStartupChecks || artworkStore !== ArtworkStore.shared
                 VStack(spacing: 0) {
