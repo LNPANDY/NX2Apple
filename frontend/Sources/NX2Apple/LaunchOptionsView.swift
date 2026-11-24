@@ -178,11 +178,11 @@ struct LaunchOptionsView: View {
                 .padTarget("opt.controllerMapping", scope: "launch") { mappingPresentation.wrappedValue = true }
         }
         if let settings, !settings.isEmpty {
-            let mine = settings.filter { LaunchCategory.of($0) == category }
+            let visible = settings.filter { LaunchCategory.of($0) == category && $0.isShown(in: settings) { value($0, game) } }
             if category == .performance, let note = ResolutionNote.text(settings, shown: { $0.isShown(in: settings) { value($0, game) } }, t: loc.t) { resolutionNote(note) }
-            groups(mine.filter(\.isBasic), game, all: settings)
+            groups(visible.filter(\.isBasic), game, all: settings)
             if category == .performance { frameTimesSection(game) }
-            let advanced = mine.filter { !$0.isBasic }
+            let advanced = visible.filter { !$0.isBasic }
             if !advanced.isEmpty {
                 card {
                     Button { withAnimation(LauncherMotion.animation(.easeInOut(duration: 0.18), reduceMotion: reduceMotion)) { advancedOpen.toggle() } } label: {
@@ -203,7 +203,7 @@ struct LaunchOptionsView: View {
         } else if category == .game {
             Text(loc.t("launch.none")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
         }
-        if category == .performance, settings?.contains(where: { LaunchCategory.of($0) == .performance }) != true {
+        if category == .performance, settings?.contains(where: { LaunchCategory.of($0) == .performance && $0.isShown(in: settings ?? []) { value($0, game) } }) != true {
             Text(loc.t("launch.noPerformance")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
         }
     }
