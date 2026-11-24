@@ -16,10 +16,30 @@ public enum ProvisioningProfile {
         return expiration(at: url, fileManager: fm)
     }
 
-    /// Reads `TeamIdentifier` (10-character Apple developer team ID) from `Bundle.main`'s `embedded.mobileprovision`, or nil when absent.
-    public static func bundledTeamIdentifier(bundle: Bundle = .main, fileManager fm: FileManager = .default) -> String? {
-        guard let url = bundle.url(forResource: "embedded", withExtension: "mobileprovision") else { return nil }
-        return teamIdentifier(at: url, fileManager: fm)
+    /// True when the app is executing as a guest inside LiveContainer (`LC_HOME_PATH` or `LP_HOME_PATH` set by `LCBootstrap`).
+    public static func isRunningInLiveContainer(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+        for key in ["LC_HOME_PATH", "LP_HOME_PATH"] {
+            if let value = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Reads `TeamIdentifier` (10-character Apple developer team ID) from `Bundle.main`, preferring the live executable's
+    /// Mach-O signature when running inside LiveContainer (where a guest bundle may lack or retain a stale `embedded.mobileprovision`).
+    public static func bundledTeamIdentifier(bundle: Bundle = .main,
+                                             environment: [String: String] = ProcessInfo.processInfo.environment,
+                                             fileManager fm: FileManager = .default) -> String? {
+        let exeTeam = bundle.executableURL
+            .flatMap { FrameworkSignature.inspect(executable: $0, fileManager: fm)?.teamID }
+            .flatMap { $0.isEmpty ? nil : $0 }
+        let profileTeam = bundle.url(forResource: "embedded", withExtension: "mobileprovision")
+            .flatMap { teamIdentifier(at: $0, fileManager: fm) }
+        if isRunningInLiveContainer(environment: environment), let exeTeam {
+            return exeTeam
+        }
+        return profileTeam ?? exeTeam
     }
 
     /// Reads `TeamIdentifier` from a `.mobileprovision` file at `url`, returning nil safely on missing, oversize or damaged files.
@@ -62,11 +82,25 @@ public enum ProvisioningProfile {
     }
 
     /// True when the app's provisioning profile carries development execution privileges (`get-task-allow = true`
-    /// and not an enterprise `ProvisionsAllDevices` profile), allowing `Documents/Frameworks/` loading.
-    public static func bundledAllowsHotFrameworkLoading(bundle: Bundle = .main, fileManager fm: FileManager = .default) -> Bool {
+    /// and not an enterprise `ProvisionsAllDevices` profile), or when executing inside LiveContainer (which re-signs
+    /// the guest executable with a development identity without writing `embedded.mobileprovision`).
+    public static func bundledAllowsHotFrameworkLoading(bundle: Bundle = .main,
+                                                        environment: [String: String] = ProcessInfo.processInfo.environment,
+                                                        fileManager fm: FileManager = .default) -> Bool {
+        let inLiveContainer = isRunningInLiveContainer(environment: environment)
         guard let url = bundle.url(forResource: "embedded", withExtension: "mobileprovision"),
               let data = profileData(at: url, fileManager: fm) else {
-            return false
+            return inLiveContainer
+        }
+        if inLiveContainer {
+            let exeTeam = bundle.executableURL
+                .flatMap { FrameworkSignature.inspect(executable: $0, fileManager: fm)?.teamID }
+                .flatMap { $0.isEmpty ? nil : $0 }
+            let profTeam = teamIdentifier(fromProfile: data)
+            if let exeTeam, let profTeam, exeTeam != profTeam {
+                // Guest bundle carries a stale build-time profile from another team while LiveContainer re-signed the binary.
+                return true
+            }
         }
         return allowsHotFrameworkLoading(fromProfile: data)
     }
@@ -155,15 +189,17 @@ public struct ShellHostBeacon: Codable, Equatable, Sendable {
         self.certSHA1 = certSHA1
     }
 
-    public static func write(to documents: URL, bundle: Bundle = .main, glueVersion: Int = Self.currentGlueVersion, fileManager fm: FileManager = .default) {
+    public static func write(to documents: URL, bundle: Bundle = .main, glueVersion: Int = Self.currentGlueVersion,
+                             environment: [String: String] = ProcessInfo.processInfo.environment,
+                             fileManager fm: FileManager = .default) {
         let info = bundle.infoDictionary ?? [:]
         let bundleID = (info["CFBundleIdentifier"] as? String) ?? bundle.bundleIdentifier ?? ""
         let rawChain = (info["DMChain"] as? String) ?? ""
         let chain = rawChain.isEmpty || rawChain.hasPrefix("b-") ? rawChain : "b-" + rawChain
         let version = (info["CFBundleShortVersionString"] as? String) ?? ""
-        let teamID = ProvisioningProfile.bundledTeamIdentifier(bundle: bundle, fileManager: fm) ?? ""
+        let teamID = ProvisioningProfile.bundledTeamIdentifier(bundle: bundle, environment: environment, fileManager: fm) ?? ""
         let expires = ProvisioningProfile.bundledExpiration(bundle: bundle, fileManager: fm).map { Int64($0.timeIntervalSince1970.rounded()) }
-        let allowsHot = ProvisioningProfile.bundledAllowsHotFrameworkLoading(bundle: bundle, fileManager: fm)
+        let allowsHot = ProvisioningProfile.bundledAllowsHotFrameworkLoading(bundle: bundle, environment: environment, fileManager: fm)
         let certSHA1 = ProvisioningProfile.bundledSigningCertificateSHA1(bundle: bundle, fileManager: fm)
         let beacon = ShellHostBeacon(glueVersion: glueVersion, bundleID: bundleID, teamID: teamID,
                                      chain: chain, version: version, expiresAtEpoch: expires,

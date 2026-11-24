@@ -498,8 +498,8 @@ static const char *register_external_signature(const char *executable) {
     int saved_errno = errno;
     if (rc < 0 && saved_errno != EEXIST) {
         close(fd);
-        fprintf(stderr, "[RED] boot: F_ADDFILESIGS_RETURN failed for %s: errno=%d (%s)\n",
-                executable, saved_errno, strerror(saved_errno));
+        fprintf(stderr, "[RED] boot: F_ADDFILESIGS_RETURN failed for %s (slice=%llu, sig_off=%u, sig_sz=%u): errno=%d (%s)\n",
+                executable, (unsigned long long)slice_off, sig_off, sig_sz, saved_errno, strerror(saved_errno));
         return "iOS refused the code signature of this game's framework. Install the game again from NX2Apple.";
     }
     char lv_msg[256];

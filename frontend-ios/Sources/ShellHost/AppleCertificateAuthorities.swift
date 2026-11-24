@@ -127,6 +127,17 @@ enum AppleCertificateAuthorities {
         Data(base64Encoded: $0, options: .ignoreUnknownCharacters)
     }
 
+    /// Decoded DER bytes for the three Apple Root CAs (indices 0...2 above).
+    static let appleRootDERSet: Set<Data> = Set(base64DERCertificates.prefix(3).compactMap {
+        Data(base64Encoded: $0, options: .ignoreUnknownCharacters)
+    })
+
+    /// True when the completed certificate chain terminates at a genuine Apple Root CA.
+    static func isAnchoredToAppleRoot(chainDER: [Data]) -> Bool {
+        guard let anchor = chainDER.last else { return false }
+        return appleRootDERSet.contains(anchor)
+    }
+
     /// Completes the certificate chain starting strictly from `leafDER` by walking `issuerRawTLV -> subjectRawTLV`
     /// upward to a self-signed root. Certificates supplied in `providedChainDER` are indexed with priority over
     /// `extraCandidatesDER`, so unordered or unrelated extra certificates in a `.p12` never break the chain.

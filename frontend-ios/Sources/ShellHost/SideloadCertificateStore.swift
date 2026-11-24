@@ -463,7 +463,7 @@ public enum SideloadCertificateError: LocalizedError, Equatable, Sendable {
 /// Live signing identity extracted from a validated `.p12`.
 /// On macOS unit tests, owns an ephemeral temporary keychain that is deleted on `deinit` so tests never pollute the login keychain.
 public final class SideloadSigningIdentity: @unchecked Sendable {
-    public let identity: SecIdentity
+    public let identity: SecIdentity?
     public let privateKey: SecKey
     public let leafCertificateDER: Data
     public let chainCertificatesDER: [Data]
@@ -471,12 +471,13 @@ public final class SideloadSigningIdentity: @unchecked Sendable {
     public let summary: SideloadCertificateSummary
 
     #if os(macOS)
+    fileprivate static let keychainLock = NSLock()
     private let ephemeralKeychain: SecKeychain?
     private let ephemeralKeychainPath: String?
     #endif
 
     #if os(macOS)
-    init(identity: SecIdentity, privateKey: SecKey, leafCertificateDER: Data, chainCertificatesDER: [Data],
+    init(identity: SecIdentity?, privateKey: SecKey, leafCertificateDER: Data, chainCertificatesDER: [Data],
          leafInfo: X509CertificateInfo, summary: SideloadCertificateSummary,
          ephemeralKeychain: SecKeychain?, ephemeralKeychainPath: String?) {
         self.identity = identity
@@ -490,6 +491,8 @@ public final class SideloadSigningIdentity: @unchecked Sendable {
     }
 
     deinit {
+        Self.keychainLock.lock()
+        defer { Self.keychainLock.unlock() }
         if let ephemeralKeychain {
             SecKeychainDelete(ephemeralKeychain)
         }
@@ -498,7 +501,7 @@ public final class SideloadSigningIdentity: @unchecked Sendable {
         }
     }
     #else
-    init(identity: SecIdentity, privateKey: SecKey, leafCertificateDER: Data, chainCertificatesDER: [Data],
+    init(identity: SecIdentity?, privateKey: SecKey, leafCertificateDER: Data, chainCertificatesDER: [Data],
          leafInfo: X509CertificateInfo, summary: SideloadCertificateSummary) {
         self.identity = identity
         self.privateKey = privateKey
@@ -572,6 +575,7 @@ public final class SideloadCertificateStore: Sendable {
         ]
 
         #if os(macOS)
+        SideloadSigningIdentity.keychainLock.lock()
         let kcPath = FileManager.default.temporaryDirectory
             .appendingPathComponent("nx2apple-p12-\(UUID().uuidString).keychain-db").path
         var ephemeralKC: SecKeychain?
@@ -592,14 +596,24 @@ public final class SideloadCertificateStore: Sendable {
 
         var rawItems: CFArray?
         let status = SecPKCS12Import(p12Data as CFData, options as CFDictionary, &rawItems)
-        guard status == errSecSuccess else {
-            #if os(macOS)
+        #if os(macOS)
+        if status != errSecSuccess {
             cleanupEphemeralKeychain()
-            #endif
-            if status == errSecAuthFailed {
-                throw SideloadCertificateError.wrongPassword
+        }
+        SideloadSigningIdentity.keychainLock.unlock()
+        #endif
+        guard status == errSecSuccess else {
+            // Fall back to the RFC 7292 parser for valid `.p12` variants rejected by iOS `SecPKCS12Import`
+            // (such as SideStore passwordless MAC-less `keyBag` exports, `SecItemExport` 40-bit RC2 cert bags,
+            // and OpenSSL 3 PBES2 empty-password containers).
+            do {
+                return try PKCS12FallbackParser.parseIdentity(p12Data: p12Data, password: password, now: now)
+            } catch let fallbackError as SideloadCertificateError {
+                if case .invalidFormat = fallbackError, status == errSecAuthFailed {
+                    throw SideloadCertificateError.wrongPassword
+                }
+                throw fallbackError
             }
-            throw SideloadCertificateError.invalidFormat(status)
         }
 
         guard let itemList = rawItems as? [[String: Any]],
@@ -607,7 +621,9 @@ public final class SideloadCertificateStore: Sendable {
               let rawIdentity = chosen[kSecImportItemIdentity as String],
               CFGetTypeID(rawIdentity as CFTypeRef) == SecIdentityGetTypeID() else {
             #if os(macOS)
+            SideloadSigningIdentity.keychainLock.lock()
             cleanupEphemeralKeychain()
+            SideloadSigningIdentity.keychainLock.unlock()
             #endif
             throw SideloadCertificateError.missingIdentity
         }
@@ -620,7 +636,9 @@ public final class SideloadCertificateStore: Sendable {
               SecIdentityCopyPrivateKey(identity, &keyRef) == errSecSuccess,
               let privateKey = keyRef else {
             #if os(macOS)
+            SideloadSigningIdentity.keychainLock.lock()
             cleanupEphemeralKeychain()
+            SideloadSigningIdentity.keychainLock.unlock()
             #endif
             throw SideloadCertificateError.missingIdentity
         }
@@ -628,7 +646,9 @@ public final class SideloadCertificateStore: Sendable {
         let leafDER = SecCertificateCopyData(leafCert) as Data
         guard let leafInfo = X509CertificateParser.parse(der: leafDER) else {
             #if os(macOS)
+            SideloadSigningIdentity.keychainLock.lock()
             cleanupEphemeralKeychain()
+            SideloadSigningIdentity.keychainLock.unlock()
             #endif
             throw SideloadCertificateError.certificateUnreadable
         }
