@@ -16,4 +16,23 @@ final class InstallRecoveryTests: XCTestCase {
     func testEnabledDeveloperModeDoesNotHideAnUnrelatedSigningError() {
         XCTAssertNil(BuildFailureClassifier.classifyInstall(.sign, error: "Developer Mode enabled. Unknown signing error", teamListed: true))
     }
+
+    func testDeveloperModeLineScopesIneligibleDestinationsToTargetDevice() {
+        let output = """
+        xcodebuild: error: Unable to find a destination matching the provided destination specifier:
+                { id:TARGET-UDID }
+            Ineligible destinations for the "DmShell" scheme:
+                { platform:iOS, id:OTHER-UDID, name:Other iPhone, error:Developer Mode disabled. }
+                { platform:iOS, id:TARGET-UDID, name:Target iPhone, error:The device is not connected. }
+        """
+        XCTAssertNil(BuildFailureClassifier.developerModeLine(in: output, deviceID: "TARGET-UDID"))
+
+        let targetOutput = """
+        xcodebuild: error: Unable to find a destination matching the provided destination specifier:
+                { id:TARGET-UDID }
+            Ineligible destinations for the "DmShell" scheme:
+                { platform:iOS, id:TARGET-UDID, name:Target iPhone, error:Developer Mode disabled. }
+        """
+        XCTAssertNotNil(BuildFailureClassifier.developerModeLine(in: targetOutput, deviceID: "TARGET-UDID"))
+    }
 }

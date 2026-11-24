@@ -152,6 +152,7 @@ extension BuildStore {
         guard canSendToDevice else { return }
         buildingGame = false; runningTarget = BuildTarget.ios
         beginOperation(.sendingGameData, game: effectivePackedGameName, titleID: packedTitleID, destination: .target)
+        setInstallRecovery(.sendData(bundle: bundle))
         stopping = false; stoppedByPlayer = false; installCancel.set(false); installPhaseActive = true
         running = true; done = false; doneNote = ""; failure = nil; stages = []
         send = .sending(done: 0, total: 0, note: "")
@@ -179,6 +180,8 @@ extension BuildStore {
                 self.running = false
                 if self.stopping {
                     self.stopping = false
+                    self.failure = nil
+                    self.clearInstallRecovery(includeFastRefresh: true)
                     self.resetProgress(); self.send = .idle; self.doneNote = self.t("msg.stopped")
                     return
                 }

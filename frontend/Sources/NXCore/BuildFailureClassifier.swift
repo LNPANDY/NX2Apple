@@ -123,10 +123,28 @@ package enum BuildFailureClassifier {
     /// variant of the bundle ID) has run already when this is called.
     package enum InstallStep { case sign, install, copy }
 
+    /// Matches disabled / unenabled Developer Mode errors from Xcode or devicectl.
+    package static func isDeveloperModeDisabled(_ text: String) -> Bool {
+        text.range(of: #"(?i)developer[ -]mode(?: is)? (?:disabled|not enabled)"#, options: .regularExpression) != nil
+    }
+
+    /// Returns the most specific Developer Mode disabled line in tool output, scoping ineligible-destination lines to `deviceID`.
+    package static func developerModeLine(in output: String, deviceID: String? = nil) -> String? {
+        output.split(whereSeparator: \.isNewline)
+            .map { String($0).trimmingCharacters(in: .whitespaces) }
+            .last { line in
+                guard isDeveloperModeDisabled(line) else { return false }
+                if line.contains("id:"), let deviceID, !deviceID.isEmpty {
+                    return line.contains("id:\(deviceID)")
+                }
+                return true
+            }
+    }
+
     /// nil when the launcher has no better words than the tool's own line. `teamListed`: whether the chosen team is still one
     /// the Mac knows (an account signed in to Xcode, or a development certificate in the keychain).
     package static func classifyInstall(_ step: InstallStep, error: String, teamListed: Bool) -> BuildFailure? {
-        if error.range(of: #"(?i)developer[ -]mode(?: is)? (?:disabled|not enabled)"#, options: .regularExpression) != nil {
+        if isDeveloperModeDisabled(error) {
             return BuildFailure(kind: .developerMode, gameName: nil)
         }
         if error.contains("No space left on device") { return BuildFailure(kind: .diskFull, gameName: nil) }

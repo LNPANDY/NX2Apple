@@ -4,7 +4,7 @@ Written by `GalleryCoverageTests` from `GalleryCoverage.swift`: every View type 
 popover and alert, every notice and every case of the state enums the views switch on, with the gallery's scenes
 (`GalleryScene.id`) that show it, or the reason none can. After a change:
 `NX_WRITE_COVERAGE=1 swift test --package-path frontend --filter GalleryCoverageTests`. The gallery has
-339 scenes.
+340 scenes.
 
 ## Views: 233 of 243 in a scene
 
@@ -313,7 +313,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `hero.switch2` | `librarySwitch2` |
 | `library.skippedBanner` | `libraryNoticeWarning` |
 
-## States: 282 of 282 in a scene
+## States: 283 of 283 in a scene
 
 | State | Scenes |
 |---|---|
@@ -386,6 +386,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `BuildFailureKind.cloudFolder` | `buildFailure-cloudFolder` |
 | `BuildFailureKind.volumeFormat` | `buildFailure-volumeFormat` |
 | `BuildFailureKind.devicePairing` | `buildFailure-devicePairing` |
+| `BuildFailureKind.developerMode` | `buildFailure-developerMode` |
 | `BuildFailureKind.shellDataIncomplete` | `buildFailure-shellDataIncomplete` |
 | `BuildFailureKind.engineOffline` | `buildFailure-engineOffline` |
 | `BuildFailureKind.engineSync` | `buildFailure-engineSync` |

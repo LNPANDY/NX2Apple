@@ -73,7 +73,7 @@ import XCTest
         for rel in [EngineLayout.marker] + RepoLayout.requiredTools {
             let file = root.appendingPathComponent(rel)
             try fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try Data("'--work-dir' '--romfs-from'\n".utf8).write(to: file)
+            try Data("'--work-dir' '--romfs-from' '--from-seed'\n".utf8).write(to: file)
         }
         return root.path
     }
@@ -178,6 +178,7 @@ import XCTest
     }
 
     func testInstallRetryNeverRestartsTheGameBuilder() throws {
+        let fm = FileManager.default
         for mode in 0..<3 {
             let runner = ChunkedRunner()
             runner.onStartInspect = { _ in XCTFail("Retry must not start a game build") }
@@ -185,16 +186,22 @@ import XCTest
                                       listDevices: { _ in [] }, readTeams: { [] })
             let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps,
                                    engine: engine, devices: devices, defaults: defaults)
-            let framework = temporary.appendingPathComponent("missing.framework").path
+            store.home = temporary.path
+            let framework = temporary.appendingPathComponent("fw-\(mode)/DmGame0100000000001000.framework").path
+            try fm.createDirectory(atPath: framework, withIntermediateDirectories: true)
+            try Data("{}".utf8).write(to: URL(fileURLWithPath: framework + "/game.manifest.json"))
+            let archive = temporary.appendingPathComponent("archive-\(mode)").path
+            try fm.createDirectory(atPath: archive, withIntermediateDirectories: true)
+            try Data("romfs".utf8).write(to: URL(fileURLWithPath: archive + "/romfs.img"))
             func waitForFailure() {
                 let end = Date().addingTimeInterval(3)
                 while store.running && Date() < end { drainMainQueue(seconds: 0.01) }
                 XCTAssertFalse(store.running)
             }
             switch mode {
-            case 0: store.installShell(framework: framework, titleID: "0100000000001000", name: "Game", archive: "/archive")
+            case 0: store.installShell(framework: framework, titleID: "0100000000001000", name: "Game", archive: archive)
             case 1: store.installBuiltShell(framework: framework, titleID: "0100000000001000", name: "Game")
-            default: store.installShellBatch([.init(framework: framework, titleID: "0100000000001000", name: "Game", archive: "/archive")])
+            default: store.installShellBatch([.init(framework: framework, titleID: "0100000000001000", name: "Game", archive: archive)])
             }
             waitForFailure()
             let originalFailure = store.doneNote
@@ -212,6 +219,124 @@ import XCTest
             store.fixBuildFailure(.deviceTransfer)
             XCTAssertFalse(store.running, "A new operation must discard the old installation retry")
         }
+    }
+
+    func testInstallRetryFallsBackToRebuildWhenBuiltProductsDisappear() throws {
+        let fm = FileManager.default
+        let baseNSP = temporary.appendingPathComponent("Game [0100000000001000].nsp").path
+        let keysFile = temporary.appendingPathComponent("prod.keys").path
+        try Data("nsp".utf8).write(to: URL(fileURLWithPath: baseNSP))
+        try Data("keys".utf8).write(to: URL(fileURLWithPath: keysFile))
+
+        let framework = temporary.appendingPathComponent("fw-missing-fallback/DmGame0100000000001000.framework").path
+        let archive = temporary.appendingPathComponent("archive-missing-fallback").path
+        try fm.createDirectory(atPath: framework, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: URL(fileURLWithPath: framework + "/game.manifest.json"))
+        try fm.createDirectory(atPath: archive, withIntermediateDirectories: true)
+        try Data("romfs".utf8).write(to: URL(fileURLWithPath: archive + "/romfs.img"))
+
+        var launchedScripts: [[String]] = []
+        let runner = ChunkedRunner()
+        runner.exitStatus = 1
+        runner.onStartInspect = { launch in launchedScripts.append(launch.arguments) }
+        let devices = DeviceStore(runner: runner, xcrun: "/usr/bin/true", defaults: defaults,
+                                  listDevices: { _ in [] }, readTeams: { [] })
+        devices.installDevice = "UDID-1"
+        devices.signingTeam = "TEAM1"
+        let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps,
+                               engine: engine, devices: devices, defaults: defaults)
+        store.home = temporary.path
+        try fm.createDirectory(atPath: store.home + "/Library/Application Support/NX2Apple/shell", withIntermediateDirectories: true)
+        store.target = BuildTarget.ios
+        store.shellDeviceChecked = true
+        store.updateSlot("base") { $0.paths = [baseNSP] }
+        store.updateSlot("keys") { $0.paths = [keysFile] }
+
+        store.installShell(framework: framework, titleID: "0100000000001000", name: "Game", archive: archive)
+        let end1 = Date().addingTimeInterval(3)
+        while store.running && Date() < end1 { drainMainQueue(seconds: 0.01) }
+        XCTAssertTrue(launchedScripts.isEmpty)
+
+        // Removing the built framework triggers a full rebuild fallback instead of failing with missing framework.
+        try fm.removeItem(atPath: framework)
+        store.shellDeviceChecked = true
+        store.failure = .init(kind: .developerMode, gameName: nil)
+        store.fixBuildFailure(.developerMode)
+        let end2 = Date().addingTimeInterval(3)
+        while store.running && Date() < end2 { drainMainQueue(seconds: 0.01) }
+        let fullArgs = try XCTUnwrap(launchedScripts.first, "Missing framework must fall back to full rebuild")
+        XCTAssertEqual(launchedScripts.count, 1)
+        XCTAssertFalse(fullArgs.contains("--from-seed"))
+
+        // Fast-refresh context: missing archive falls back to --from-seed rebuild rather than normal NSP build.
+        try fm.createDirectory(atPath: framework, withIntermediateDirectories: true)
+        try fm.removeItem(atPath: archive)
+        launchedScripts.removeAll()
+        store.lastRunWasFastRefresh = true
+        store.installRecovery.lastFastRefresh = FastRefreshRequest(
+            titleID: "0100000000001000", targetName: BuildTarget.ios, outDir: temporary.path,
+            gameName: "Game", existingMacAppPath: nil, externalImgPath: nil, cheatsDir: nil,
+            knownArchivePath: nil, forceShaderRebuildTrailer: false
+        )
+        store.installShell(framework: framework, titleID: "0100000000001000", name: "Game", archive: archive)
+        let end3 = Date().addingTimeInterval(3)
+        while store.running && Date() < end3 { drainMainQueue(seconds: 0.01) }
+        XCTAssertTrue(launchedScripts.isEmpty)
+
+        store.shellDeviceChecked = true
+        store.failure = .init(kind: .deviceTransfer, gameName: nil)
+        store.fixBuildFailure(.deviceTransfer)
+        let end4 = Date().addingTimeInterval(3)
+        while store.running && Date() < end4 { drainMainQueue(seconds: 0.01) }
+        let refreshArgs = try XCTUnwrap(launchedScripts.first, "Missing fast-refresh archive must fall back to fast refresh")
+        XCTAssertEqual(launchedScripts.count, 1)
+        XCTAssertTrue(refreshArgs.contains("--from-seed"), "Fast refresh fallback must preserve --from-seed flow")
+    }
+
+    func testSendGameDataRetryDoesNotRebuildAndDropFailureClearsRecovery() throws {
+        let fm = FileManager.default
+        let runner = ChunkedRunner()
+        runner.onStartInspect = { _ in XCTFail("sendGameData retry must not start a game build") }
+        let devices = DeviceStore(runner: runner, xcrun: "/usr/bin/true", defaults: defaults,
+                                  listDevices: { _ in [] }, readTeams: { [] })
+        devices.installDevice = "UDID-1"
+        devices.signingTeam = "TEAM1"
+        let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps,
+                               engine: engine, devices: devices, defaults: defaults)
+        store.home = temporary.path
+        let archive = temporary.appendingPathComponent("send-archive").path
+        try fm.createDirectory(atPath: archive, withIntermediateDirectories: true)
+        try Data("romfs".utf8).write(to: URL(fileURLWithPath: archive + "/romfs.img"))
+        store.archivePath = archive
+        store.installedOn = "UDID-1"
+        store.installedAppPath = "/tmp/DmShell.app"
+
+        store.sendGameData()
+        let end1 = Date().addingTimeInterval(3)
+        while store.running && Date() < end1 { drainMainQueue(seconds: 0.01) }
+        XCTAssertEqual(store.failure?.kind, .devicePairing)
+
+        store.fixBuildFailure(.devicePairing)
+        XCTAssertTrue(store.running, "sendGameData retry must re-run sendGameData")
+        XCTAssertNil(store.failure)
+        let end2 = Date().addingTimeInterval(3)
+        while store.running && Date() < end2 { drainMainQueue(seconds: 0.01) }
+        XCTAssertEqual(store.failure?.kind, .devicePairing)
+
+        // Switching to another game clears failure and discards pending install recovery.
+        let nspA = temporary.appendingPathComponent("A [0100000000001000].nsp").path
+        let nspB = temporary.appendingPathComponent("B [0100000000002000].nsp").path
+        try Data("a".utf8).write(to: URL(fileURLWithPath: nspA))
+        try Data("b".utf8).write(to: URL(fileURLWithPath: nspB))
+        store.updateSlot("base") { $0.paths = [nspA] }
+        store.sendGameData()
+        let end3 = Date().addingTimeInterval(3)
+        while store.running && Date() < end3 { drainMainQueue(seconds: 0.01) }
+        XCTAssertEqual(store.failure?.kind, .devicePairing)
+        XCTAssertNotNil(store.installRecovery.pending)
+        store.updateSlot("base") { $0.paths = [nspB] }
+        XCTAssertNil(store.failure)
+        XCTAssertNil(store.installRecovery.pending)
     }
 
     func testStopCancelsPostInstallAskCopyAndCableWaitWhenNoSubprocessIsRunning() throws {
@@ -287,5 +412,7 @@ import XCTest
         XCTAssertTrue(deviceStore.waitCancelled)
         XCTAssertFalse(deviceStore.shellWaiting)
         XCTAssertEqual(store.doneNote, store.t("msg.stopped"))
+        XCTAssertNil(store.failure)
+        XCTAssertNil(store.installRecovery.pending)
     }
 }

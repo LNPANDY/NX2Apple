@@ -40,9 +40,10 @@ extension BuildStore {
         let stampMatches = ShellHotInstall.projectStampMatches(root: shell.root, expectedChain: expectedChain)
         buildingGame = false; runningTarget = BuildTarget.ios
         beginOperation(.renewingSignature, game: nil, titleID: nil, destination: .device(name))
-        shellInstallRetry = { [weak self] in self?.resignOnDevice(app: app, device: device, then: then) }
+        setInstallRecovery(.resign(app: app, device: device, then: then))
         stopping = false; stoppedByPlayer = false; installPhaseActive = true
         needsReplaceOldImgReminder = false; updatedImgPath = ""; shellUpdatedOnDevice = false
+        failure = nil; done = false; doneNote = ""
         running = true
         // The shared app is signed again under the identifier shell.json holds, so the device keeps its Documents
         let command = ShellInstall.buildCommand(xcrun: xcrun, root: shell.root, device: device, team: team, bundleID: bundle)
@@ -57,6 +58,7 @@ extension BuildStore {
                     if self.stopping {
                         self.stopping = false
                         stagedProfiles.rollback()
+                        self.failure = nil; self.clearInstallRecovery(includeFastRefresh: true)
                         self.running = false
                         self.doneNote = self.t("msg.stopped")
                         then?(); return
@@ -79,6 +81,7 @@ extension BuildStore {
                                      nameArgument: name, step: BuildProgress.installStep) { installError in
                             if let installError {
                                 self.doneNote = String(format: self.t("dev.installFailed"), installError)
+                                self.noteInstallFailure(.install, error: installError)
                             } else {
                                 ShellLibrary.recordInstalled(root: shell.root, device: device)
                                 self.installedOn = device
@@ -125,6 +128,7 @@ extension BuildStore {
                 if self.stopping {
                     self.installPhaseActive = false
                     self.stopping = false
+                    self.failure = nil; self.clearInstallRecovery(includeFastRefresh: true)
                     self.running = false
                     self.doneNote = self.t("msg.stopped")
                     then?(); return

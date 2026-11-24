@@ -156,9 +156,11 @@ extension BuildStore {
         let shouldTransferUpdatedImg = didUpdateImg ?? needsReplaceOldImgReminder
         let effectiveImgPath = updatedImgPath ?? self.updatedImgPath
         let targetEntryID = activeQueuedEntryID
-        shellInstallRetry = { [weak self] in
-            self?.installShell(framework: framework, titleID: titleID, name: name, archive: archive, dataOnly: dataOnly)
-        }
+        let fastRefresh = lastRunWasFastRefresh ? installRecovery.lastFastRefresh : nil
+        setInstallRecovery(.install(
+            framework: framework, titleID: titleID, name: name, archive: archive, dataOnly: dataOnly,
+            didUpdateImg: shouldTransferUpdatedImg, updatedImgPath: effectiveImgPath, fastRefresh: fastRefresh
+        ))
         let installer = makeInstaller(respectSkipMode: !dataOnly && !shouldTransferUpdatedImg)
         let target = devices
         let device = devices.installDevice
@@ -174,6 +176,7 @@ extension BuildStore {
                 target.copyEnded()
                 if self.stopping {
                     self.stopping = false; self.running = false
+                    self.failure = nil; self.clearInstallRecovery(includeFastRefresh: true)
                     self.resetProgress(); self.doneNote = self.t("msg.stopped"); self.cleanupStaging()
                     return
                 }
@@ -240,14 +243,8 @@ extension BuildStore {
         beginOperation(.installing, game: nil, titleID: nil, destination: .target)
         stopping = false; stoppedByPlayer = false; installCancel.set(false); installPhaseActive = true
         running = true; done = false; doneNote = ""; failure = nil; stages = []
-<<<<<<< HEAD
         needsReplaceOldImgReminder = false; updatedImgPath = ""; shellUpdatedOnDevice = false
-=======
-        needsReplaceOldImgReminder = false; updatedImgPath = ""
-        shellInstallRetry = { [weak self] in
-            self?.installBuiltShell(framework: framework, titleID: titleID, name: name)
-        }
->>>>>>> 21b1751b2 (Fix iOS installation recovery without rebuilding games)
+        setInstallRecovery(.installBuilt(framework: framework, titleID: titleID, name: name))
         finderShown = false
         let installer = makeInstaller()
         let device = devices.installDevice
@@ -257,6 +254,7 @@ extension BuildStore {
                 self.installPhaseActive = false
                 if self.stopping {
                     self.stopping = false; self.running = false
+                    self.failure = nil; self.clearInstallRecovery(includeFastRefresh: true)
                     self.resetProgress(); self.doneNote = self.t("msg.stopped"); self.cleanupStaging()
                     return
                 }
@@ -292,7 +290,7 @@ extension BuildStore {
         if dataOnly { stages = [] }
         finderShown = false
         shellBatchRetry = games
-        shellInstallRetry = { [weak self] in self?.installShellBatch(games, dataOnly: dataOnly) }
+        setInstallRecovery(.installBatch(games: games, dataOnly: dataOnly))
         shellRetry = (last.framework, last.titleID, last.name, last.archive)
         let batchGames = games.map {
             ShellInstaller.BatchGame(
@@ -324,6 +322,7 @@ extension BuildStore {
                 target.copyEnded()
                 if self.stopping {
                     self.stopping = false; self.running = false
+                    self.failure = nil; self.clearInstallRecovery(includeFastRefresh: true)
                     self.resetProgress(); self.doneNote = self.t("msg.stopped"); self.cleanupStaging()
                     return
                 }
@@ -357,15 +356,6 @@ extension BuildStore {
                 self.finishInstall(nil, note: result.message)
             }
         }
-    }
-
-    /// Retry the failed installation with its original built games, without restarting the game builder.
-    package func retryShellInstall() {
-        guard !running else { return }
-        if let retry = shellInstallRetry {
-            failure = nil; done = false; doneNote = ""
-            retry()
-        } else { runBuild() }  // Non-shell installs retain their existing recovery path.
     }
 
     /// Retry after game data that went over in part: only the data step runs again (listing, diff, copy).
@@ -608,12 +598,14 @@ extension BuildStore {
         let launch = ProcessLaunch(command, environment: env,
                                    groupPython: resolvedGroupPy.isEmpty ? "/usr/bin/python3" : resolvedGroupPy)
         let utf8 = UTF8StreamDecoder.Locked()
-        var buffer = "", lastError = ""
+        var buffer = "", lastError = "", devModeError = ""
         let handleLine: @MainActor (BuildStore, String) -> Void = { store, raw in
             var line = raw
             if line.unicodeScalars.last == "\r" { line.unicodeScalars.removeLast() }
             store.append(line + "\n")
-            if line.contains("error:") || line.hasPrefix("ERROR:") { lastError = line.trimmingCharacters(in: .whitespaces) }
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if line.contains("error:") || line.hasPrefix("ERROR:") { lastError = trimmed }
+            if BuildFailureClassifier.isDeveloperModeDisabled(trimmed) { devModeError = trimmed }
             if let s = step(line), let i = store.stages.firstIndex(where: { $0.id == id }) {
                 store.stages[i].detail = s.detail
                 if let percent = s.percent { store.stages[i].percent = percent }
@@ -648,6 +640,7 @@ extension BuildStore {
                 if self.stopping {
                     self.installPhaseActive = false
                     self.stopping = false; self.running = false
+                    self.failure = nil; self.clearInstallRecovery(includeFastRefresh: true)
                     self.resetProgress(); self.doneNote = self.t("msg.stopped"); self.cleanupStaging()
                     return
                 }
@@ -656,7 +649,8 @@ extension BuildStore {
                     self.stages[i].state = ok ? .done : .failed
                     if ok { self.stages[i].percent = 100; self.stages[i].detail = "" }
                 }
-                then(ok ? nil : (lastError.isEmpty ? String(format: self.t("msg.exitCode"), status) : lastError))
+                let resolvedError = !devModeError.isEmpty ? devModeError : (lastError.isEmpty ? String(format: self.t("msg.exitCode"), status) : lastError)
+                then(ok ? nil : resolvedError)
             }
         }
         do { proc = try runner.start(launch, onOutput: onOutput, onExit: onExit) } catch { installPhaseActive = false; then(error.localizedDescription) }
