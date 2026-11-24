@@ -40,7 +40,7 @@ import NXModel
     }
 
     /// The rows that no log line sets: the launcher's own state (a drive, a team) or the step that failed (the install).
-    static let stateKinds: Set<BuildFailureKind> = [.driveMissing, .teamTaken, .noSigningAccount, .deviceTransfer, .devicePairing, .shellDataIncomplete, .engineOffline, .engineSync, .nxkit]   // nxkit: its exit code, not a log line (#1460)
+    static let stateKinds: Set<BuildFailureKind> = [.driveMissing, .teamTaken, .noSigningAccount, .deviceTransfer, .devicePairing, .developerMode, .shellDataIncomplete, .engineOffline, .engineSync, .nxkit]   // nxkit: its exit code, not a log line (#1460)
 
     /// A bump of the pin or a patch that rewords a message must fail here, not turn a hint into the raw last line.
     func testTheEnginesScriptsStillSayWhatThePatternsExpect() throws {
@@ -413,6 +413,42 @@ import NXModel
                     BuildFailureCard(m: build)
                 }.environmentObject(stores.localizer).environmentObject(PadFocus()).padding(24)
             })
+        }
+    }
+    @MainActor func testRenderDeveloperModeRecoveryForVisualQA() throws {
+        guard let directory = ProcessInfo.processInfo.environment["NX_LAUNCHER_CAPTURE_DIR"] else {
+            throw XCTSkip("Set NX_LAUNCHER_CAPTURE_DIR to capture native views")
+        }
+        let output = URL(fileURLWithPath: directory)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        NSApplication.shared.setActivationPolicy(.accessory)
+        for lang in Lang.all {
+            let stores = LauncherStores(defaults: testDefaults)
+            stores.localizer.lang = lang
+            stores.deviceStore.signingTeam = "TEAM123456"
+            stores.deviceStore.readTeams = { [SigningTeam(id: "TEAM123456", identity: "Apple Development")] }
+            let build = stores.build
+            build.finishInstall("Developer Mode disabled. To use Test iPhone for development, enable Developer Mode in Settings → Privacy & Security.")
+            build.noteInstallFailure(.sign, error: build.doneNote)
+            let view = ZStack(alignment: .top) {
+                LauncherPalette.background
+                VStack(alignment: .leading, spacing: 20) {
+                    ActionCard(build: build, dependencies: stores.dependencies, repo: stores.repo)
+                    BuildFailureCard(m: build)
+                }.environmentObject(stores.localizer).environmentObject(PadFocus()).padding(24)
+            }.preferredColorScheme(.dark).frame(width: 780, height: 420)
+            let host = NSHostingView(rootView: view)
+            let window = OffscreenWindow(size: NSSize(width: 780, height: 420))
+            window.contentView = host
+            window.appearance = NSAppearance(named: .darkAqua)
+            window.orderFront(nil)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.25))
+            host.layoutSubtreeIfNeeded()
+            let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: rep)
+            try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+                .write(to: output.appendingPathComponent("developer-mode-" + lang.code + ".png"))
+            window.orderOut(nil)
         }
     }
 }

@@ -208,6 +208,17 @@ extension BuildStore {
         }
         send = .idle
         lastRunWasFastRefresh = true
+        installRecovery.lastFastRefresh = FastRefreshRequest(
+            titleID: tid,
+            targetName: targetName,
+            outDir: outDir,
+            gameName: gameName,
+            existingMacAppPath: existingMacAppPath,
+            externalImgPath: externalImgPath,
+            cheatsDir: cheatsDir,
+            knownArchivePath: knownArchivePath,
+            forceShaderRebuildTrailer: forceShaderRebuildTrailer
+        )
         activeBuildUpstream = .nxnative
         mngRun = false
         s2armRun = false

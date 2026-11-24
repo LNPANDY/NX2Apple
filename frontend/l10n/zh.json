@@ -1023,6 +1023,8 @@
   "fail.damagedNSP.next": "请更换完好的游戏文件（重新导出或重新下载）。「仍然构建」会按读到的样子写出损坏的文件，游戏可能因此出错。",
   "fail.damagedNSP.risk": "会把损坏的文件按读到的样子写出。游戏可能崩溃或显示错误的数据，结果也没有人测试过。这个选择只对这一次构建有效，不会保存。",
   "fail.damagedNSP.what": "游戏文件已损坏，未通过哈希或格式校验（例如包含损坏的贴图或资源文件），常见原因是复制不完整、下载中断或打包源文件损坏。",
+  "fail.developerMode.next": "在 iPhone 或 iPad 上打开「设置 → 隐私与安全性 → 开发者模式」，开启后重启并确认，再重试安装。已构建的游戏会被复用。",
+  "fail.developerMode.what": "设备尚未开启开发者模式。",
   "fail.devicePairing.next": "用数据线连接设备，在设备上点「信任」并输入设备密码，然后重试。",
   "fail.devicePairing.what": "这台 Mac 还没有与设备配对。",
   "fail.deviceTransfer.next": "请解锁 iPhone 或 iPad，如果出现提示就点「信任」，检查数据线并确认设备保持连接，然后重试。",

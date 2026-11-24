@@ -493,6 +493,10 @@ package struct ShellInstaller {
             }
         }
         if built.status != 0 {
+            if let devModeLine = BuildFailureClassifier.developerModeLine(in: built.output, deviceID: device) {
+                end(Self.signStageID, signName, ok: false, detail: devModeLine)
+                return (Outcome(ok: false, message: fmt("dev.signFailed", devModeLine), step: .sign, failure: .developerMode), [])
+            }
             if BuildFailureClassifier.appIDLimitReached(built.output) {
                 let line = built.output.split(whereSeparator: \.isNewline)
                     .map(String.init)
@@ -532,9 +536,11 @@ package struct ShellInstaller {
         let installed = run(ShellInstall.installCommand(xcrun: xcrun, device: device, app: app), env: nil, label: installName,
                             stageID: Self.installStageID, step: BuildProgress.installStep)
         if installed.status != 0 {
-            let why = installed.lastError ?? fmt("msg.exitCode", installed.status)
+            let devModeLine = BuildFailureClassifier.developerModeLine(in: installed.output, deviceID: device)
+            let why = devModeLine ?? installed.lastError ?? fmt("msg.exitCode", installed.status)
             end(Self.installStageID, installName, ok: false, detail: why)
-            return (Outcome(ok: false, message: fmt("dev.installFailed", why), step: .install), [])
+            return (Outcome(ok: false, message: fmt("dev.installFailed", why), step: .install,
+                            failure: devModeLine == nil ? nil : .developerMode), [])
         }
         ShellLibrary.recordInstalled(root: root, device: device)
         end(Self.installStageID, installName, ok: true)

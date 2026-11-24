@@ -4,7 +4,157 @@ import NXCore
 
 // What a failed build says and what its card offers: the classification, "Build anyway" and the fix buttons (LNPANDY/NX2Apple#387).
 
+struct FastRefreshRequest {
+    var titleID: String
+    var targetName: String
+    var outDir: String?
+    var gameName: String?
+    var existingMacAppPath: String?
+    var externalImgPath: String?
+    var cheatsDir: String?
+    var knownArchivePath: String?
+    var forceShaderRebuildTrailer: Bool
+}
+
+enum InstallRecovery {
+    case install(
+        framework: String,
+        titleID: String,
+        name: String,
+        archive: String,
+        dataOnly: Bool,
+        didUpdateImg: Bool,
+        updatedImgPath: String,
+        fastRefresh: FastRefreshRequest?
+    )
+    case installBuilt(framework: String, titleID: String, name: String)
+    case installBatch(games: [DeferredShellGame], dataOnly: Bool)
+    case resign(app: String, device: String, then: (() -> Void)?)
+    case sendData(bundle: String?)
+    case resumeClosure(() -> Void)
+}
+
+struct InstallRecoveryState {
+    var pending: InstallRecovery?
+    var lastFastRefresh: FastRefreshRequest?
+}
+
+@MainActor private final class InstallRecoveryBox {
+    var state = InstallRecoveryState()
+}
+
+@MainActor private let installRecoveryTable = NSMapTable<BuildStore, InstallRecoveryBox>.weakToStrongObjects()
+
 extension BuildStore {
+    var installRecovery: InstallRecoveryState {
+        get { installRecoveryTable.object(forKey: self)?.state ?? InstallRecoveryState() }
+        set {
+            let box = installRecoveryTable.object(forKey: self) ?? {
+                let created = InstallRecoveryBox()
+                installRecoveryTable.setObject(created, forKey: self)
+                return created
+            }()
+            box.state = newValue
+        }
+    }
+
+    func setInstallRecovery(_ recovery: InstallRecovery) {
+        installRecovery.pending = recovery
+    }
+
+    func clearInstallRecovery(includeFastRefresh: Bool = false) {
+        installRecovery.pending = nil
+        if includeFastRefresh {
+            installRecovery.lastFastRefresh = nil
+        }
+    }
+
+    /// Retry the failed installation with its original built games, without restarting the game builder.
+    /// When the built framework or archive is no longer on disk, falls back to rebuilding cleanly.
+    package func retryShellInstall() {
+        guard !running else { return }
+        guard let recovery = installRecovery.pending else {
+            failure = nil; done = false; doneNote = ""
+            runBuild()  // Non-shell or pre-build pairing checks retain their existing recovery path.
+            return
+        }
+        failure = nil; done = false; doneNote = ""
+        let fm = FileManager.default
+        switch recovery {
+        case .install(let framework, let titleID, let name, let archive, let dataOnly,
+                      let didUpdateImg, let updatedImgPath, let fastRefresh):
+            let hasArchive = archive.isEmpty || fm.fileExists(atPath: archive)
+            let valid = dataOnly
+                ? (!archive.isEmpty && fm.fileExists(atPath: archive))
+                : (fm.fileExists(atPath: framework) && hasArchive)
+            guard valid else {
+                clearInstallRecovery(includeFastRefresh: true)
+                fallbackToRebuild(fastRefresh: fastRefresh)
+                return
+            }
+            installShell(framework: framework, titleID: titleID, name: name, archive: archive,
+                         dataOnly: dataOnly, didUpdateImg: didUpdateImg, updatedImgPath: updatedImgPath)
+        case .installBuilt(let framework, let titleID, let name):
+            let mirror = ShellInstall.mirroredFramework(root: shellRoot, titleID: titleID)
+            let resolvedFramework = fm.fileExists(atPath: framework) ? framework
+                : (fm.fileExists(atPath: mirror) ? mirror : nil)
+            guard let resolvedFramework else {
+                clearInstallRecovery(includeFastRefresh: true)
+                if canBuild { runBuild() }
+                else { installBuiltShell(framework: framework, titleID: titleID, name: name) }
+                return
+            }
+            installBuiltShell(framework: resolvedFramework, titleID: titleID, name: name)
+        case .installBatch(let games, let dataOnly):
+            let allPresent = games.allSatisfy { game in
+                let hasArchive = game.archive.isEmpty || fm.fileExists(atPath: game.archive)
+                if dataOnly { return hasArchive }
+                let mirror = ShellInstall.mirroredFramework(root: shellRoot, titleID: game.titleID)
+                return (fm.fileExists(atPath: game.framework) || fm.fileExists(atPath: mirror)) && hasArchive
+            }
+            guard allPresent else {
+                clearInstallRecovery(includeFastRefresh: true)
+                if games.count == 1 && canBuild { runBuild() }
+                else { installShellBatch(games, dataOnly: dataOnly) }
+                return
+            }
+            installShellBatch(games, dataOnly: dataOnly)
+        case .resign(let app, let device, let then):
+            let valid = fm.fileExists(atPath: app)
+                && ShellInstall.paths(ofApp: app).map { fm.fileExists(atPath: $0.project) } == true
+            if !valid { clearInstallRecovery(includeFastRefresh: true) }
+            resignOnDevice(app: app, device: device, then: then)
+        case .sendData(let bundle):
+            guard !archivePath.isEmpty, fm.fileExists(atPath: archivePath) else {
+                let fastRefresh = installRecovery.lastFastRefresh
+                clearInstallRecovery(includeFastRefresh: true)
+                fallbackToRebuild(fastRefresh: fastRefresh)
+                return
+            }
+            sendGameData(bundle: bundle)
+        case .resumeClosure(let resume):
+            clearInstallRecovery()
+            resume()
+        }
+    }
+
+    private func fallbackToRebuild(fastRefresh: FastRefreshRequest?) {
+        if let fastRefresh {
+            startFastRefresh(
+                titleID: fastRefresh.titleID,
+                targetName: fastRefresh.targetName,
+                outDir: fastRefresh.outDir,
+                gameName: fastRefresh.gameName,
+                existingMacAppPath: fastRefresh.existingMacAppPath,
+                externalImgPath: fastRefresh.externalImgPath,
+                cheatsDir: fastRefresh.cheatsDir,
+                knownArchivePath: fastRefresh.knownArchivePath,
+                forceShaderRebuildTrailer: fastRefresh.forceShaderRebuildTrailer
+            )
+        } else {
+            runBuild()
+        }
+    }
     /// A failed build's log read for the script's known early stops: the card under the build button then says what
     /// happened and what to do. An unknown stop leaves the note (the last line of the log) as it is.
     package func noteFailure() {
@@ -23,6 +173,7 @@ extension BuildStore {
         done = false
         doneNote = ""
         stages = []
+        clearInstallRecovery(includeFastRefresh: true)
     }
 
     /// The Save to folder, picked in the app's folder panel (`chooseFolder`). Clears the cloud-folder stop, since the next build looks at the new folder.
@@ -123,8 +274,8 @@ extension BuildStore {
             chooseBuildFolder()
         case .teamTaken, .noSigningAccount, .freeAccountLimit, .appIDLimit:
             openXcode()
-        case .deviceTransfer, .devicePairing:
-            runBuild()
+        case .deviceTransfer, .devicePairing, .developerMode:
+            retryShellInstall()
         case .shellDataIncomplete:
             retryShellData()
         default: break

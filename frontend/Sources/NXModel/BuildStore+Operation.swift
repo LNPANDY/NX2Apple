@@ -14,6 +14,7 @@ extension BuildStore {
     }
 
     package func beginOperation(_ kind: ActiveOperation.Kind, game: String?, titleID: String?, destination place: OperationPlace) {
+        clearInstallRecovery()
         var destination: ActiveOperation.Destination?
         switch place {
         case .target:
@@ -134,6 +135,7 @@ extension BuildStore {
         pendingRefreshNotice = nil
         shellUpdatedOnDevice = false
         completedOperation = nil
+        clearInstallRecovery(includeFastRefresh: true)
     }
 
     /// Starts the staged jobs on their saved platforms with the chosen iOS install/export mode, or starts a single-game build when no

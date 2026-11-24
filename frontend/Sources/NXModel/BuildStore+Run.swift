@@ -18,6 +18,7 @@ extension BuildStore {
         queuedExportFramework = nil
         activeQueueEntryUpstream = nil
         queuedIOSSeenShaders = nil
+        clearInstallRecovery(includeFastRefresh: true)
         runBuild()
     }
 
@@ -88,6 +89,7 @@ extension BuildStore {
         }
         send = .idle
         lastRunWasFastRefresh = false
+        installRecovery.lastFastRefresh = nil
         activeBuildUpstream = buildUpstream
         mngRun = false
         s2armRun = false
@@ -762,6 +764,8 @@ extension BuildStore {
                     self.fastRefreshExternalImgPath = nil
                     self.skipStaleCheckForQueuedEntry = false
                     self.stopping = false
+                    self.failure = nil
+                    self.clearInstallRecovery(includeFastRefresh: true)
                     self.doneNote = self.t("msg.stopped")
                     return
                 }
@@ -774,6 +778,9 @@ extension BuildStore {
                     self.skipStaleCheckForQueuedEntry = false
                     self.failure = BuildFailure(kind: .devicePairing, gameName: nil)
                     self.doneNote = String(format: self.t("shell.notPaired"), self.devices.deviceName(device))
+                    if let resume {
+                        self.setInstallRecovery(.resumeClosure(resume))
+                    }
                     return
                 }
                 self.shellDeviceChecked = true

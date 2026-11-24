@@ -1023,6 +1023,8 @@
   "fail.damagedNSP.next": "Remplacez-les par une copie intacte du jeu (dumpez ou téléchargez à nouveau). Compiler quand même écrit les fichiers endommagés tels quels, ce qui peut casser le jeu.",
   "fail.damagedNSP.risk": "Les fichiers endommagés sont écrits tels quels. Le jeu peut planter ou afficher des données erronées, et le résultat n’est pas testé. Ce choix ne vaut que pour cette compilation et n’est pas enregistré.",
   "fail.damagedNSP.what": "Les fichiers du jeu sont endommagés. Ils échouent à la vérification de hachage ou de format (comme des fichiers de textures ou de données corrompus), souvent à cause d’une copie incomplète, d’un téléchargement corrompu ou d’un paquet défectueux.",
+  "fail.developerMode.next": "Sur votre iPhone ou iPad, ouvrez Réglages → Confidentialité et sécurité → Mode développeur. Activez-le, redémarrez et confirmez. Réessayez ensuite l’installation. Les jeux déjà compilés sont réutilisés.",
+  "fail.developerMode.what": "Le mode développeur est désactivé sur l’appareil.",
   "fail.devicePairing.next": "Branchez l’appareil avec un câble, touchez Se fier sur l’appareil et saisissez son code. Puis réessayez.",
   "fail.devicePairing.what": "Ce Mac n’est pas associé à l’appareil.",
   "fail.deviceTransfer.next": "Déverrouillez l’iPhone ou l’iPad et touchez Se fier s’il le demande, vérifiez le câble et que l’appareil reste connecté, puis réessayez.",
