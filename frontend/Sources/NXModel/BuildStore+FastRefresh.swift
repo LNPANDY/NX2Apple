@@ -200,6 +200,7 @@ extension BuildStore {
         failure = nil
         installedOn = ""
         installedAppPath = ""
+        shellUpdatedOnDevice = false
         exportedIPAPath = ""
         if !deferShellPackaging {
             needsReplaceOldImgReminder = false

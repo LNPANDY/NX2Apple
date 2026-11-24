@@ -45,6 +45,74 @@ struct HostDemoScreen: View {
             """
             try? Data(trampolines.utf8).write(to: dmDir.appendingPathComponent("cheat_trampolines.tsv"))
             gamesRoot = scratchGames
+        } else if args.contains("--mock-settings-framegen-rotation") {
+            let bundled = Bundle.main.url(forResource: "Games", withExtension: nil)
+                ?? (fm.urls(for: .documentDirectory, in: .userDomainMask).first ?? fm.temporaryDirectory).appendingPathComponent("Games")
+            let scratchGames = fm.temporaryDirectory.appendingPathComponent("shell-demo-games-settings", isDirectory: true)
+            try? fm.removeItem(at: scratchGames)
+            try? fm.copyItem(at: bundled, to: scratchGames)
+            let launcherJSON = """
+            {
+              "schema": 1,
+              "game": "0100000000010000",
+              "settings": [
+                {
+                  "env": "DM_NVN_TEX_MIP_SKIP",
+                  "kind": "choice",
+                  "section": "Game",
+                  "label": "Texture quality",
+                  "note": "Skips top mip levels of large static textures to save GPU memory and reduce heat. Takes effect on next launch.",
+                  "default": "0",
+                  "level": "basic",
+                  "options": [["0", "Original"], ["1", "Recommended"], ["2", "Smooth"]]
+                },
+                {
+                  "env": "DM_FRAMEGEN",
+                  "kind": "toggle",
+                  "section": "Game",
+                  "label": "Frame generation",
+                  "note": "Shows 60 frames a second while the game draws 30. MetalFX makes a frame between each two, with less work and heat than 60 fps, slightly more input delay, and possible smearing on fast motion.",
+                  "default": "0",
+                  "on": "1",
+                  "off": "0"
+                },
+                {
+                  "env": "DM_ROTATION",
+                  "kind": "choice",
+                  "section": "Game",
+                  "label": "Rotation",
+                  "note": "",
+                  "default": "auto",
+                  "options": [["auto", "Automatic"], ["landscape", "Landscape"], ["portrait", "Portrait"]]
+                },
+                {
+                  "env": "DM_SHOW_FPS",
+                  "kind": "toggle",
+                  "section": "Game",
+                  "label": "Frame-rate counter",
+                  "note": "",
+                  "default": "1",
+                  "on": "1",
+                  "off": "0"
+                },
+                {
+                  "env": "DM_AUDIO_MIX",
+                  "kind": "toggle",
+                  "section": "Game",
+                  "label": "Mix with other audio",
+                  "note": "Plays game audio alongside other apps instead of stopping them.",
+                  "default": "0",
+                  "on": "1",
+                  "off": "0"
+                }
+              ]
+            }
+            """
+            let targetJSON = scratchGames
+                .appendingPathComponent("0100000000010000", isDirectory: true)
+                .appendingPathComponent("launcher.json")
+            try? Data(launcherJSON.utf8).write(to: targetJSON)
+            gamesRoot = scratchGames
         } else {
             gamesRoot = Bundle.main.url(forResource: "Games", withExtension: nil)
                 ?? (fm.urls(for: .documentDirectory, in: .userDomainMask).first ?? fm.temporaryDirectory).appendingPathComponent("Games")

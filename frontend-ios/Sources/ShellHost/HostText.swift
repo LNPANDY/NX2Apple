@@ -78,7 +78,16 @@ public func localizeEngineLaunchError(_ raw: String) -> String {
         return hostText("This game's framework in Documents/Frameworks is unsigned. Reinstall it with the same signing team from NX2Apple, or import your sideload .p12 certificate in Settings to sign it automatically on this device.")
     case "iOS refused the code signature of this game's framework. Install the game again from NX2Apple.":
         return hostText("iOS refused the code signature of this game's framework. Reinstall it with the same signing team from NX2Apple, or import your sideload .p12 certificate in Settings to sign it automatically on this device.")
+    case FrameworkSignature.unsupportedHotFrameworkSigningMessage:
+        return hostText("This app signature does not support loading games from Documents/Frameworks. Reinstall the app from NX2Apple on your computer.")
+    case FrameworkSignature.certMismatchHotFrameworkMessage:
+        return hostText("Could not load the game framework because the signing certificate does not match this app. Reinstall the app from your computer.")
     default:
+        if raw.contains("file system sandbox blocked mmap")
+            || raw.contains("sandbox blocked mmap")
+            || raw.hasPrefix("The game's code could not be loaded:") {
+            return hostText("Could not load the game framework because the signing certificate does not match this app. Reinstall the app from your computer.")
+        }
         return raw
     }
 }

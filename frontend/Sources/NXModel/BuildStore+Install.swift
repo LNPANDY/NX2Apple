@@ -149,7 +149,8 @@ extension BuildStore {
         if dataOnly { stoppedByPlayer = false }
         running = true
         finderShown = false
-        if dataOnly { failure = nil; done = false; doneNote = "" }
+        if dataOnly { failure = nil; done = false; doneNote = ""; shellUpdatedOnDevice = false }
+        else { shellUpdatedOnDevice = false }
         shellBatchRetry = nil
         shellRetry = (framework, titleID, name, archive)
         let shouldTransferUpdatedImg = didUpdateImg ?? needsReplaceOldImgReminder
@@ -222,6 +223,7 @@ extension BuildStore {
                 }
                 self.installedOn = device
                 self.installedAppPath = result.appPath
+                self.shellUpdatedOnDevice = result.shellUpdated
                 self.installedDataComplete = !result.copySkipped
                 self.finishInstall(nil, note: result.message)
             }
@@ -235,7 +237,7 @@ extension BuildStore {
         beginOperation(.installing, game: nil, titleID: nil, destination: .target)
         stopping = false; stoppedByPlayer = false; installCancel.set(false); installPhaseActive = true
         running = true; done = false; doneNote = ""; failure = nil; stages = []
-        needsReplaceOldImgReminder = false; updatedImgPath = ""
+        needsReplaceOldImgReminder = false; updatedImgPath = ""; shellUpdatedOnDevice = false
         finderShown = false
         let installer = makeInstaller()
         let device = devices.installDevice
@@ -260,6 +262,7 @@ extension BuildStore {
                 }
                 self.installedOn = device
                 self.installedAppPath = result.appPath
+                self.shellUpdatedOnDevice = result.shellUpdated
                 self.onBuiltGamesInstalled(result.appPath, device)
                 self.finishInstall(nil, note: result.message)
             }
@@ -275,7 +278,7 @@ extension BuildStore {
                        titleID: games.count == 1 ? last.titleID : nil, destination: .target)
         stopping = false; installCancel.set(false); installPhaseActive = true
         if dataOnly { stoppedByPlayer = false }
-        running = true; done = false; doneNote = ""; failure = nil
+        running = true; done = false; doneNote = ""; failure = nil; shellUpdatedOnDevice = false
         if dataOnly { stages = [] }
         finderShown = false
         shellBatchRetry = games
@@ -337,6 +340,7 @@ extension BuildStore {
                 }
                 self.installedOn = device
                 self.installedAppPath = result.appPath
+                self.shellUpdatedOnDevice = result.shellUpdated
                 self.onBatchShellInstalled(games, result.appPath, device)
                 self.installedDataComplete = !result.copySkipped
                 self.finishInstall(nil, note: result.message)
@@ -405,7 +409,7 @@ extension BuildStore {
         let deviceName = devices.deviceName(device)
         buildingGame = false; runningTarget = BuildTarget.ios
         beginOperation(.installing, game: nil, titleID: nil, destination: .device(deviceName))
-        needsReplaceOldImgReminder = false; updatedImgPath = ""
+        needsReplaceOldImgReminder = false; updatedImgPath = ""; shellUpdatedOnDevice = false
         running = true
         runTool(id: 1004, name: String(format: t("dev.reinstallStage"), deviceName),
                 BuildCommands.reinstallCommand(xcrun: devices.xcrun, device: device, app: app), nameKey: "dev.reinstallStage",
@@ -420,130 +424,6 @@ extension BuildStore {
                 self.cleanupStaging()
             }
             then?()
-        }
-    }
-
-    /// Renew the shared app's signature (a free Apple ID's profile lasts 7 days). The same xcodebuild parameters as
-    /// the install, run on the cached project and derived data: Xcode reuses the compiled products and only signs
-    /// again, then devicectl installs the app over itself. PRODUCT_BUNDLE_IDENTIFIER is the one shell.json holds, so the
-    /// device keeps the app's Documents (game data, saves).
-    package func resignOnDevice(app: String, device: String, then: (() -> Void)? = nil) {
-        installedOn = ""
-        guard !device.isEmpty, !app.isEmpty else { then?(); return }
-        guard !devices.signingTeam.isEmpty else {
-            doneNote = t("dev.resignNoTeam")
-            then?(); return
-        }
-        // An app from before the shared app has its own project and cannot be signed again here: build the game again
-        guard let shell = ShellInstall.paths(ofApp: app) else {
-            doneNote = t("dev.resignOlder")
-            then?(); return
-        }
-        guard FileManager.default.fileExists(atPath: shell.project) else {
-            doneNote = String(format: t("dev.resignNoProject"), shortPath(shell.project))
-            then?(); return
-        }
-        let xcrun = devices.xcrun, team = devices.signingTeam, name = devices.deviceName(device)
-        let loaded = ShellLibrary.load(root: shell.root)
-        var library = loaded
-        library.dropMissing()
-        library.games.removeAll { ShellInstall.missingFile(inFramework: $0.framework, titleID: $0.titleID) != nil }
-        if library != loaded { try? library.save(root: shell.root) }
-        ShellInstall.pruneEmbeddedFrameworks(root: shell.root, keeping: library.games)
-        let needsProjectUpdate = ShellInstall.projectNeedsUpdate(root: shell.root, games: library.games)
-        if needsProjectUpdate, library.games.isEmpty {
-            doneNote = String(format: t("dev.resignNoProject"), shortPath(shell.project))
-            then?(); return
-        }
-        let bundle = library.bundleID
-        let resources = Bundle.main.resourceURL?.path, repoPath = repo.path, home = self.home, runner = self.runner
-        buildingGame = false; runningTarget = BuildTarget.ios
-        beginOperation(.renewingSignature, game: nil, titleID: nil, destination: .device(name))
-        stopping = false; stoppedByPlayer = false; installPhaseActive = true
-        needsReplaceOldImgReminder = false; updatedImgPath = ""
-        running = true
-        // The shared app is signed again under the identifier shell.json holds, so the device keeps its Documents
-        let command = ShellInstall.buildCommand(xcrun: xcrun, root: shell.root, device: device, team: team, bundleID: bundle)
-        let signAndInstall = {
-            DispatchQueue.global(qos: .userInitiated).async {
-                ShellInstall.refreshProjectLinks(root: shell.root, resources: resources, repo: repoPath)
-                let stagedProfiles = AppSignature.stageProfilesForResign(
-                    app: app, bundleID: bundle, team: team, home: home, runner: runner
-                )
-                hop {
-                    self.installPhaseActive = false
-                    if self.stopping {
-                        self.stopping = false
-                        stagedProfiles.rollback()
-                        self.running = false
-                        self.doneNote = self.t("msg.stopped")
-                        then?(); return
-                    }
-                    self.stagedResignProfiles = stagedProfiles
-                    self.runTool(id: 1006, name: String(format: self.t("dev.resignStage"), name),
-                                 command, nameKey: "dev.resignStage", nameArgument: name, step: BuildProgress.xcodeStep) { error in
-                        if let error, !error.isEmpty {
-                            stagedProfiles.rollback()
-                            self.stagedResignProfiles = nil
-                            self.doneNote = String(format: self.t("dev.resignFailed"), error)
-                            self.noteInstallFailure(.sign, error: error)
-                            self.running = false
-                            then?(); return
-                        }
-                        stagedProfiles.commit()
-                        self.stagedResignProfiles = nil
-                        self.runTool(id: 1007, name: String(format: self.t("dev.installStage"), name),
-                                     BuildCommands.reinstallCommand(xcrun: xcrun, device: device, app: app), nameKey: "dev.installStage",
-                                     nameArgument: name, step: BuildProgress.installStep) { installError in
-                            if let installError {
-                                self.doneNote = String(format: self.t("dev.installFailed"), installError)
-                            } else {
-                                ShellLibrary.recordInstalled(root: shell.root, device: device)
-                                self.installedOn = device
-                                self.installedAppPath = app
-                                self.doneNote = String(format: self.t("dev.resigned"), name)
-                            }
-                            self.running = false
-                            then?()
-                        }
-                    }
-                }
-            }
-        }
-        guard needsProjectUpdate else {
-            signAndInstall()
-            return
-        }
-        let engineRoot = EngineLayout.root(repoPath)
-        let python = resolveBuildPython()
-        let toolPath = BuildCommands.toolPath("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", python: python)
-        guard let package = ShellInstall.shellPackage(resources: resources, repo: repoPath) else {
-            let looked = ([resources, repoPath].compactMap { $0 }.filter { !$0.isEmpty }).map { $0 + "/frontend-ios" }.joined(separator: ", ")
-            self.installPhaseActive = false
-            self.running = false
-            self.doneNote = String(format: self.t("shell.projectFailed"), "no frontend-ios Swift package (Package.swift) in " + looked)
-            then?(); return
-        }
-        var env = ShellInstall.projectEnvironment(root: shell.root, frameworks: library.games.map(\.framework), bundleID: bundle,
-                                                  team: team, python: python, path: toolPath, home: NSHomeDirectory(), user: NSUserName(),
-                                                  tmp: NSTemporaryDirectory(), package: package, engine: engineRoot)
-        env.merge(BundledTools.environment(for: python)) { $1 }
-        env.merge(seedEnvironment) { $1 }
-        let xcconfig = shell.root + "/project/Gen/dm.xcconfig"
-        if (try? String(contentsOfFile: xcconfig, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true
-            || FileManager.default.fileExists(atPath: shell.root + "/project/entitlements-empty") {
-            env["DM_ENTITLEMENTS"] = ""
-        }
-        runTool(id: ShellInstaller.projectStageID, name: t("shell.projectStage"),
-                ShellInstall.projectCommand(package: package), environment: env, nameKey: "shell.projectStage", step: { _ in nil }) { projectError in
-            if let projectError, !projectError.isEmpty {
-                self.installPhaseActive = false
-                self.running = false
-                self.doneNote = String(format: self.t("shell.projectFailed"), projectError)
-                then?(); return
-            }
-            ShellInstall.writeProjectFrameworks(root: shell.root, games: library.games)
-            signAndInstall()
         }
     }
 

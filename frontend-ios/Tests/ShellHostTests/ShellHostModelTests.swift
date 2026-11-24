@@ -102,7 +102,8 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         let text = try #require(launcher.launched.last?.environment["DM_GAME_MENU_TEXT"])
         #expect(text == ShellHostModel.gameMenuText)
         let lines = text.components(separatedBy: "\n")
-        #expect(lines.count == 2 && lines.allSatisfy { !$0.isEmpty && !$0.contains(";") })
+        #expect(lines.count == 5 && lines.allSatisfy { !$0.isEmpty && !$0.contains(";") })
+        #expect(lines[4].contains("%@"))
     }
 
     /// BUG-23: Quit returns the player to the shell library rather than force-closing the whole app.

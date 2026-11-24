@@ -481,7 +481,7 @@ struct ShellSettingsView: View {
         } header: {
             Text(ShellStrings.text("Sideload signing certificate"))
         } footer: {
-            Text(ShellStrings.text("When NX2Apple is installed through SideStore, AltStore, or another sideload tool, import the .p12 certificate exported by that tool here so unsigned game frameworks placed in Frameworks are signed automatically on launch. Installs directly from Xcode on a Mac do not need this."))
+            Text(ShellStrings.text("When NX2Apple is installed through SideStore, AltStore, or another sideload tool with a development profile, import the same .p12 certificate used to sign the app here so game frameworks in Frameworks are signed with the matching certificate on launch. Distribution or mismatched certificates cannot load from Frameworks and require reinstalling from your computer. Installs directly from Xcode on a Mac do not need this."))
         }
     }
 

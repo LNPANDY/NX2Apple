@@ -313,6 +313,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     @Published package var installedDataComplete: Bool?
     @Published package var installedOn = "" { didSet { installedDataComplete = nil } }       // the device the last build went to (its UDID)
     @Published package var installedAppPath = ""  // the signed app that went there
+    @Published package var shellUpdatedOnDevice = false
     @Published package var exportedIPAPath = ""   // the unsigned IPA of an export (#416)
     @Published package var send: DataSend = .idle {  // step 3 of the export: the game data on its way (BuildStore+Send.swift)
         didSet {
@@ -626,6 +627,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         fastRefreshExternalImgPath = nil
         needsReplaceOldImgReminder = false
         updatedImgPath = ""
+        shellUpdatedOnDevice = false
         stopPSOPoll()
         stages = []
         log.clear()

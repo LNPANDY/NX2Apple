@@ -25,8 +25,18 @@ struct EngineGameLauncher: GameLauncher {
         let plan = EngineLaunchPlan.make(game: game, appResources: Bundle.main.resourceURL ?? bundleURL, documents: documents, envFileText: envFile)
         let executableURL = plan.frameworkExecutable
         if let refusal = await Task.detached(priority: .userInitiated, operation: {
-            FrameworkSignature.preflightExternal(executable: executableURL, appBundleURL: bundleURL,
-                                                 hostTeamID: ProvisioningProfile.bundledTeamIdentifier())
+            #if os(iOS) && !targetEnvironment(simulator)
+            let allowsHotLoading = ProvisioningProfile.bundledAllowsHotFrameworkLoading()
+            #else
+            let allowsHotLoading = true
+            #endif
+            return FrameworkSignature.preflightExternal(
+                executable: executableURL,
+                appBundleURL: bundleURL,
+                hostTeamID: ProvisioningProfile.bundledTeamIdentifier(),
+                hostCertSHA1: ProvisioningProfile.bundledSigningCertificateSHA1(),
+                allowsHotLoading: allowsHotLoading
+            )
         }).value {
             throw Failure.engine(refusal)
         }
@@ -112,6 +122,11 @@ private func withCStrings<R>(_ strings: [String], _ body: (UnsafePointer<UnsafeP
             ShellHostBeacon.write(to: documents)
         }
         let frameworks = Bundle.main.privateFrameworksURL ?? Bundle.main.bundleURL.appendingPathComponent("Frameworks", isDirectory: true)
+        #if os(iOS) && !targetEnvironment(simulator)
+        let supportsHotLoading: @Sendable () -> Bool = { ProvisioningProfile.bundledAllowsHotFrameworkLoading() }
+        #else
+        let supportsHotLoading: @Sendable () -> Bool = { true }
+        #endif
         let config = ShellHostConfig(
             gamesRoot: frameworks,
             appDataRoot: ShellHostConfig.defaultAppDataRoot(),
@@ -123,7 +138,8 @@ private func withCStrings<R>(_ strings: [String], _ body: (UnsafePointer<UnsafeP
             },
             requestStopRunningGame: {
                 dm_shell_request_stop_game()
-            }
+            },
+            supportsHotFrameworkLoading: supportsHotLoading
         )
         let model = ShellHostModel(config: config, launcher: EngineGameLauncher(), picker: DocumentFolderPicker(),
                                    certificatePicker: DocumentCertificatePicker(),

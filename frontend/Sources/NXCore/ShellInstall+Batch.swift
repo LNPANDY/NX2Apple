@@ -69,8 +69,14 @@ extension ShellInstaller {
                 return HotGame(framework: resolved, titleID: game.titleID, name: game.name, pickedArtwork: nil)
             }
             hotGames.append(HotGame(framework: framework, titleID: titleID, name: name, pickedArtwork: pickedArtwork))
-            if let hot = tryHotInstall(games: hotGames) {
-                return hot.outcome.ok ? withNotes(hot) : hot.outcome
+            switch attemptHotInstall(games: hotGames) {
+            case .completed(let outcome, let notes):
+                return outcome.ok ? withNotes((outcome, notes)) : outcome
+            case .fallback(let shellOutdated):
+                let signed = signAndInstallApp(framework: framework, titleID: titleID, name: name,
+                                               allowHotRetry: false, priorShellOutdated: shellOutdated)
+                guard signed.outcome.ok else { return signed.outcome }
+                return withNotes(signed)
             }
         }
         let signed = signAndInstallApp(framework: framework, titleID: titleID, name: name)
@@ -100,19 +106,23 @@ extension ShellInstaller {
             outcome.batchGameResults = buildBatchResults(games: games, completedIndices: [], failureReason: outcome.message)
             return outcome
         }
-        if let hot = tryHotInstall(games: games.map {
+        let shellOutdated: Bool
+        switch attemptHotInstall(games: games.map {
             HotGame(framework: $0.framework, titleID: $0.titleID, name: $0.name, pickedArtwork: $0.pickedArtwork)
         }) {
-            guard hot.outcome.ok else {
-                var outcome = hot.outcome
-                outcome.batchGameResults = buildBatchResults(games: games, completedIndices: [], failureReason: outcome.message)
-                return outcome
+        case .completed(let outcome, let notes):
+            guard outcome.ok else {
+                var failed = outcome
+                failed.batchGameResults = buildBatchResults(games: games, completedIndices: [], failureReason: outcome.message)
+                return failed
             }
-            var result = copyBatchGameData(games, app: hot.outcome.appPath, bundleID: hot.outcome.bundleID, start: hot.outcome)
-            if result.ok, !hot.notes.isEmpty {
-                result.message = ([result.message] + hot.notes).joined(separator: "\n")
+            var result = copyBatchGameData(games, app: outcome.appPath, bundleID: outcome.bundleID, start: outcome)
+            if result.ok, !notes.isEmpty {
+                result.message = ([result.message] + notes).joined(separator: "\n")
             }
             return result
+        case .fallback(let outdated):
+            shellOutdated = outdated
         }
         if let refused = pairingRefusal() {
             var outcome = refused
@@ -140,7 +150,8 @@ extension ShellInstaller {
 
         var batchInstaller = self
         batchInstaller.pickedArtwork = last.pickedArtwork
-        let signed = batchInstaller.signAndInstallApp(framework: last.framework, titleID: last.titleID, name: last.name)
+        let signed = batchInstaller.signAndInstallApp(framework: last.framework, titleID: last.titleID, name: last.name,
+                                                      allowHotRetry: false, priorShellOutdated: shellOutdated)
         guard signed.outcome.ok else {
             if let before { try? before.write(to: URL(fileURLWithPath: stateFile), options: .atomic) }
             else if fm.fileExists(atPath: stateFile) { try? fm.removeItem(atPath: stateFile) }

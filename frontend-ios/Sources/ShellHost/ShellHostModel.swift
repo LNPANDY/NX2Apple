@@ -46,6 +46,8 @@ public struct ShellHostConfig: Sendable {
     public var sideloadCertBacking: any SideloadCertBacking
     /// Host app bundle identifier stamped into locally re-signed external framework CodeDirectories.
     public var hostBundleID: @Sendable () -> String
+    /// Whether the running app's signing profile allows mapping external frameworks from `Documents/Frameworks/`.
+    public var supportsHotFrameworkLoading: @Sendable () -> Bool
     /// Split-part byte size used by startup `DataParts.joinAll` (defaults to 512 MiB).
     public var joinPartSize: Int64
     var onJoinProgress: (@Sendable (DataParts.Progress) -> Void)?
@@ -72,6 +74,7 @@ public struct ShellHostConfig: Sendable {
                 provisioningExpiration: @escaping @Sendable () -> Date? = { ProvisioningProfile.bundledExpiration() },
                 sideloadCertBacking: any SideloadCertBacking = KeychainCertBacking(),
                 hostBundleID: @escaping @Sendable () -> String = { Bundle.main.bundleIdentifier ?? "" },
+                supportsHotFrameworkLoading: @escaping @Sendable () -> Bool = { true },
                 joinPartSize: Int64 = DataParts.partSize) {
         self.gamesRoot = gamesRoot
         self.hotFrameworksRoot = hotFrameworksRoot
@@ -102,6 +105,7 @@ public struct ShellHostConfig: Sendable {
         self.provisioningExpiration = provisioningExpiration
         self.sideloadCertBacking = sideloadCertBacking
         self.hostBundleID = hostBundleID
+        self.supportsHotFrameworkLoading = supportsHotFrameworkLoading
         self.joinPartSize = joinPartSize
         self.onJoinProgress = nil
     }
@@ -2050,6 +2054,11 @@ public struct ShellHostConfig: Sendable {
             var usedCachedReceipt = false
 
             if let hotRoot, isHotExternal {
+                guard config.supportsHotFrameworkLoading() else {
+                    throw HotFrameworkUnsupportedError(
+                        message: hostText("This app signature does not support loading games from Documents/Frameworks. Reinstall the app from NX2Apple on your computer.")
+                    )
+                }
                 let fwURL = game.frameworkURL
                 let hostID = config.hostBundleID()
                 let store = sideloadCertificateStore
@@ -2163,10 +2172,15 @@ public struct ShellHostConfig: Sendable {
             .map { $0.replacingOccurrences(of: "\n", with: " ") }.joined(separator: "\n")
     }
 
-    /// DM_GAME_MENU_TEXT: the in-game menu's own words in the player's language, one per line in the engine's order (patch 0124, GameMenu.swift):
-    /// its title and Controller layout (#1129).
+    /// DM_GAME_MENU_TEXT: the in-game menu's own words in the player's language, one per line in the engine's order (GameMenu.swift):
+    /// title, Controller layout, Tap layout, Set in env.txt, and "%@, set in env.txt".
     static var gameMenuText: String {
-        [hostText("More settings on the start screen"), hostText("Controller layout")]
+        let currentEnvTemplate = HostStrings.bundle.localizedString(forKey: "%@, set in env.txt", value: "%@, set in env.txt", table: nil)
+        return [hostText("More settings on the start screen"),
+                hostText("Controller layout"),
+                hostText("Tap"),
+                hostText("Set in env.txt"),
+                currentEnvTemplate]
             .map { $0.replacingOccurrences(of: "\n", with: " ") }.joined(separator: "\n")
     }
 
@@ -2263,4 +2277,9 @@ public struct ShellHostConfig: Sendable {
     static func info(for c: ConnectedController) -> ControllerInfo {
         ControllerInfo(id: c.id, name: c.name, player: hostText("Player \(c.player)"), batteryPercent: c.batteryPercent, charging: c.charging)
     }
+}
+
+private struct HotFrameworkUnsupportedError: LocalizedError {
+    let message: String
+    var errorDescription: String? { message }
 }

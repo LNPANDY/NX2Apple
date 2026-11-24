@@ -78,6 +78,53 @@ class LauncherTexts(unittest.TestCase):
             twin = key.replace('ios.setting.', 'launch.set.')
             self.assertNotEqual(english[key], english.get(twin), f'{key} says what {twin} says: delete it')
 
+    def test_every_ios_setting_and_ingame_menu_text_covers_all_languages(self):
+        languages = C.load_languages()
+        ui_strings = catalog()
+        host_strings = json.loads(C.catalog_path('ShellHost').read_text(encoding='utf-8'))['strings']
+        checked_in = [t for t in FIXTURE.read_text(encoding='utf-8').splitlines() if t]
+        expected_codes = {C.apple_code(code) for code in languages}
+
+        for text in checked_in:
+            locs = ui_strings.get(text, {}).get('localizations', {})
+            self.assertEqual(set(locs.keys()), expected_codes, f'ShellUI catalog lacks languages for setting text: {text!r}')
+
+        # Every ShellInGameMenu allowlisted env must exist in settings.tsv and resolve through ShellUI catalog.
+        if (ENGINE / 'dm' / 'games' / 'settings.tsv').is_file():
+            tsv_envs = set()
+            for line in (ENGINE / 'dm' / 'games' / 'settings.tsv').read_text(encoding='utf-8').splitlines():
+                if not line.strip() or line.startswith('#'):
+                    continue
+                tsv_envs.add(line.split('\t', 1)[0])
+            in_game_menu = (ROOT / 'frontend-ios' / 'Sources' / 'ShellHost' / 'ShellInGameMenu.swift').read_text(encoding='utf-8')
+            start = in_game_menu.index('allowedEnvs')
+            end = in_game_menu.index(']', start)
+            for env_name in [s.strip().strip('",') for s in in_game_menu[start:end].splitlines() if '"' in s]:
+                self.assertIn(env_name, tsv_envs, f'ShellInGameMenu env {env_name} missing from settings.tsv')
+
+        # GameMenuText: all 5 menu strings (moreSettings, controllerLayout, Tap, Set in env.txt, %@, set in env.txt)
+        # must exist in all 10 languages in both ShellHost (ios.host.*) and Mac/Qt builders (ingame.*).
+        required_host_texts = [
+            'More settings on the start screen',
+            'Controller layout',
+            'Tap',
+            'Set in env.txt',
+            '%@, set in env.txt',
+        ]
+        for text in required_host_texts:
+            locs = host_strings.get(text, {}).get('localizations', {})
+            self.assertEqual(set(locs.keys()), expected_codes, f'ShellHost catalog lacks languages for in-game menu text: {text!r}')
+        required_ingame_keys = [
+            'ingame.moreSettings',
+            'ingame.controllerLayout',
+            'ingame.tapLayout',
+            'ingame.setInEnvFile',
+            'ingame.currentSetInEnvFile',
+        ]
+        for key in required_ingame_keys:
+            for code, texts in languages.items():
+                self.assertIn(key, texts, f'frontend/l10n/{code}.json lacks {key}')
+
 
 if __name__ == '__main__':
     if sys.argv[1:] == ['--write']:

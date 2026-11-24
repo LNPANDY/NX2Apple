@@ -1682,4 +1682,127 @@ import NXModel
         XCTAssertEqual(try String(contentsOfFile: deviceGameDir + "/aoc/dlc1.img", encoding: .utf8), "dlc-payload")
         XCTAssertFalse(fm.fileExists(atPath: deviceGameDir + "/Hades.img"))
     }
+
+    @MainActor func testFastRefreshIncompatibleBeaconFallsBackToFullBuildAndReportsUpdatedShell() throws {
+        let f = try fixtureWithRomFSTool()
+        try write(f.repo + "/dm/gfx/nvn/dmsh_chain.h", "#define DMSH_CHAIN \"108c5f92c3c4\"\n")
+        let seedDir = path("seed-cache", titleID)
+        try write(seedDir + "/game_seed.json", """
+        {"schema": 1, "title_id": "\(titleID)", "chain": "108c5f92c3c4", "romfs_identity": "id-1"}
+        """)
+        let outDir = path("fast-out")
+        let prebuiltImg = outDir + "/games/\(titleID)/romfs.img"
+        try fm.createDirectory(atPath: (prebuiltImg as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        try romfsImage().write(to: URL(fileURLWithPath: prebuiltImg))
+        try fm.createDirectory(atPath: seedDir, withIntermediateDirectories: true)
+        try romfsImage().write(to: URL(fileURLWithPath: seedDir + "/romfs.img"))
+
+        var initial = installer(f)
+        initial.decideCopy = { _ in .skip }
+        XCTAssertTrue(install(initial, f).ok)
+
+        // Device holds an older v1.5.0 shared shell beacon (glueVersion 2, older shader chain).
+        let beaconJSON = """
+        {"schema":1,"glueVersion":2,"bundleID":"\(ShellLibrary.defaultBundleID)","teamID":"\(team)","chain":"b-df1800562702","version":"1.5.0","expiresAtEpoch":\(Int64(Date().timeIntervalSince1970) + 5 * 86400)}
+        """
+        try write(container + "/\(ShellLibrary.defaultBundleID)/\(ShellHotInstall.beaconRemotePath)", beaconJSON)
+        try "".write(toFile: state + "/calls.txt", atomically: true, encoding: .utf8)
+
+        testDefaults.set(f.root, forKey: "shellRoot")
+        testDefaults.set(seedDir.replacingOccurrences(of: "/\(titleID)", with: ""), forKey: "seedCacheDirectory")
+        let modelStores = try makeModel(f)
+        try write(f.repo + "/scripts/build_ipa_from_nsp.py", """
+        #!/usr/bin/env python3
+        import json, os, sys
+        if '--from-seed' in sys.argv:
+            wd = sys.argv[sys.argv.index('--work-dir') + 1]
+            tid = sys.argv[sys.argv.index('--title-id') + 1]
+            fw = os.path.join(wd, 'shell-framework', f'DmGame{tid}.framework')
+            os.makedirs(fw, exist_ok=True)
+            open(os.path.join(fw, f'DmGame{tid}'), 'w').write('exe')
+            json.dump({'title_id': tid, 'framework': f'DmGame{tid}.framework', 'framework_executable': f'DmGame{tid}', 'loader': 'FH'},
+                      open(os.path.join(fw, 'game.manifest.json'), 'w'))
+            sys.exit(0)
+        print('Usage: --from-seed')
+        """)
+        modelStores.localizer.lang = .zh
+        modelStores.deviceStore.postBuildTransferMode = .skip
+        let model = modelStores.build
+        let finished = expectation(description: "Fast refresh falls back to full build")
+        let sub = model.$done.filter { $0 }.prefix(1).sink { _ in finished.fulfill() }
+        model.startFastRefresh(titleID: titleID, target: 1, outDir: outDir, gameName: "Fast Game", externalImgPath: prebuiltImg)
+        wait(for: [finished], timeout: 30)
+        withExtendedLifetime(sub) {}
+
+        let recordedCalls = try String(contentsOfFile: state + "/calls.txt", encoding: .utf8).split(separator: "\n").map(String.init)
+        XCTAssertEqual(recordedCalls.filter { $0.hasPrefix("xcodebuild") }.count, 1, "fast refresh with incompatible beacon must rebuild full shell")
+        XCTAssertEqual(recordedCalls.filter { $0.hasPrefix("devicectl device install app") }.count, 1)
+        XCTAssertTrue(model.shellUpdatedOnDevice)
+        XCTAssertTrue(model.doneNote.contains("已为 iPhone 更新游戏壳"), model.doneNote)
+    }
+
+    @MainActor func testResignWithOutdatedDeviceBeaconOrStaleProjectStampUpgradesShellAndReportsNote() throws {
+        let f = try makeFixture()
+        try write(f.repo + "/dm/gfx/nvn/dmsh_chain.h", "#define DMSH_CHAIN \"108c5f92c3c4\"\n")
+        var first = installer(f)
+        first.decideCopy = { _ in .skip }
+        XCTAssertTrue(install(first, f).ok)
+
+        testDefaults.set(f.root, forKey: "shellRoot")
+        let modelStores = try makeModel(f)
+        modelStores.localizer.lang = .zh
+        let model = modelStores.build
+        let app = ShellInstall.appPath(root: f.root)
+        let nowEpoch = Int64(Date().timeIntervalSince1970)
+
+        // Scenario A: games unchanged (projectNeedsUpdate == false), but device beacon reports legacy glueVersion 2 -> must regenerate project & upgrade shell.
+        let legacyBeacon = """
+        {"schema":1,"glueVersion":2,"bundleID":"\(ShellLibrary.defaultBundleID)","teamID":"\(team)","chain":"b-df1800562702","version":"1.5.0","expiresAtEpoch":\(nowEpoch + 5 * 86400)}
+        """
+        try write(container + "/\(ShellLibrary.defaultBundleID)/\(ShellHotInstall.beaconRemotePath)", legacyBeacon)
+        try "".write(toFile: state + "/calls.txt", atomically: true, encoding: .utf8)
+        let marker = f.root + "/project/stale-sentinel"
+        try write(marker, "old")
+        try write(f.repo + "/frontend-ios/Shell/build_shell.sh",
+                  try String(contentsOfFile: f.repo + "/frontend-ios/Shell/build_shell.sh", encoding: .utf8) + "\nrm -f \"$SHELL_DIR/stale-sentinel\"\n")
+
+        let expA = expectation(description: "Resign upgrades legacy device shell")
+        model.resignOnDevice(app: app, device: device) { expA.fulfill() }
+        wait(for: [expA], timeout: 30)
+
+        XCTAssertFalse(fm.fileExists(atPath: marker), "resign with outdated device shell must regenerate shell project")
+        XCTAssertTrue(model.shellUpdatedOnDevice)
+        XCTAssertTrue(model.doneNote.contains("已续签并安装到 iPhone"), model.doneNote)
+        XCTAssertTrue(model.doneNote.contains("已为 iPhone 更新游戏壳"), model.doneNote)
+        let callsA = try String(contentsOfFile: state + "/calls.txt", encoding: .utf8).split(separator: "\n").map(String.init)
+        XCTAssertEqual(callsA.filter { $0.hasPrefix("xcodebuild") }.count, 1)
+        XCTAssertEqual(callsA.filter { $0.hasPrefix("devicectl device install app") }.count, 1)
+
+        // Scenario B: no device beacon on disk, but .shell-stamp.json missing (older launcher project) -> resign regenerates & reports shell update.
+        try fm.removeItem(atPath: container + "/\(ShellLibrary.defaultBundleID)/\(ShellHotInstall.beaconRemotePath)")
+        try fm.removeItem(atPath: ShellHotInstall.projectStampFile(root: f.root))
+        modelStores.localizer.lang = .en
+        let expB = expectation(description: "Resign upgrades missing stamp")
+        model.resignOnDevice(app: app, device: device) { expB.fulfill() }
+        wait(for: [expB], timeout: 30)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: ShellHotInstall.projectStampFile(root: f.root)))
+        XCTAssertTrue(model.shellUpdatedOnDevice)
+        XCTAssertTrue(model.doneNote.contains("Re-signed and installed on iPhone"), model.doneNote)
+        XCTAssertTrue(model.doneNote.contains("Updated the game shell on iPhone"), model.doneNote)
+
+        // Scenario C: up-to-date stamp and matching device beacon -> plain resign without regenerating project or showing shell-updated note.
+        let currentBeacon = """
+        {"schema":1,"glueVersion":\(ShellHotInstall.glueVersion),"bundleID":"\(ShellLibrary.defaultBundleID)","teamID":"\(team)","chain":"b-108c5f92c3c4","version":"1.5.1","expiresAtEpoch":\(nowEpoch + 5 * 86400),"allowsHotPush":true,"certSHA1":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}
+        """
+        try write(container + "/\(ShellLibrary.defaultBundleID)/\(ShellHotInstall.beaconRemotePath)", currentBeacon)
+        try write(marker, "keep-me")
+        let expC = expectation(description: "Resign with current shell stays plain")
+        model.resignOnDevice(app: app, device: device) { expC.fulfill() }
+        wait(for: [expC], timeout: 30)
+
+        XCTAssertTrue(fm.fileExists(atPath: marker), "plain resign with matching project stamp and beacon skips regenerating project")
+        XCTAssertFalse(model.shellUpdatedOnDevice)
+        XCTAssertEqual(model.doneNote, "Re-signed and installed on iPhone")
+    }
 }

@@ -28929,66 +28929,66 @@
         }
       }
     },
-    "When NX2Apple is installed through SideStore, AltStore, or another sideload tool, import the .p12 certificate exported by that tool here so unsigned game frameworks placed in Frameworks are signed automatically on launch. Installs directly from Xcode on a Mac do not need this.": {
+    "When NX2Apple is installed through SideStore, AltStore, or another sideload tool with a development profile, import the same .p12 certificate used to sign the app here so game frameworks in Frameworks are signed with the matching certificate on launch. Distribution or mismatched certificates cannot load from Frameworks and require reinstalling from your computer. Installs directly from Xcode on a Mac do not need this.": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wenn NX2Apple über SideStore, AltStore oder ein anderes Sideload-Tool installiert wurde, importiere hier das exportierte .p12-Zertifikat, damit unsignierte Spiel-Frameworks im Ordner Frameworks beim Start automatisch auf dem Gerät signiert werden. Bei direkter Installation über Xcode auf dem Mac ist dies nicht nötig."
+            "value": "Wenn NX2Apple über SideStore, AltStore oder ein anderes Sideload-Tool mit Entwicklungsprofil installiert wurde, importiere hier dasselbe .p12-Zertifikat, mit dem die App signiert wurde, damit Frameworks beim Start passend signiert werden. Distributions- oder abweichende Zertifikate können nicht aus Frameworks laden und erfordern eine Neuinstallation am Computer. Bei direkter Installation über Xcode auf dem Mac ist dies nicht nötig."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When NX2Apple is installed through SideStore, AltStore, or another sideload tool, import the .p12 certificate exported by that tool here so unsigned game frameworks placed in Frameworks are signed automatically on launch. Installs directly from Xcode on a Mac do not need this."
+            "value": "When NX2Apple is installed through SideStore, AltStore, or another sideload tool with a development profile, import the same .p12 certificate used to sign the app here so game frameworks in Frameworks are signed with the matching certificate on launch. Distribution or mismatched certificates cannot load from Frameworks and require reinstalling from your computer. Installs directly from Xcode on a Mac do not need this."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Si instalaste NX2Apple con SideStore, AltStore u otra herramienta de sideload, importa aquí el certificado .p12 exportado por esa herramienta para firmar automáticamente al iniciar los frameworks de juegos sin firma en Frameworks. Las instalaciones directas desde Xcode en un Mac no lo necesitan."
+            "value": "Si instalaste NX2Apple con SideStore, AltStore u otra herramienta de sideload usando un perfil de desarrollo, importa aquí el mismo certificado .p12 con el que se firmó la app para que los frameworks en Frameworks coincidan al iniciar. Los certificados de distribución o distintos no pueden cargar desde Frameworks y requieren reinstalar desde el ordenador. Las instalaciones directas desde Xcode en un Mac no lo necesitan."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lorsque NX2Apple est installé via SideStore, AltStore ou un autre outil de sideload, importez ici le certificat .p12 exporté par cet outil afin que les frameworks de jeu non signés placés dans Frameworks soient signés automatiquement au lancement. Les installations directes depuis Xcode sur Mac n'en ont pas besoin."
+            "value": "Lorsque NX2Apple est installé via SideStore, AltStore ou un autre outil de sideload avec un profil de développement, importez ici le même certificat .p12 que celui utilisé pour signer l'app afin que les frameworks dans Frameworks soient signés à l'identique au lancement. Les certificats de distribution ou différents ne peuvent pas charger depuis Frameworks et nécessitent une réinstallation depuis votre ordinateur. Les installations directes depuis Xcode sur Mac n'en ont pas besoin."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quando NX2Apple è installato tramite SideStore, AltStore o un altro strumento di sideload, importa qui il certificato .p12 esportato dallo strumento così i framework di gioco non firmati nella cartella Frameworks vengono firmati automaticamente all'avvio. Le installazioni dirette da Xcode su Mac non ne hanno bisogno."
+            "value": "Quando NX2Apple è installato tramite SideStore, AltStore o un altro strumento sideload con profilo di sviluppo, importa qui lo stesso certificato .p12 usato per firmare l'app così i framework in Frameworks vengono firmati in modo coerente all'avvio. I certificati di distribuzione o diversi non possono caricare da Frameworks e richiedono la reinstallazione dal computer. Le installazioni dirette da Xcode su Mac non ne hanno bisogno."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "SideStore や AltStore などのサイドロードツールで NX2Apple をインストールしている場合、そのツールから書き出した .p12 証明書をここで読み込むと、Frameworks フォルダに入れた未署名のゲームフレームワークを起動時に端末上で自動署名できます。Mac の Xcode から直接インストールした場合は設定不要です。"
+            "value": "SideStore や AltStore などの開発用プロファイルで NX2Apple をサイドロードした場合、アプリ署名に使ったのと同じ .p12 証明書をここで読み込むと Frameworks のゲームフレームワークが一致する証明書で自動署名されます。配布用証明書や異なる証明書では読み込めないためパソコンから再インストールしてください。Mac の Xcode からの直接インストールでは不要です。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "SideStore, AltStore 등의 사이드로드 도구로 NX2Apple을 설치한 경우 해당 도구에서 내보낸 .p12 인증서를 여기에 가져오면 Frameworks 폴더에 넣은 미서명 게임 프레임워크가 실행 시 기기에서 자동으로 서명됩니다. Mac의 Xcode로 직접 설치한 경우에는 설정할 필요가 없습니다."
+            "value": "개발용 프로파일을 사용해 SideStore, AltStore 등으로 NX2Apple을 사이드로드한 경우, 앱 서명에 사용한 것과 동일한 .p12 인증서를 여기에 가져오면 실행 시 Frameworks의 게임 프레임워크가 일치하는 인증서로 자동 서명됩니다. 배포용 또는 다른 인증서로는 불러올 수 없으므로 컴퓨터에서 다시 설치해야 합니다. Mac의 Xcode로 직접 설치한 경우에는 설정할 필요가 없습니다."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quando o NX2Apple é instalado via SideStore, AltStore ou outra ferramenta de sideload, importe aqui o certificado .p12 exportado por ela para que frameworks de jogos sem assinatura colocados em Frameworks sejam assinados automaticamente ao iniciar. Instalações diretas pelo Xcode no Mac não precisam disso."
+            "value": "Quando o NX2Apple é instalado via SideStore, AltStore ou outra ferramenta de sideload com perfil de desenvolvimento, importe aqui o mesmo certificado .p12 usado para assinar o app para que os frameworks em Frameworks sejam assinados de forma idêntica ao iniciar. Certificados de distribuição ou diferentes não carregam de Frameworks e exigem reinstalar pelo computador. Instalações diretas pelo Xcode no Mac não precisam disso."
           }
         },
         "sv": {
           "stringUnit": {
             "state": "translated",
-            "value": "När NX2Apple installeras via SideStore, AltStore eller ett annat sidoladdningsverktyg importerar du verktygets exporterade .p12-certifikat här så att osignerade spelframeworks i mappen Frameworks signeras automatiskt vid start. Direktinstallationer från Xcode på Mac behöver inte detta."
+            "value": "När NX2Apple har installerats via SideStore, AltStore eller ett annat sidoladdningsverktyg med utvecklarprofil importerar du samma .p12-certifikat som appen signerades med så att ramverk i Frameworks signeras med matchande certifikat vid start. Distributionscertifikat eller avvikande certifikat kan inte läsa in från Frameworks och kräver ominstallation från datorn. Direktinstallationer från Xcode på Mac behöver inte detta."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "通过 SideStore、AltStore 等侧载工具安装 NX2Apple 时，在此导入侧载工具导出的 .p12 证书，即可让手动放入 Frameworks 文件夹的未签名游戏框架在启动时自动完成本机签名。通过 Mac Xcode 直接安装无需设置。"
+            "value": "通过 SideStore、AltStore 等工具以开发描述文件侧载安装 NX2Apple 时，在此导入与签壳同一张的 .p12 证书，即可让放入 Frameworks 文件夹的游戏框架在启动时以一致证书自动签名运行。分发证书或证书不一致无法从 Frameworks 加载，需在电脑上重新安装。通过 Mac Xcode 直接安装无需设置。"
           }
         }
       }

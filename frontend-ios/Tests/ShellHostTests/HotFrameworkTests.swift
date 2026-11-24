@@ -51,10 +51,15 @@ import Testing
         let entData = try PropertyListSerialization.data(fromPropertyList: entOnly, format: .binary, options: 0)
         #expect(ProvisioningProfile.teamIdentifier(fromProfile: entData) == "ENT9876543")
 
+        let sampleSHA1 = String(repeating: "A", count: 40)
         let beacon = ShellHostBeacon(bundleID: "org.nxnative.shell.TEAM123456",
                                      teamID: "TEAM123456", chain: "b-3f9a2c", version: "1.4.0",
-                                     expiresAtEpoch: Int64(expiry.timeIntervalSince1970))
-        #expect(beacon.glueVersion == 2)
+                                     expiresAtEpoch: Int64(expiry.timeIntervalSince1970),
+                                     allowsHotPush: true,
+                                     certSHA1: sampleSHA1)
+        #expect(beacon.glueVersion == 3)
+        #expect(beacon.allowsHotPush == true)
+        #expect(beacon.certSHA1 == sampleSHA1)
         let encoded = try JSONEncoder().encode(beacon)
         let decoded = try JSONDecoder().decode(ShellHostBeacon.self, from: encoded)
         #expect(decoded == beacon)
@@ -63,7 +68,54 @@ import Testing
         let writtenURL = box.documents.appendingPathComponent(ShellHostBeacon.fileName)
         let writtenBeacon = try JSONDecoder().decode(ShellHostBeacon.self, from: Data(contentsOf: writtenURL))
         #expect(writtenBeacon.schema == 1)
-        #expect(writtenBeacon.glueVersion == 2)
+        #expect(writtenBeacon.glueVersion == 3)
+        #expect(writtenBeacon.allowsHotPush == false)
+    }
+
+    @Test func provisioningProfileHotFrameworkEligibilityRequiresDevelopmentGetTaskAllow() throws {
+        let devProfile: [String: Any] = [
+            "TeamIdentifier": ["TEAM123456"],
+            "Entitlements": ["get-task-allow": true],
+        ]
+        let devData = try PropertyListSerialization.data(fromPropertyList: devProfile, format: .xml, options: 0)
+        #expect(ProvisioningProfile.allowsHotFrameworkLoading(fromProfile: devData))
+
+        let distProfile: [String: Any] = [
+            "TeamIdentifier": ["TEAM123456"],
+            "Entitlements": ["get-task-allow": false],
+        ]
+        let distData = try PropertyListSerialization.data(fromPropertyList: distProfile, format: .xml, options: 0)
+        #expect(!ProvisioningProfile.allowsHotFrameworkLoading(fromProfile: distData))
+
+        let noEntitlementProfile: [String: Any] = [
+            "TeamIdentifier": ["TEAM123456"],
+            "Entitlements": [:],
+        ]
+        let noEntData = try PropertyListSerialization.data(fromPropertyList: noEntitlementProfile, format: .xml, options: 0)
+        #expect(!ProvisioningProfile.allowsHotFrameworkLoading(fromProfile: noEntData))
+
+        let enterpriseProfile: [String: Any] = [
+            "TeamIdentifier": ["TEAM123456"],
+            "ProvisionsAllDevices": true,
+            "Entitlements": ["get-task-allow": true],
+        ]
+        let entData = try PropertyListSerialization.data(fromPropertyList: enterpriseProfile, format: .xml, options: 0)
+        #expect(!ProvisioningProfile.allowsHotFrameworkLoading(fromProfile: entData))
+        #expect(!ProvisioningProfile.allowsHotFrameworkLoading(fromProfile: Data()))
+
+        let box = try FrameworkBox()
+        let appBundle = box.root.appendingPathComponent("DmShell.app", isDirectory: true)
+        let bundledExe = appBundle.appendingPathComponent("Frameworks/DmGame.framework/DmGame")
+        try box.write("bundled", to: bundledExe)
+        #expect(FrameworkSignature.preflightExternal(executable: bundledExe, appBundleURL: appBundle,
+                                                   hostTeamID: "TEAM123456", allowsHotLoading: false) == nil,
+                "embedded frameworks inside App/Frameworks stay allowed even without get-task-allow")
+
+        let externalExe = box.documents.appendingPathComponent("Frameworks/DmGame.framework/DmGame")
+        try box.write("external", to: externalExe)
+        let refusal = FrameworkSignature.preflightExternal(executable: externalExe, appBundleURL: appBundle,
+                                                           hostTeamID: nil, allowsHotLoading: false)
+        #expect(refusal == hostText("This app signature does not support loading games from Documents/Frameworks. Reinstall the app from NX2Apple on your computer."))
     }
 
     @Test func stagedFrameworkPromotesOnlyWhenReadyAndFootprintMatch() throws {

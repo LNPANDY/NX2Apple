@@ -238,6 +238,8 @@ struct DemoScreen: View {
                 games[i].game.banner = original.game.banner
                 games[i].game.hasCustomCover = false
             }
+        }, onLoadCheats: { id in
+            GameCheatsSnapshot(gameID: id, gameTitle: games.first(where: { $0.id == id })?.game.title ?? id)
         })
     }
 }

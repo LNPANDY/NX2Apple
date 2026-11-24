@@ -605,6 +605,16 @@ extern void *dm_quit_menu(void);
 
 static NspbModel *g_game_menu_model;
 
+static NSString *nspb_game_menu_text(NSInteger index, NSString *fallback) {
+    const char *raw = getenv("DM_GAME_MENU_TEXT");
+    if (!raw || !*raw) return fallback;
+    NSString *decoded = [@(raw) stringByReplacingOccurrencesOfString:@"\\n" withString:@"\n"];
+    NSArray<NSString *> *lines = [decoded componentsSeparatedByString:@"\n"];
+    if (index < 0 || (NSUInteger)index >= lines.count) return fallback;
+    NSString *line = [lines[(NSUInteger)index] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+    return line.length ? line : fallback;
+}
+
 static UIMenuElement *nspb_game_menu_row(NspbModel *m, NspbSetting *s) {
     NSString *now = [m value:s];
     BOOL fixed = [m locked:s];
@@ -626,7 +636,7 @@ static UIMenuElement *nspb_game_menu_row(NspbModel *m, NspbSetting *s) {
         }];
         a.attributes = attrs;
         a.state = [now isEqualToString:s.onValue] ? UIMenuElementStateOn : UIMenuElementStateOff;
-        if (fixed) a.subtitle = @"Set in env.txt";
+        if (fixed) a.subtitle = nspb_game_menu_text(3, @"Set in env.txt");
         return a;
     }
     NSArray<NSArray<NSString *> *> *options = s.options ?: @[];
@@ -644,13 +654,16 @@ static UIMenuElement *nspb_game_menu_row(NspbModel *m, NspbSetting *s) {
     }
     UIMenu *sub = [UIMenu menuWithTitle:s.label image:nil identifier:nil options:UIMenuOptionsSingleSelection children:actions];
     if (fixed && [sub respondsToSelector:@selector(setSubtitle:)]) {
-        sub.subtitle = [NSString stringWithFormat:@"%@, set in env.txt", current];
+        NSString *tpl = nspb_game_menu_text(4, @"%@, set in env.txt");
+        sub.subtitle = [tpl containsString:@"%@"]
+            ? [tpl stringByReplacingOccurrencesOfString:@"%@" withString:current]
+            : [NSString stringWithFormat:@"%@, %@", current, tpl];
     }
     return sub;
 }
 
 static NSArray<UIMenuElement *> *nspb_game_menu_items(void) {
-    NSArray<NSString *> *names = @[@"2D", @"3D", @"Tap"];
+    NSArray<NSString *> *names = @[@"2D", @"3D", nspb_game_menu_text(2, @"Tap")];
     NSMutableArray<UIAction *> *layouts = [NSMutableArray array];
     for (int l = 0; l < 3; l++) {
         if (!dm_pad_layout_offered(l)) continue;
@@ -660,7 +673,7 @@ static NSArray<UIMenuElement *> *nspb_game_menu_items(void) {
         a.state = (dm_pad_layout() == l) ? UIMenuElementStateOn : UIMenuElementStateOff;
         [layouts addObject:a];
     }
-    UIMenu *layout = [UIMenu menuWithTitle:@"Controller layout" image:nil identifier:nil options:UIMenuOptionsSingleSelection children:layouts];
+    UIMenu *layout = [UIMenu menuWithTitle:nspb_game_menu_text(1, @"Controller layout") image:nil identifier:nil options:UIMenuOptionsSingleSelection children:layouts];
     NSMutableArray<UIMenuElement *> *items = [NSMutableArray array];
     BOOL placed = NO;
     NspbModel *m = g_game_menu_model;
@@ -696,7 +709,7 @@ static NSArray<UIMenuElement *> *nspb_game_menu_items(void) {
 
 __attribute__((used, visibility("default")))
 void *dm_game_menu(void) {
-    NSString *title = g_game_menu_model ? @"More settings on the start screen" : @"";
+    NSString *title = g_game_menu_model ? nspb_game_menu_text(0, @"More settings on the start screen") : @"";
     UIDeferredMenuElement *def = [UIDeferredMenuElement elementWithUncachedProvider:^(void (^done)(NSArray<UIMenuElement *> *)) {
         done(nspb_game_menu_items());
     }];
