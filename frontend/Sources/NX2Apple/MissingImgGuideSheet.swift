@@ -471,6 +471,27 @@ extension View {
             .onChange(of: imgGuide.wrappedValue?.id) { id in
                 pad.scope = id != nil ? "imgGuide" : scope()
             }
+            .sheet(item: Binding(
+                get: { stores.build.refreshCompletionSummary },
+                set: { if $0 == nil { stores.build.refreshCompletionSummary = nil } }
+            )) { summary in
+                RefreshCompletionSheet(
+                    summary: summary,
+                    revealItem: { path in stores.build.revealItem(URL(fileURLWithPath: path)) },
+                    onViewQueue: {
+                        stores.build.refreshCompletionSummary = nil
+                        page.wrappedValue = .builds
+                        buildEditorOpen.wrappedValue = false
+                        editingBuildResult.wrappedValue = false
+                    },
+                    close: { stores.build.refreshCompletionSummary = nil }
+                )
+                .environmentObject(stores.localizer)
+                .environmentObject(pad)
+            }
+            .onChange(of: stores.build.refreshCompletionSummary?.id) { id in
+                pad.scope = id != nil ? "refreshDone" : scope()
+            }
     }
 }
 

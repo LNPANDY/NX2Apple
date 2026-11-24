@@ -177,6 +177,9 @@ package struct BuildQueueCard: View {
                         }
                     }.fixedSize(horizontal: false, vertical: true)
                 }
+                ForEach(game.entries.filter { ($0.status == .done || $0.status == .failed) && $0.packagePending == nil }) { doneJob in
+                    imgStatusView(for: doneJob)
+                }
 
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -294,6 +297,34 @@ package struct BuildQueueCard: View {
         case .running: return LauncherPalette.building
         case .failed: return DS.Color.statusError
         case .queued, .skipped, .stopped: return .secondary
+        }
+    }
+
+    @ViewBuilder
+    private func imgStatusView(for entry: QueueEntry) -> some View {
+        switch entry.imgStatus {
+        case .transferred(let imgName, let deviceName):
+            Text(String(format: loc.t("refreshDone.queueTransferredRow"), imgName, deviceName))
+                .font(DS.Font.callout)
+                .foregroundStyle(LauncherPalette.ready)
+                .fixedSize(horizontal: false, vertical: true)
+        case .manualReplace(let imgPath, _):
+            let imgName = imgPath.isEmpty ? "romfs.img" : (imgPath as NSString).lastPathComponent
+            HStack(spacing: 8) {
+                Circle().fill(LauncherPalette.building).frame(width: 6, height: 6).accessibilityHidden(true)
+                Text(String(format: loc.t("refreshDone.queueManualRow"), imgName))
+                    .font(DS.Font.callout)
+                    .foregroundStyle(LauncherPalette.building)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !imgPath.isEmpty {
+                    Button(loc.t("install.reveal")) { revealInFinder(imgPath) }
+                        .buttonStyle(DSRowButtonStyle())
+                        .help(imgPath)
+                        .padTarget("set.build.queue.reveal." + entry.id.uuidString, scope: "main") { revealInFinder(imgPath) }
+                }
+            }
+        case .unchanged, .none:
+            EmptyView()
         }
     }
 }

@@ -50,6 +50,7 @@ import NXModel
         entry.locksTarget = true
         entry.existingAppPath = (isMac && !game.appPath.isEmpty) ? game.appPath : nil
         entry.externalImgPath = isMac ? nil : externalImgPath
+        entry.archivePath = (isMac || game.archivePath.isEmpty) ? nil : game.archivePath
         return entry
     }
 

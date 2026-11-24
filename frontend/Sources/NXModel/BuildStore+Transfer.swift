@@ -18,17 +18,32 @@ package struct TransferSource: Equatable {
 /// One game finished during a queued shared-app batch, waiting for the single final IPA export or device install.
 package struct DeferredShellGame: Equatable {
     package var gameID: UUID?
+    package var queueEntryID: UUID?
     package var framework: String
     package var titleID: String
     package var name: String
     package var archive: String
+    package var didUpdateImg: Bool
+    package var updatedImgPath: String
 
-    package init(gameID: UUID? = nil, framework: String, titleID: String, name: String, archive: String) {
+    package init(
+        gameID: UUID? = nil,
+        queueEntryID: UUID? = nil,
+        framework: String,
+        titleID: String,
+        name: String,
+        archive: String,
+        didUpdateImg: Bool = false,
+        updatedImgPath: String = ""
+    ) {
         self.gameID = gameID
+        self.queueEntryID = queueEntryID
         self.framework = framework
         self.titleID = titleID
         self.name = name
         self.archive = archive
+        self.didUpdateImg = didUpdateImg
+        self.updatedImgPath = updatedImgPath
     }
 }
 
@@ -80,13 +95,29 @@ extension BuildStore {
     // MARK: A batch of the queue packages or installs the shared app once
 
     /// A queued game was built and packed, its app is made or installed once when the batch ends.
-    func deferShellPackage(framework: String, titleID: String, name: String, archive: String = "") {
+    func deferShellPackage(
+        framework: String,
+        titleID: String,
+        name: String,
+        archive: String = "",
+        didUpdateImg: Bool = false,
+        updatedImgPath: String = ""
+    ) {
         if deferredShell.isEmpty && !deferShellPackaging {
             deferredExportsIPA = exportsShell
         }
-        deferredShell.append(DeferredShellGame(gameID: activeQueuedGameID, framework: framework, titleID: titleID, name: name, archive: archive))
+        deferredShell.append(DeferredShellGame(
+            gameID: activeQueuedGameID,
+            queueEntryID: activeQueuedEntryID,
+            framework: framework,
+            titleID: titleID,
+            name: name,
+            archive: archive,
+            didUpdateImg: didUpdateImg,
+            updatedImgPath: updatedImgPath
+        ))
         let noteKey = deferredExportsIPA ? "queue.packageLater" : "queue.installLater"
-        finishInstall(nil, note: String(format: t(noteKey), name))
+        finishInstall(nil, note: String(format: t(noteKey), name), completeProgress: false)
     }
 
     /// The batch ended: the shared app is exported or signed and installed once from the games that were built. A game that failed is not in it.
@@ -97,6 +128,14 @@ extension BuildStore {
         target = BuildTarget.ios
         failure = nil; stoppedByPlayer = false; done = false; doneNote = ""
         if deferredExportsIPA {
+            let exportNote = t("refreshDone.exportManualReason")
+            let exportResults = games.map { game -> ShellInstaller.BatchGameResult in
+                let status: QueueEntryImgStatus = game.didUpdateImg
+                    ? .manualReplace(imgPath: game.updatedImgPath, reason: exportNote)
+                    : .unchanged
+                return ShellInstaller.BatchGameResult(titleID: game.titleID, queueEntryID: game.queueEntryID, imgStatus: status)
+            }
+            applyBatchImgResults(exportResults)
             var library = ShellLibrary.load(root: shellRoot)
             for game in games.dropLast() { library.add(.init(titleID: game.titleID, name: game.name, framework: game.framework)) }
             try? library.save(root: shellRoot)

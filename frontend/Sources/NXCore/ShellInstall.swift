@@ -366,6 +366,8 @@ package struct ShellInstaller {
         package var failure: BuildFailureKind? = nil
         /// Signed without the Increased Memory Limit, because the team's profile cannot carry it yet.
         package var noMemoryCapability = false
+        /// Per-game `.img` transfer dispositions produced by `installBatch` / `installBatchData`.
+        package var batchGameResults: [BatchGameResult] = []
 
         package init(ok: Bool, message: String, step: BuildFailureClassifier.InstallStep? = nil, appPath: String = "", bundleID: String = "", copied: Int = 0, copySkipped: Bool = false, failure: BuildFailureKind? = nil, noMemoryCapability: Bool = false) {
             self.ok = ok; self.message = message; self.step = step; self.appPath = appPath; self.bundleID = bundleID; self.copied = copied

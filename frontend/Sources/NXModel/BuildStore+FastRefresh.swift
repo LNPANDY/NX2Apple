@@ -76,7 +76,9 @@ extension BuildStore {
         gameName: String? = nil,
         existingMacAppPath: String? = nil,
         externalImgPath: String? = nil,
-        cheatsDir: String? = nil
+        cheatsDir: String? = nil,
+        knownArchivePath: String? = nil,
+        forceShaderRebuildTrailer: Bool = false
     ) {
         guard !running else { return }
         let tid = titleID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
@@ -106,6 +108,14 @@ extension BuildStore {
         let resolvedOutDir: String = {
             if let explicit = outDir, !explicit.isEmpty { return explicit }
             if !self.outDir.isEmpty { return self.outDir }
+            if let archive = knownArchivePath, !archive.isEmpty {
+                let archiveDir = archive.lowercased().hasSuffix(".img") ? (archive as NSString).deletingLastPathComponent : archive
+                let parent = (archiveDir as NSString).deletingLastPathComponent
+                if (parent as NSString).lastPathComponent == "games" {
+                    let root = (parent as NSString).deletingLastPathComponent
+                    if !root.isEmpty && root != "/" { return root }
+                }
+            }
             if let app = existingMacAppPath, !app.isEmpty {
                 let parent = (app as NSString).deletingLastPathComponent
                 if !parent.isEmpty && parent != "/" { return parent }
@@ -147,7 +157,9 @@ extension BuildStore {
                     gameName: gameName,
                     existingMacAppPath: existingMacAppPath,
                     externalImgPath: externalImgPath,
-                    cheatsDir: cheatsDir
+                    cheatsDir: cheatsDir,
+                    knownArchivePath: knownArchivePath,
+                    forceShaderRebuildTrailer: forceShaderRebuildTrailer
                 )
             }
             return
@@ -172,6 +184,8 @@ extension BuildStore {
             return
         }
 
+        activeRunStartedAt = Date()
+        activeRunRebuiltShaders = forceShaderRebuildTrailer
         stopping = false
         stoppedByPlayer = false
         archiveGeneration &+= 1
@@ -299,7 +313,8 @@ extension BuildStore {
                 outDir: resolvedOutDir,
                 gameName: gameName,
                 macAppPath: prefillMacAppPath,
-                workDir: workDir
+                workDir: workDir,
+                archivePath: knownArchivePath
             )
         let driveFolder = devices.driveFolder
         let needsDriveScan = !isMac
@@ -330,7 +345,8 @@ extension BuildStore {
                         outDir: resolvedOutDir,
                         gameName: gameName,
                         macAppPath: existingMacAppPath,
-                        workDir: workDir
+                        workDir: workDir,
+                        archivePath: knownArchivePath
                     )
                     let imgCandidate = adoptCandidates.first { $0.hasSuffix(".img") && !$0.contains(".app") }
                         ?? validExternalImg
@@ -348,7 +364,8 @@ extension BuildStore {
                         outDir: resolvedOutDir,
                         gameName: gameName,
                         macAppPath: prefillMacAppPath,
-                        workDir: workDir
+                        workDir: workDir,
+                        archivePath: knownArchivePath
                     )
                     : syncCandidates
 
@@ -502,15 +519,35 @@ extension BuildStore {
                         let fw = ShellInstall.builtFramework(workDir: self.effectiveWorkDir)
                             ?? ShellInstall.frameworkPath(workDir: self.effectiveWorkDir, titleID: key)
                         let outTID = ShellInstall.titleID(ofFramework: fw)
-                        self.packArchive(workDir: self.effectiveWorkDir, titleID: outTID, isFastRefresh: true) { archive in
+                        self.packArchiveWithOutcome(workDir: self.effectiveWorkDir, titleID: outTID, isFastRefresh: true) { outcome in
                             if self.deferShellPackaging {
-                                self.deferShellPackage(framework: fw, titleID: outTID, name: name, archive: archive)
+                                self.deferShellPackage(
+                                    framework: fw, titleID: outTID, name: name, archive: outcome.archiveDir,
+                                    didUpdateImg: outcome.didUpdateImg, updatedImgPath: outcome.primaryImgPath
+                                )
                             } else if self.exportsFramework {
+                                let exportNote = self.t("refreshDone.exportManualReason")
+                                self.needsReplaceOldImgReminder = outcome.didUpdateImg
+                                self.updatedImgPath = outcome.didUpdateImg ? outcome.primaryImgPath : ""
+                                let imgStatus: QueueEntryImgStatus = outcome.didUpdateImg
+                                    ? .manualReplace(imgPath: outcome.primaryImgPath, reason: exportNote)
+                                    : .unchanged
+                                self.queue?.updateImgStatus(entryID: self.activeQueuedEntryID, titleID: outTID, imgStatus: imgStatus)
                                 self.exportFrameworkBundle(framework: fw, titleID: outTID, name: name)
                             } else if self.exportsShell {
+                                let exportNote = self.t("refreshDone.exportManualReason")
+                                self.needsReplaceOldImgReminder = outcome.didUpdateImg
+                                self.updatedImgPath = outcome.didUpdateImg ? outcome.primaryImgPath : ""
+                                let imgStatus: QueueEntryImgStatus = outcome.didUpdateImg
+                                    ? .manualReplace(imgPath: outcome.primaryImgPath, reason: exportNote)
+                                    : .unchanged
+                                self.queue?.updateImgStatus(entryID: self.activeQueuedEntryID, titleID: outTID, imgStatus: imgStatus)
                                 self.exportShell(framework: fw, titleID: outTID, name: name)
                             } else {
-                                self.installShell(framework: fw, titleID: outTID, name: name, archive: archive)
+                                self.installShell(
+                                    framework: fw, titleID: outTID, name: name, archive: outcome.archiveDir,
+                                    didUpdateImg: outcome.didUpdateImg, updatedImgPath: outcome.primaryImgPath
+                                )
                             }
                         }
                         self.clearFastRefreshContext()

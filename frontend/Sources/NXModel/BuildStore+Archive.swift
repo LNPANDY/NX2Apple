@@ -8,7 +8,7 @@ import NXCore
 extension BuildStore {
     // MARK: Archive
 
-    private struct IOSShaderSource: Sendable {
+    struct IOSShaderSource: Sendable {
         var path: String
         var gfxAPI: String?
         var chain: String?
@@ -78,13 +78,25 @@ extension BuildStore {
     /// `then` continues the build with the archive's folder (installing on a device or exporting the shared app).
     /// `titleID` names the game's title ID (the framework's title ID), falling back to the build key when omitted.
     package func packArchive(workDir: String, titleID: String? = nil, isFastRefresh: Bool? = nil, then: @escaping (String) -> Void) {
+        packArchiveWithOutcome(workDir: workDir, titleID: titleID, isFastRefresh: isFastRefresh) { outcome in
+            then(outcome.archiveDir)
+        }
+    }
+
+    package func packArchiveWithOutcome(
+        workDir: String,
+        titleID: String? = nil,
+        isFastRefresh: Bool? = nil,
+        then: @escaping (ArchivePackOutcome) -> Void
+    ) {
         buildingGame = true
         runningTarget = BuildTarget.ios
         if operation == nil { beginOperation(.building, game: gameName, titleID: titleID, destination: .target) }
         running = true
         archiveGeneration &+= 1
         let generation = archiveGeneration
-        let gamesRoot = effectiveOutputFolder + "/games"
+        let outFolder = effectiveOutputFolder
+        let gamesRoot = outFolder + "/games"
         let tid = titleID.flatMap { $0.isEmpty ? nil : $0 } ?? buildKey
         let retryName = (shellRetry?.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanedFallbackName = RomFSArchive.cleanPackageGameName(gameName)
@@ -93,13 +105,25 @@ extension BuildStore {
         let pythonPath = resolveBuildPython()
         let runner = self.runner
         let externalImg = fastRefreshExternalImgPath
-        let fastRefreshMode = isFastRefresh ?? (fastRefreshActive || (externalImg?.isEmpty == false))
+        let knownArchive = activeQueuedArchivePath
+        let refreshRoot = refreshBuildsRoot
+        let prefillCands = BuildSeedCache.prefillCandidates(
+            titleID: tid,
+            outDir: outFolder,
+            gameName: gameName,
+            macAppPath: macAppPath,
+            workDir: workDir,
+            archivePath: knownArchive
+        )
+        let forceRebuildTrailer = activeRunRebuiltShaders || activeQueuedRebuildsShaders
+        let runStartedAt = activeRunStartedAt
+        let deferPackaging = deferShellPackaging
+        let isFastRefresh = isFastRefresh ?? (fastRefreshActive || (externalImg?.isEmpty == false))
         fastRefreshExternalImgPath = nil
         let idx = 1000
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let fm = FileManager.default
-            let hasShaderSource = isIOSBuild && Self.locateIOSShaderSource(workDir: workDir, tid: tid, repoPath: repoPath, fm: fm) != nil
             let extract = workDir + "/extract"
             guard let v = RomFSArchive.extractedVersion(in: extract) else {
                 let resolvedName = Self.resolveArchiveGameName(
@@ -107,22 +131,39 @@ extension BuildStore {
                     retryName: retryName, fallbackName: cleanedFallbackName, fm: fm
                 )
                 let folderName = RomFSArchive.archiveDirectoryName(gameName: resolvedName, titleID: tid, gamesRoot: gamesRoot, fm: fm)
-                let dest = gamesRoot + "/" + folderName
-                let targetImg = dest + "/" + folderName + ".img"
+                let canonicalDest = gamesRoot + "/" + folderName
+                let canonicalImg = canonicalDest + "/" + folderName + ".img"
 
-                Self.migrateLegacyArchiveIfNeeded(gamesRoot: gamesRoot, tid: tid, folderName: folderName, dest: dest, targetImg: targetImg, fm: fm)
+                Self.migrateLegacyArchiveIfNeeded(gamesRoot: gamesRoot, tid: tid, folderName: folderName, dest: canonicalDest, targetImg: canonicalImg, fm: fm)
 
-                if fm.fileExists(atPath: targetImg) {
-                    try? fm.createDirectory(atPath: dest, withIntermediateDirectories: true)
-                    try? (tid.uppercased() + "\n").write(toFile: dest + "/.titleid", atomically: true, encoding: .utf8)
+                var resolvedDest = canonicalDest
+                var resolvedImg = canonicalImg
+                if !fm.fileExists(atPath: resolvedImg),
+                   (externalImg?.isEmpty != false),
+                   let fallback = Self.findFallbackLocalArchive(
+                       tid: tid,
+                       knownArchivePath: knownArchive,
+                       outDir: outFolder,
+                       refreshBuildsRoot: refreshRoot,
+                       prefillCandidates: prefillCands,
+                       fm: fm
+                   ) {
+                    resolvedDest = fallback.archiveDir
+                    resolvedImg = fallback.imgPath
+                }
 
-                    let trailerOut: String?
-                    switch Self.injectIOSShaderTrailerIfNeeded(
-                        targetImg: targetImg, workDir: workDir, tid: tid, isIOSBuild: isIOSBuild,
-                        repoPath: repoPath, pythonPath: pythonPath, runner: runner, fm: fm
+                if fm.fileExists(atPath: resolvedImg) {
+                    try? fm.createDirectory(atPath: resolvedDest, withIntermediateDirectories: true)
+                    try? (tid.uppercased() + "\n").write(toFile: resolvedDest + "/.titleid", atomically: true, encoding: .utf8)
+
+                    let trailerOutcome: TrailerInjectionOutcome
+                    switch Self.injectIOSShaderTrailer(
+                        targetImg: resolvedImg, workDir: workDir, tid: tid, isIOSBuild: isIOSBuild,
+                        repoPath: repoPath, pythonPath: pythonPath, runner: runner,
+                        forceReplace: forceRebuildTrailer, runStartedAt: runStartedAt, fm: fm
                     ) {
-                    case .success(let logLine):
-                        trailerOut = logLine
+                    case .success(let outcome):
+                        trailerOutcome = outcome
                     case .failure(let err):
                         hop {
                             guard let self, self.archiveGeneration == generation else { return }
@@ -134,7 +175,7 @@ extension BuildStore {
                         }
                         return
                     }
-                    let aocCount = Self.placeAddOnContentOnBackground(workDir: workDir, in: dest)
+                    let aocCount = Self.placeAddOnContentOnBackground(workDir: workDir, in: resolvedDest)
                     PostBuildCleanup.cleanWorkDirectory(workDir, removeExtractedRomFS: false, removeShellFramework: false)
                     hop {
                         guard let self, self.archiveGeneration == generation else { return }
@@ -142,26 +183,35 @@ extension BuildStore {
                             self.finishStoppedArchive()
                             return
                         }
-                        if let trailerOut, !trailerOut.isEmpty { self.say(trailerOut) }
-                        if isIOSBuild && (fastRefreshMode || hasShaderSource) {
-                            self.needsReplaceOldImgReminder = true
-                            self.updatedImgPath = targetImg
+                        if let line = trailerOutcome.logLine, !line.isEmpty { self.say(line) }
+                        let didUpdate = isIOSBuild && trailerOutcome.didWriteTrailer
+                        if !deferPackaging {
+                            self.needsReplaceOldImgReminder = didUpdate
+                            self.updatedImgPath = didUpdate ? resolvedImg : ""
                         }
-                        self.archivePath = dest
+                        self.archivePath = resolvedDest
                         self.upsertArchiveStage(id: idx, state: .done, detail: String(format: self.t("prog.archiveReused"), 1))
-                        self.say(String(format: self.t("msg.archiveReused"), dest))
+                        self.say(String(format: self.t("msg.archiveReused"), resolvedDest))
                         if aocCount > 0 { self.say(String(format: self.t("msg.aocCopied"), aocCount)) }
-                        then(dest)
+                        let outcome = ArchivePackOutcome(archiveDir: resolvedDest, primaryImgPath: resolvedImg, didUpdateImg: didUpdate, usedMSLFallback: false)
+                        self.recordActiveEntryArchiveOutcome(outcome)
+                        then(outcome)
                     }
                 } else {
                     var extNotes: [String] = []
-                    var updatedExternal = false
+                    var externalResult: (succeeded: Bool, didWriteTrailer: Bool) = (false, false)
                     if isIOSBuild, let externalImg, !externalImg.isEmpty {
-                        updatedExternal = Self.updateExternalImageTrailerInPlace(
+                        externalResult = Self.updateExternalImageTrailerInPlaceWithOutcome(
                             imgPath: externalImg, workDir: workDir, tid: tid,
-                            repoPath: repoPath, pythonPath: pythonPath, runner: runner, fm: fm,
+                            repoPath: repoPath, pythonPath: pythonPath, runner: runner,
+                            forceReplace: forceRebuildTrailer, runStartedAt: runStartedAt, fm: fm,
                             onNote: { extNotes.append($0) }
                         )
+                    }
+                    var fallbackMSLPath: String? = nil
+                    if !externalResult.succeeded, isIOSBuild,
+                       let shaderSrc = Self.locateIOSShaderSource(workDir: workDir, tid: tid, repoPath: repoPath, fm: fm) {
+                        fallbackMSLPath = Self.stageMSLFallbackDirectory(shaderSourcePath: shaderSrc.path, dest: canonicalDest, tid: tid, fm: fm)
                     }
                     PostBuildCleanup.cleanWorkDirectory(workDir, removeExtractedRomFS: false, removeShellFramework: false)
                     hop {
@@ -171,7 +221,7 @@ extension BuildStore {
                             return
                         }
                         for note in extNotes where !note.isEmpty { self.say(note) }
-                        if updatedExternal, let externalImg {
+                        if externalResult.succeeded, let externalImg {
                             let fileName = (externalImg as NSString).lastPathComponent
                             self.say(String(format: self.t("imgGuide.externalUpdatedLog"), self.shortPath(externalImg)))
                             self.upsertArchiveStage(
@@ -179,14 +229,37 @@ extension BuildStore {
                                 state: .done,
                                 detail: String(format: self.t("prog.externalImgUpdated"), fileName)
                             )
-                            self.needsReplaceOldImgReminder = true
-                            self.updatedImgPath = externalImg
+                            let didUpdate = externalResult.didWriteTrailer
+                            if !deferPackaging {
+                                self.needsReplaceOldImgReminder = didUpdate
+                                self.updatedImgPath = didUpdate ? externalImg : ""
+                            }
+                            self.archivePath = ""
+                            let outcome = ArchivePackOutcome(archiveDir: "", primaryImgPath: didUpdate ? externalImg : "", didUpdateImg: didUpdate, usedMSLFallback: false)
+                            self.recordActiveEntryArchiveOutcome(outcome)
+                            then(outcome)
+                        } else if let mslPath = fallbackMSLPath {
+                            self.upsertArchiveStage(id: idx, state: .done, detail: self.t("prog.noRomfs"))
+                            if !deferPackaging {
+                                self.needsReplaceOldImgReminder = true
+                                self.updatedImgPath = mslPath
+                            }
+                            self.archivePath = canonicalDest
+                            let outcome = ArchivePackOutcome(archiveDir: canonicalDest, primaryImgPath: mslPath, didUpdateImg: true, usedMSLFallback: true)
+                            self.recordActiveEntryArchiveOutcome(outcome)
+                            then(outcome)
                         } else {
                             self.say(String(format: self.t("msg.archiveSkipped"), extract))
                             self.upsertArchiveStage(id: idx, state: .done, detail: self.t("prog.noRomfs"))
+                            if !deferPackaging {
+                                self.needsReplaceOldImgReminder = false
+                                self.updatedImgPath = ""
+                            }
+                            self.archivePath = ""
+                            let outcome = ArchivePackOutcome()
+                            self.recordActiveEntryArchiveOutcome(outcome)
+                            then(outcome)
                         }
-                        self.archivePath = ""
-                        then("")
                     }
                 }
                 return
@@ -210,13 +283,14 @@ extension BuildStore {
             if fm.fileExists(atPath: targetImg),
                let stamp = try? String(contentsOfFile: stampPath, encoding: .utf8), !stamp.isEmpty,
                let reused = RomFSArchive.archiveReusable(source: romfs, version: v, stamp: stamp) {
-                let trailerOut: String?
-                switch Self.injectIOSShaderTrailerIfNeeded(
+                let trailerOutcome: TrailerInjectionOutcome
+                switch Self.injectIOSShaderTrailer(
                     targetImg: targetImg, workDir: workDir, tid: tid, isIOSBuild: isIOSBuild,
-                    repoPath: repoPath, pythonPath: pythonPath, runner: runner, fm: fm
+                    repoPath: repoPath, pythonPath: pythonPath, runner: runner,
+                    forceReplace: forceRebuildTrailer, runStartedAt: runStartedAt, fm: fm
                 ) {
-                case .success(let logLine):
-                    trailerOut = logLine
+                case .success(let outcome):
+                    trailerOutcome = outcome
                 case .failure(let err):
                     hop {
                         guard let self, self.archiveGeneration == generation else { return }
@@ -236,17 +310,19 @@ extension BuildStore {
                         self.finishStoppedArchive()
                         return
                     }
-                    if let trailerOut, !trailerOut.isEmpty { self.say(trailerOut) }
-                    if isIOSBuild && (fastRefreshMode || hasShaderSource) {
-                        self.needsReplaceOldImgReminder = true
-                        self.updatedImgPath = targetImg
+                    if let line = trailerOutcome.logLine, !line.isEmpty { self.say(line) }
+                    let didUpdate = isIOSBuild && trailerOutcome.didWriteTrailer
+                    if !deferPackaging {
+                        self.needsReplaceOldImgReminder = didUpdate
+                        self.updatedImgPath = didUpdate ? targetImg : ""
                     }
                     self.archivePath = dest
-                    self.stages.append(Stage(id: idx, name: self.t("prog.archive"), state: .done,
-                                             detail: String(format: self.t("prog.archiveReused"), reused), nameKey: "prog.archive"))
+                    self.upsertArchiveStage(id: idx, state: .done, detail: String(format: self.t("prog.archiveReused"), reused))
                     self.say(String(format: self.t("msg.archiveReused"), dest))
                     if aocCount > 0 { self.say(String(format: self.t("msg.aocCopied"), aocCount)) }
-                    then(dest)
+                    let outcome = ArchivePackOutcome(archiveDir: dest, primaryImgPath: targetImg, didUpdateImg: didUpdate, usedMSLFallback: false)
+                    self.recordActiveEntryArchiveOutcome(outcome)
+                    then(outcome)
                 }
                 return
             }
@@ -266,13 +342,14 @@ extension BuildStore {
                 }
                 do {
                     let placement = try PostBuildCleanup.placeImage(from: romfsImage, to: targetImg)
-                    let trailerOut: String?
-                    switch Self.injectIOSShaderTrailerIfNeeded(
+                    let trailerOutcome: TrailerInjectionOutcome
+                    switch Self.injectIOSShaderTrailer(
                         targetImg: targetImg, workDir: workDir, tid: tid, isIOSBuild: isIOSBuild,
-                        repoPath: repoPath, pythonPath: pythonPath, runner: runner, fm: fm
+                        repoPath: repoPath, pythonPath: pythonPath, runner: runner,
+                        forceReplace: forceRebuildTrailer, runStartedAt: runStartedAt, fm: fm
                     ) {
-                    case .success(let logLine):
-                        trailerOut = logLine
+                    case .success(let outcome):
+                        trailerOutcome = outcome
                     case .failure(let err):
                         hop {
                             guard let self, self.archiveGeneration == generation else { return }
@@ -292,10 +369,11 @@ extension BuildStore {
                             self.finishStoppedArchive()
                             return
                         }
-                        if let trailerOut, !trailerOut.isEmpty { self.say(trailerOut) }
-                        if isIOSBuild && (fastRefreshMode || hasShaderSource) {
-                            self.needsReplaceOldImgReminder = true
-                            self.updatedImgPath = targetImg
+                        if let line = trailerOutcome.logLine, !line.isEmpty { self.say(line) }
+                        let didUpdate = isIOSBuild && (trailerOutcome.didWriteTrailer || (isFastRefresh && placement == .moved))
+                        if !deferPackaging {
+                            self.needsReplaceOldImgReminder = didUpdate
+                            self.updatedImgPath = didUpdate ? targetImg : ""
                         }
                         switch placement {
                         case .reused:
@@ -307,7 +385,9 @@ extension BuildStore {
                         }
                         if aocCount > 0 { self.say(String(format: self.t("msg.aocCopied"), aocCount)) }
                         self.archivePath = dest
-                        then(dest)
+                        let outcome = ArchivePackOutcome(archiveDir: dest, primaryImgPath: targetImg, didUpdateImg: didUpdate, usedMSLFallback: false)
+                        self.recordActiveEntryArchiveOutcome(outcome)
+                        then(outcome)
                     }
                 } catch {
                     hop {
@@ -338,8 +418,10 @@ extension BuildStore {
                 self.say(String(format: self.t("msg.archiveLog"), romfs, dest))
                 self.launchLegacyRomFSImagePack(
                     workDir: workDir, romfs: romfs, version: v, dest: dest, targetImg: targetImg,
-                    tid: tid, isIOSBuild: isIOSBuild,
-                    shouldShowReplaceOldImgReminder: isIOSBuild && (fastRefreshMode || hasShaderSource),
+                    tid: tid, isIOSBuild: isIOSBuild, fastRefreshMode: isFastRefresh,
+                    deferPackaging: deferPackaging,
+                    forceReplaceTrailer: forceRebuildTrailer,
+                    runStartedAt: runStartedAt,
                     repoPath: repoPath, pythonPath: pythonPath,
                     stageID: idx, generation: generation, then: then
                 )
@@ -354,6 +436,7 @@ extension BuildStore {
         } else {
             stages.append(Stage(id: id, name: t("prog.archive"), state: state, detail: detail, nameKey: "prog.archive"))
         }
+        refreshOverallProgress(parsedTotal: nil)
     }
 
     private func failArchiveTrailer(stageID: Int, error: TrailerInjectionError) {
@@ -377,9 +460,9 @@ extension BuildStore {
 
     private func launchLegacyRomFSImagePack(
         workDir: String, romfs: String, version: String, dest: String, targetImg: String,
-        tid: String, isIOSBuild: Bool, shouldShowReplaceOldImgReminder: Bool,
+        tid: String, isIOSBuild: Bool, fastRefreshMode: Bool, deferPackaging: Bool, forceReplaceTrailer: Bool, runStartedAt: Date?,
         repoPath: String, pythonPath: String, stageID: Int,
-        generation: Int, then: @escaping (String) -> Void
+        generation: Int, then: @escaping (ArchivePackOutcome) -> Void
     ) {
         let engine = EngineLayout.root(repoPath)
         let safePy = MacNativeGamesBuilder.isManagedUVPython(pythonPath) ? Toolchain.findPython().path : pythonPath
@@ -411,13 +494,14 @@ extension BuildStore {
                 DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                     let fm = FileManager.default
                     RomFSArchive.writeStamp(source: romfs, version: version, to: dest + "/.packstamp")
-                    let trailerOut: String?
-                    switch Self.injectIOSShaderTrailerIfNeeded(
+                    let trailerOutcome: TrailerInjectionOutcome
+                    switch Self.injectIOSShaderTrailer(
                         targetImg: targetImg, workDir: workDir, tid: tid, isIOSBuild: isIOSBuild,
-                        repoPath: repoPath, pythonPath: pythonPath, runner: runner, fm: fm
+                        repoPath: repoPath, pythonPath: pythonPath, runner: runner,
+                        forceReplace: forceReplaceTrailer, runStartedAt: runStartedAt, fm: fm
                     ) {
-                    case .success(let logLine):
-                        trailerOut = logLine
+                    case .success(let outcome):
+                        trailerOutcome = outcome
                     case .failure(let err):
                         hop {
                             guard let self, self.archiveGeneration == generation else { return }
@@ -437,15 +521,18 @@ extension BuildStore {
                             self.finishStoppedArchive()
                             return
                         }
-                        if let trailerOut, !trailerOut.isEmpty { self.say(trailerOut) }
-                        if shouldShowReplaceOldImgReminder {
-                            self.needsReplaceOldImgReminder = true
-                            self.updatedImgPath = targetImg
+                        if let line = trailerOutcome.logLine, !line.isEmpty { self.say(line) }
+                        let didUpdate = isIOSBuild && (fastRefreshMode || trailerOutcome.didWriteTrailer)
+                        if !deferPackaging {
+                            self.needsReplaceOldImgReminder = didUpdate
+                            self.updatedImgPath = didUpdate ? targetImg : ""
                         }
                         self.archivePath = dest
                         if aocCount > 0 { self.say(String(format: self.t("msg.aocCopied"), aocCount)) }
                         self.upsertArchiveStage(id: stageID, state: .done, detail: String(format: self.t("prog.archiveDone"), dest))
-                        then(dest)
+                        let outcome = ArchivePackOutcome(archiveDir: dest, primaryImgPath: targetImg, didUpdateImg: didUpdate, usedMSLFallback: false)
+                        self.recordActiveEntryArchiveOutcome(outcome)
+                        then(outcome)
                     }
                 }
             }
@@ -553,7 +640,7 @@ extension BuildStore {
         }
     }
 
-    private nonisolated static func locateIOSShaderSource(
+    nonisolated static func locateIOSShaderSource(
         workDir: String,
         tid: String,
         repoPath: String,
@@ -677,58 +764,15 @@ extension BuildStore {
         runner: ProcessRunner,
         fm: FileManager
     ) -> Result<String?, TrailerInjectionError> {
-        guard let shaderSource = locateIOSShaderSource(workDir: workDir, tid: tid, repoPath: repoPath, fm: fm),
-              isIOSBuild else {
-            return .success(nil)
-        }
-
-        let resolvedPy = (pythonPath.isEmpty || MacNativeGamesBuilder.isManagedUVPython(pythonPath)) ? Toolchain.findPython().path : pythonPath
-        let py = resolvedPy.isEmpty ? "/usr/bin/python3" : resolvedPy
-        let tool = EngineLayout.root(repoPath) + "/" + RepoLayout.romfsImageTool
-        let env = ["PATH": BuildCommands.toolPath("/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", python: py)]
-            .merging(BundledTools.environment(for: py)) { $1 }
-
-        // FIRST run romfs_image.py --inspect-msl <targetImg>
-        var initialHasTrailer = false
-        let inspectRes = runner.capture(ProcessLaunch(
-            executable: py, arguments: ["-I", tool, "--inspect-msl", targetImg], environment: env, mergesErrors: true
-        ))
-        if inspectRes.ok,
-           let status = BuildSeedCache.parseTrailerStatus(from: inspectRes.out) {
-            initialHasTrailer = status.hasTrailer
-            if BuildSeedCache.shouldSkipTrailerInjection(
-                status: status, gfxAPI: shaderSource.gfxAPI, chain: shaderSource.chain, multiProgram: shaderSource.multiProgram
-            ) {
-                // 0 disk I/O!
-                return .success(nil)
-            }
-        }
-
-        do {
-            try PostBuildCleanup.breakHardLinksIfNeeded(at: targetImg, fm: fm)
-        } catch {
-            return .failure(TrailerInjectionError(status: 1, message: error.localizedDescription))
-        }
-
-        func run(modeFlag: String) -> ProcessResult {
-            var args = ["-I", tool, modeFlag, targetImg, shaderSource.path]
-            if let api = shaderSource.gfxAPI, !api.isEmpty { args += ["--gfx-api", api] }
-            if let chain = shaderSource.chain, !chain.isEmpty { args += ["--chain", chain] }
-            if shaderSource.multiProgram { args.append("--multi-program") }
-            return runner.capture(ProcessLaunch(executable: py, arguments: args, environment: env, mergesErrors: true))
-        }
-
-        let primaryMode = initialHasTrailer ? "--replace-msl" : "--append-msl"
-        var result = run(modeFlag: primaryMode)
-        if !result.ok {
-            let fallbackMode = initialHasTrailer ? "--append-msl" : "--replace-msl"
-            result = run(modeFlag: fallbackMode)
-        }
-        let text = result.out.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard result.ok else {
-            let code: Int32 = result.status == 0 ? 1 : result.status
-            return .failure(TrailerInjectionError(status: code, message: text))
-        }
-        return .success(text.isEmpty ? nil : text)
+        injectIOSShaderTrailer(
+            targetImg: targetImg,
+            workDir: workDir,
+            tid: tid,
+            isIOSBuild: isIOSBuild,
+            repoPath: repoPath,
+            pythonPath: pythonPath,
+            runner: runner,
+            fm: fm
+        ).map(\.logLine)
     }
 }

@@ -17,7 +17,7 @@ enum GallerySheet: String, CaseIterable {
     case confirmUninstall, confirmEngineChannel, confirmStaleFrameworks, confirmBuildAnyway, confirmRemovePlayer
     case confirmCancelQueue, confirmCancelDraft, confirmTestedValues
     case rename, renameCustom, buildSelected, buildSelectedEmpty, supportedGames, supportedGamesExpanded
-    case batchRefresh, batchRefreshEmpty, imgGuide, imgGuideNoPackage
+    case batchRefresh, batchRefreshEmpty, imgGuide, imgGuideNoPackage, refreshCompletion
     case saves, saveImport
     case skippedItems, appUpdate, playerName, playerRename, buildSteps, sendSelectedDevice, shellCopy
     case cheats, invalidXcode
@@ -61,6 +61,7 @@ enum GallerySheet: String, CaseIterable {
         case .batchRefreshEmpty: return "Refresh games: nothing to refresh"
         case .imgGuide: return "Game data for iOS missing"
         case .imgGuideNoPackage: return "Game data for iOS missing: no package"
+        case .refreshCompletion: return "Refresh complete: per-game img status"
         case .saves: return "Saves: Mac and iPhone"
         case .saveImport: return "Import a save"
         case .skippedItems: return "Skipped files"
@@ -235,6 +236,16 @@ extension GalleryFixtures {
                                                    missingOriginalPackage: sheet == .imgGuideNoPackage)
             return AnyView(MissingImgGuideSheet(context: MissingImgGuideContext(game: game, assessment: assessment), stores: stores, devices: stores.deviceStore,
                                                 libraryFolder: library.folder, onResolvedImg: { _ in }, onFallbackFullRebuild: {}, close: {}))
+        case .refreshCompletion:
+            let summary = RefreshCompletionSummary(
+                isBatch: true,
+                items: [
+                    RefreshNoticeItem(titleID: "0100CD401DA32000", name: "Balatro", target: BuildTarget.ios, succeeded: true, imgStatus: .unchanged),
+                    RefreshNoticeItem(titleID: "0100E65002BB8000", name: "Stardew Valley", target: BuildTarget.ios, succeeded: true, imgStatus: .manualReplace(imgPath: "/Volumes/USB/games/Stardew Valley/Stardew Valley.img", reason: nil)),
+                ],
+                deviceName: "iPhone"
+            )
+            return AnyView(RefreshCompletionSheet(summary: summary, revealItem: { _ in }, onViewQueue: {}, close: {}))
         case .saves:   // no device is asked: a devicectl stand-in that answers nothing and the devices the launcher knows (none)
             return AnyView(SavesView(m: stores.build, library: library, gameID: game.id, devicectl: DeviceControl { _ in (false, "") },
                                      support: directory.appendingPathComponent("support", isDirectory: true), listDevices: { [] }))

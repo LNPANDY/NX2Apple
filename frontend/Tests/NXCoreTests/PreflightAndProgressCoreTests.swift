@@ -205,6 +205,13 @@ final class PreflightAndProgressCoreTests: XCTestCase {
         stages.append(Stage(id: 1001, name: "Xcode build", state: .running, percent: 50))
         let fPost = try XCTUnwrap(BuildProgress.overallFraction(stages: stages, totalStages: 8, floor: f2))
         XCTAssertEqual(fPost, 0.95 + 0.5 * 0.045, accuracy: 0.001)
+
+        // When --shell-framework plans 7 script stages and exits after 6, post-build stages must still advance beyond 6/7 (0.857).
+        var sixOfSeven = (1...6).map { Stage(id: $0, name: "s\($0)", state: .done, percent: 100) }
+        sixOfSeven.append(Stage(id: 1000, name: "Archive", state: .done, percent: 100))
+        sixOfSeven.append(Stage(id: 1003, name: "Copy", state: .running, percent: 50))
+        let fSix = try XCTUnwrap(BuildProgress.overallFraction(stages: sixOfSeven, totalStages: 7, floor: 6.0 / 7.0))
+        XCTAssertEqual(fSix, 0.95 + (1.5 / 2.0) * 0.045, accuracy: 0.001)
     }
 
     // MARK: Module 4A - Extra failure classifier patterns and engine alignment
