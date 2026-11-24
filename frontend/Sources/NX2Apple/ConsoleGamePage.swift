@@ -120,6 +120,17 @@ import NXLauncher
                 ConsoleRowDivider()
                 ConsoleListRow(id: "console.gamePage.options", scope: scope, title: t("console.gamePage.options"),
                                subtitle: t("console.gamePage.optionsNote")) { driver.openOptions(game.id) }
+                if game.builtMacEngines.count > 1,
+                   let active = game.activeMacEngine ?? game.builtMacEngines.first,
+                   let nextIndex = game.builtMacEngines.firstIndex(of: active).map({ ($0 + 1) % game.builtMacEngines.count }) {
+                    let nextEngine = game.builtMacEngines[nextIndex]
+                    ConsoleRowDivider()
+                    ConsoleListRow(id: "console.gamePage.defaultEngine", scope: scope,
+                                   title: String(format: t("console.manage.setDefault"), active.displayName),
+                                   subtitle: String(format: t("library.setDefaultEngine"), nextEngine.displayName)) {
+                        driver.setDefaultMacEngine(game.id, upstream: nextEngine)
+                    }
+                }
                 ConsoleRowDivider()
                 manageRow
             }
@@ -213,6 +224,32 @@ import NXLauncher
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Console.Space.xl) {
+            if game.builtMacEngines.count > 1 {
+                let active = game.activeMacEngine ?? game.builtMacEngines.first
+                ConsoleGroupedList(title: t("console.manage.engineBuilds")) {
+                    ForEach(Array(game.builtMacEngines.enumerated()), id: \.element) { index, upstream in
+                        if index > 0 { ConsoleRowDivider() }
+                        ConsoleListRow(
+                            id: "console.manage.launch." + upstream.rawValue,
+                            scope: "console.manage",
+                            title: String(format: t("library.launchWithEngine"), upstream.displayName),
+                            subtitle: upstream == active ? t("library.defaultBuildTag") : String(format: t("library.setDefaultEngine"), upstream.displayName)
+                        ) {
+                            driver.launchWithMacEngine(game.id, upstream: upstream)
+                        }
+                    }
+                    ForEach(game.builtMacEngines.filter { $0 != active }, id: \.self) { upstream in
+                        ConsoleRowDivider()
+                        ConsoleListRow(
+                            id: "console.manage.default." + upstream.rawValue,
+                            scope: "console.manage",
+                            title: String(format: t("library.setDefaultEngine"), upstream.displayName)
+                        ) {
+                            driver.setDefaultMacEngine(game.id, upstream: upstream)
+                        }
+                    }
+                }
+            }
             ConsoleGroupedList(title: t("console.tab.build")) {
                 ConsoleListRow(id: "console.manage.desktop", scope: "console.manage", title: t("console.openOnDesktop")) { driver.openOnDesktop(game.id) }
             }

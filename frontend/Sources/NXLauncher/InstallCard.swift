@@ -94,6 +94,12 @@ package struct InstallCard: View {
                             appKindCard("framework")
                         }
                     }.padding(18)
+                    Text(loc.t("shell.sharedSinglePerGameNote"))
+                        .font(DS.Font.callout)
+                        .foregroundStyle(LauncherPalette.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 18)
+                        .padding(.bottom, 12)
                     if !standaloneForced && !devices.exportOneGame && devices.exportFramework {
                         CardDivider()
                         let selectedFrameworkTeam = devices.effectiveFrameworkSigningTeam

@@ -39,6 +39,8 @@ final class LibraryArtworkStateCache {
         let titleID: String
         let building: Bool
         let onConnectedDevice: Bool
+        let macBuildUpstreams: [String]
+        let preferredMacUpstream: String?
         /// nxkit's launcher.json (its date and size): a rebuild into the same app path changes the No game profile tag.
         let nxkitList: NxkitBuildProfile.Stamp?
 
@@ -56,6 +58,8 @@ final class LibraryArtworkStateCache {
             titleID = game.titleID
             self.building = building
             self.onConnectedDevice = onConnectedDevice
+            macBuildUpstreams = game.sortedMacBuilds.map(\.upstream.rawValue)
+            preferredMacUpstream = game.preferredMacUpstream
             nxkitList = NxkitBuildProfile.stamp(app: game.appPath)
         }
     }
@@ -101,12 +105,18 @@ struct LibraryArtworkState: Equatable {
     let attention: Attention
     let macUpstream: EngineUpstreamKind?
     let tunedEngines: [EngineUpstreamKind]
+    let builtMacUpstreams: [EngineUpstreamKind]
     var isMacNativeGames: Bool { mac && macUpstream == .macNativeGames }
     /// nxkit built the Mac app without a game profile (NxkitBuildProfile, v0lumehi/nxkit#54): the card says so in a quiet tag.
     var isNxkitGeneric = false
     /// Non-nil when the built Mac app itself was built with a game-tuned engine.
     var builtTunedEngine: EngineUpstreamKind? {
         guard mac, let macUpstream, macUpstream.group == .gameTuned else { return nil }
+        return macUpstream
+    }
+    /// Active engine badge shown when multiple builds exist or the default build is not `nxnative`.
+    var activeBuiltEngine: EngineUpstreamKind? {
+        guard mac, let macUpstream, (builtMacUpstreams.count > 1 || macUpstream != .nxnative) else { return nil }
         return macUpstream
     }
     /// True when this game has at least one dedicated game-tuned engine available.
@@ -130,12 +140,13 @@ struct LibraryArtworkState: Equatable {
         if attention == .none || attention == .building { return DS.Color.textPrimary }   // a property or a running build: neutral
         return DS.Color.statusWarning   // needs attention
     }
-    init(mac: Bool, ios: Bool, attention: Attention, macUpstream: EngineUpstreamKind? = nil, tunedEngines: [EngineUpstreamKind] = []) {
+    init(mac: Bool, ios: Bool, attention: Attention, macUpstream: EngineUpstreamKind? = nil, tunedEngines: [EngineUpstreamKind] = [], builtMacUpstreams: [EngineUpstreamKind] = []) {
         self.mac = mac
         self.ios = ios
         self.attention = attention
         self.macUpstream = macUpstream
         self.tunedEngines = tunedEngines
+        self.builtMacUpstreams = builtMacUpstreams
     }
     init(_ game: LibraryGame, building: Bool = false, onConnectedDevice: Bool = false, exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) {
         var missingMacData = false
@@ -151,6 +162,7 @@ struct LibraryArtworkState: Equatable {
             catch { mac = false }
         }
         macUpstream = detectedUpstream
+        builtMacUpstreams = game.sortedMacBuilds.map(\.upstream)
         isNxkitGeneric = detectedUpstream == .nxkit && NxkitBuildProfile.read(app: game.appPath) != nil
         tunedEngines = EngineUpstream.tunedEngines(forTitleID: game.titleID)
         ios = game.hasIOSBuild || onConnectedDevice

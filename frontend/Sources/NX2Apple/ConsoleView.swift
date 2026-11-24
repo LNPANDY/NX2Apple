@@ -232,7 +232,7 @@ enum ConsoleInput: Equatable {
     /// Platform and engine pills shown beneath the game's title in console details.
     func gameTags(_ game: ConsoleGame) -> [ConsoleContextTag] {
         var tags = game.platforms.map { ConsoleContextTag(title: t($0.labelKey), emphasized: false, width: .platform) }
-        if let built = game.builtTunedEngineName ?? (game.isMacNativeGames ? EngineUpstreamKind.macNativeGames.displayName : nil) {
+        if let built = game.activeEngineBadgeName {
             tags.append(ConsoleContextTag(title: built, emphasized: true, width: .engine))
         } else if !game.tunedEngineNames.isEmpty {
             tags.append(ConsoleContextTag(title: t("library.chip.tunedAvailable"), emphasized: true, width: .auto))

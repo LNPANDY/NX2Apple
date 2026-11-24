@@ -42,22 +42,22 @@ struct LauncherView: View {
     @State var launchHintGeneration = 0
     @StateObject var cloudGate = CloudSaveGate()   // the check of the cloud's save before a start (CloudSaveGate.swift, #957)
     @State var launchError: String?
-    @State private var removing: LibraryGame?
+    @State var removing: LibraryGame?
     @State private var selectingGames = false   // the Build selected games sheet (BuildSelectedSheet.swift)
     @State var batchRefreshOpen = false
     @State var missingImgGuideFor: MissingImgGuideContext?
-    @State private var deleting: LibraryGame?   // the game whose Delete sheet is open (DeleteGameSheet.swift)
+    @State var deleting: LibraryGame?   // the game whose Delete sheet is open (DeleteGameSheet.swift)
     @State var supportedGames: [SupportedGame]?   // the Supported games sheet is open when this is set (SupportedGamesSheet.swift)
     @State var activityLogOpen = false
     @State var skippedItemsOpen = false
-    @State private var renaming: LibraryGame?   // the game whose Rename sheet is open (RenameGameSheet.swift)
+    @State var renaming: LibraryGame?   // the game whose Rename sheet is open (RenameGameSheet.swift)
     @State var optionsFor: UUID?
     @State private var controllerMappingOpen = false
     @State private var freeSpaceFor: UUID?   // the game whose Free space sheet is open
     @State private var controlsOpen = false
     @State private var controlsCancelRequest = 0   // the controller's B in the Controls sheet: asks to leave like Cancel
-    @State private var savesFor: UUID?   // the game whose Saves sheet is open (SaveTransfer.swift)
-    @State private var cheatsFor: UUID?  // the game whose Cheats sheet is open (CheatsView.swift)
+    @State var savesFor: UUID?   // the game whose Saves sheet is open (SaveTransfer.swift)
+    @State var cheatsFor: UUID?  // the game whose Cheats sheet is open (CheatsView.swift)
     @State var manageOpenFor: UUID?   // the game whose Manage menu is open (ManageMenu.swift)
     @State var artworkEditor: ArtworkEditor?   // the game whose artwork panel is open (ArtworkPanel.swift, LauncherView+Artwork.swift)
     @State var artworkSlot: ArtworkSlot?   // its tab: the part of the library not being edited dims
@@ -755,23 +755,6 @@ struct LauncherView: View {
             return
         }
     }
-
-    /// The Manage menu's rows for a game, wired to the launcher's sheets and actions (ManageItem.list).
-    private func manageItems(_ game: LibraryGame) -> [ManageItem] {
-        ManageItem.list(game: game, labels: loc.t, running: m.running, olderTools: toolsAge.older.contains(game.id), activeBuildID: activeBuildID,
-                        hasBuildFolder: !BuildFolder.locations(for: game).isEmpty,
-                        buildFilesTitle: BuildFiles.menuTitle(stores.buildFiles, game: game.id, t: loc.t),
-                        hasLog: GameLog.latest(titleID: game.titleID, appPath: game.appPath) != nil,
-                        deviceName: devices.deviceName(game.installedDevice), launching: launching,
-                        actions: ManageActions(
-                            rebuild: { configureBuild(game) }, openOnDevice: { openOnDevice(game) }, options: { optionsFor = game.id }, saves: { savesFor = game.id }, cheats: { cheatsFor = game.id },
-                            changeArtwork: { page = .library; openArtwork(game) }, rename: { renaming = game },
-                            reveal: { if let path = game.revealTarget { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) } },
-                            showLog: { if let log = GameLog.latest(titleID: game.titleID, appPath: game.appPath) { GameLog.show(log) } },
-                            removeBuildFiles: { stores.buildFiles.askForGame(game.id, building: m.running && activeBuildID == game.id) }, remove: { removing = game }, delete: { deleting = game }))
-    }
-
-    private func manageItems(for game: LibraryGame?) -> [ManageItem] { game.map(manageItems) ?? [] }
 
     private func openKeysSettingsFromDiagnostics() {
         skippedItemsOpen = false

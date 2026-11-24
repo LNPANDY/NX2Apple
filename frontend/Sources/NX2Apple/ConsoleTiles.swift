@@ -88,7 +88,7 @@ struct ConsoleGameTile: View {
                 }
             }
             .overlay(alignment: .topTrailing) {
-                if let built = game.builtTunedEngineName ?? (game.isMacNativeGames ? EngineUpstreamKind.macNativeGames.displayName : nil) {
+                if let built = game.activeEngineBadgeName {
                     DSTag(built, emphasized: true, width: DSTag.engineWidth)
                         .padding(8)
                 } else if !game.tunedEngineNames.isEmpty {

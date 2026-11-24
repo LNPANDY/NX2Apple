@@ -48,12 +48,13 @@ extension LauncherView {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 12) {
                     heroPrimary(game)
+                    heroEngineMenu(game)
                     if showsRefresh { heroSingleRefreshButton(game, compact: compact) }
                     heroDeviceActions(game)
                     heroManage(game)
                 }.fixedSize(horizontal: true, vertical: false)
                 VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 12) { heroPrimary(game); heroManage(game) }
+                    HStack(spacing: 12) { heroPrimary(game); heroEngineMenu(game); heroManage(game) }
                     if showsRefresh { heroSingleRefreshButton(game, compact: compact) }
                     heroDeviceActions(game)
                 }
@@ -65,6 +66,24 @@ extension LauncherView {
     private func heroManage(_ game: LibraryGame) -> some View {
         heroUtilityButton("ellipsis", label: loc.t("library.manage"), id: "hero.manage") { manageOpenFor = game.id }
             .anchorPreference(key: ManageAnchorKey.self, value: .bounds) { $0 }
+    }
+
+    func heroEngineMenuLabel(title: String, symbol: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: symbol)
+                .font(.system(size: 13.5, weight: .semibold))
+            Text(title)
+                .font(DS.Font.bodyStrong)
+                .lineLimit(1)
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(DS.Color.textSecondary)
+        }
+        .foregroundStyle(LauncherPalette.text)
+        .padding(.horizontal, 16)
+        .frame(height: LauncherHeroAction.height)
+        .contentShape(Capsule())
+        .launcherGlass(in: DSPill())
     }
 
     func heroUtilityButton(_ symbol: String, label: String, id: String, action: @escaping () -> Void) -> some View {
