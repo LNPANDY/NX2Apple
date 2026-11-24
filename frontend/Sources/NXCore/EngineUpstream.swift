@@ -201,7 +201,7 @@ package enum EngineUpstreamKind: String, Codable, CaseIterable, Equatable, Senda
         return "org.nxnative.\(tid).\(rawValue)"
     }
 
-    /// True when this engine uses the same `dm/host` save layout as `nxnative`.
+    /// True when this engine uses the same `dm/host` save layout as `nxnative` without needing bundle inspection.
     package var sharesSaveWithNxnative: Bool {
         switch self {
         case .nxnative, .kidWithSword, .noLagKart:
@@ -209,6 +209,15 @@ package enum EngineUpstreamKind: String, Codable, CaseIterable, Equatable, Senda
         case .macNativeGames, .s2arm, .nxkit:
             return false
         }
+    }
+
+    /// Context-aware save-sharing predicate: for `macNativeGames`, returns true only when `appPath` is a #2375 build
+    /// of one of the 5 unified-builder titles (`MngSharedSave`).
+    package func sharesSaveWithNxnative(titleID: String?, appPath: String) -> Bool {
+        if self == .macNativeGames {
+            return MngSharedSave.appSupportsSharedDMSave(appPath: appPath, titleID: titleID)
+        }
+        return sharesSaveWithNxnative
     }
 
     /// Remote Git branch tracked by this external engine.

@@ -102,7 +102,9 @@ package enum SaveLocations {
     package static func environment(save: EffectiveSave, cloud: EffectiveCloud, engine: any SaveEngine = DmSaveEngine()) -> [String: String] {
         guard engine.managesSavesInLauncher else { return [:] }
         var env: [String: String] = [:]
-        if [.game, .global, .libraryFolder, .fallback].contains(save.source) { env[engine.saveKey] = save.path.path }
+        if engine.alwaysInjectsSavePath || [.game, .global, .libraryFolder, .fallback].contains(save.source) {
+            env[engine.saveKey] = save.path.path
+        }
         if cloud.source == .global || cloud.source == .game { env[engine.syncKey] = cloud.folder ?? "0" }
         return env
     }

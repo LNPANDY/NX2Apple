@@ -25,8 +25,9 @@ struct GameSavesSection: View {
     @State private var generation: UInt64 = 0
 
     private var override: SaveGameOverride { settings.game(game.titleID) }
-    private var engine: any SaveEngine { SaveEngines.forApp(game.appPath) }
-    private var isMacNativeGames: Bool { engine is MacNativeGamesSaveEngine }
+    private var engine: any SaveEngine { SaveEngines.forApp(game.appPath, titleID: game.titleID) }
+    private var isExternalMNG: Bool { engine is MacNativeGamesSaveEngine }
+    private var isSharedMNG: Bool { engine is MngSharedDmSaveEngine }
     private var effective: SaveLocations.EffectiveSave {
         SaveLocations.effectiveSave(titleID: game.titleID, appPath: game.appPath, global: settings.global, game: override, engine: engine)
     }
@@ -35,7 +36,7 @@ struct GameSavesSection: View {
         let _ = settings.revision
         let save = effective
         let managed = engine.managesSavesInLauncher
-        let mngTarget = isMacNativeGames ? MacNativeGamesSaveEngine.resolveSaveTarget(titleID: game.titleID) : nil
+        let mngTarget = isExternalMNG ? MacNativeGamesSaveEngine.resolveSaveTarget(titleID: game.titleID) : nil
         let shownURL = mngTarget?.displaySaveURL ?? save.path
         VStack(alignment: .leading, spacing: 10) {
             Text(loc.t("saves.title")).font(DS.Font.headline).foregroundStyle(DS.Color.textSecondary).padding(.leading, 2)
@@ -97,7 +98,7 @@ struct GameSavesSection: View {
             .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
             if !managed {
-                if isMacNativeGames {
+                if isExternalMNG {
                     Text(loc.t("mng.saves.externalNote"))
                         .font(DS.Font.callout).foregroundStyle(Color.secondary)
                         .padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
@@ -110,6 +111,10 @@ struct GameSavesSection: View {
                 .padding(.leading, 2)
             } else if let result {
                 Text(result.text).font(DS.Font.callout).foregroundStyle(result.ok ? Color.secondary : CloudSavesCard.attention)
+                    .padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
+            } else if isSharedMNG {
+                Text(loc.t("mng.saves.sharedNote"))
+                    .font(DS.Font.callout).foregroundStyle(Color.secondary)
                     .padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
             }
         }

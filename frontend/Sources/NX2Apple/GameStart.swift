@@ -48,7 +48,7 @@ enum GameStart {
         }   // DM_STICK_DEADZONE_L / _R: off adds nothing
         // The global setup and this game's own choices (SaveLocation.swift): a save folder and a cloud folder, under the names of
         // the app's engine (SaveEngine.swift). Engines whose saves are outside launcher management (MNG, S2Arm) receive neither DM_SAVE nor DM_SAVE_SYNC.
-        let engine = SaveEngines.forApp(game.appPath)
+        let engine = SaveEngines.forApp(game.appPath, titleID: game.titleID)
         if engine.managesSavesInLauncher {
             var base = SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath, engine: engine).save
             if let saves {

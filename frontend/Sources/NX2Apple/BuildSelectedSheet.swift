@@ -22,6 +22,8 @@ struct BuildSelectedSheet: View {
     var macNativeGamesSelected: Bool = false
     /// Whether the installed MacNativeGames checkout supports generic Switch 2 `.nup` routing (`tools/nup_input.py`).
     var mngSupportsGenericNUP: Bool = false
+    /// Whether the installed MacNativeGames checkout contains #2375 shared `DM_SAVE` support for the 5 unified-builder titles.
+    var mngSupportsSharedSave: Bool = false
     /// Active build engine selected on the Builds page (when nil, falls back to `macNativeGamesSelected`).
     var activeUpstream: EngineUpstreamKind? = nil
     var revealSaveTarget: (MacNativeGamesSaveEngine.SaveTarget) -> Void = MacNativeGamesSaveFinder.reveal
@@ -256,7 +258,21 @@ struct BuildSelectedSheet: View {
     private var targets: [String] {
         Self.targets(selectedTarget, macOnly: macOnlyNoteKey != nil)
     }
-    private var mngTargetTitleID: String? {
+    enum MngSaveBannerMode: Equatable {
+        case shared
+        case external
+        case mixed
+    }
+
+    static func mngSaveBannerMode(mngSupportsSharedSave: Bool, titleIDs: [String]) -> MngSaveBannerMode {
+        guard mngSupportsSharedSave, !titleIDs.isEmpty else { return .external }
+        let sharedCount = titleIDs.filter { MngSharedSave.supportsTitleID($0) }.count
+        if sharedCount == titleIDs.count { return .shared }
+        if sharedCount > 0 { return .mixed }
+        return .external
+    }
+
+    private var mngCandidateGames: [LibraryGame] {
         let isMNGCandidate: (LibraryGame) -> Bool = { game in
             Self.rowEngineTag(
                 for: game.titleID,
@@ -268,22 +284,46 @@ struct BuildSelectedSheet: View {
         }
         let picked = candidates.filter { checked.contains($0.id) }
         let mngPicked = picked.filter(isMNGCandidate)
-        if mngPicked.count == 1 { return mngPicked[0].titleID }
-        if picked.isEmpty {
-            let allMNG = candidates.filter(isMNGCandidate)
-            if allMNG.count == 1 { return allMNG[0].titleID }
-        }
-        return nil
+        if !mngPicked.isEmpty { return mngPicked }
+        return picked.isEmpty ? candidates.filter(isMNGCandidate) : []
     }
+
+    private var mngTargetTitleID: String? {
+        mngCandidateGames.count == 1 ? mngCandidateGames[0].titleID : nil
+    }
+
     private var mngSaveBanner: some View {
-        let target = MacNativeGamesSaveEngine.resolveSaveTarget(titleID: mngTargetTitleID)
+        let mode = Self.mngSaveBannerMode(
+            mngSupportsSharedSave: mngSupportsSharedSave,
+            titleIDs: mngCandidateGames.map(\.titleID)
+        )
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let target: MacNativeGamesSaveEngine.SaveTarget = {
+            if mode == .shared {
+                if let tid = mngTargetTitleID {
+                    let saveURL = DmSaveEngine().defaultSave(titleID: tid, support: support)
+                    let reveal = FileManager.default.fileExists(atPath: saveURL.path) ? saveURL : saveURL.deletingLastPathComponent()
+                    return MacNativeGamesSaveEngine.SaveTarget(displaySaveURL: saveURL, revealURL: reveal)
+                }
+                let nxRoot = support.appendingPathComponent("nxnative", isDirectory: true)
+                return MacNativeGamesSaveEngine.SaveTarget(displaySaveURL: nxRoot, revealURL: FileManager.default.fileExists(atPath: nxRoot.path) ? nxRoot : support)
+            }
+            return MacNativeGamesSaveEngine.resolveSaveTarget(titleID: mngTargetTitleID, support: support)
+        }()
+        let noteKey: String = {
+            switch mode {
+            case .shared: return "mng.saves.sharedNote"
+            case .external: return "mng.saves.externalNote"
+            case .mixed: return "mng.saves.sharedMixedNote"
+            }
+        }()
         return DSCard {
             HStack(spacing: DS.Space.s) {
                 Image(systemName: "folder")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(DS.Color.symbolDefault)
                     .accessibilityHidden(true)
-                Text(loc.t("mng.saves.externalNote"))
+                Text(loc.t(noteKey))
                     .font(DS.Font.callout)
                     .foregroundStyle(DS.Color.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)

@@ -20,6 +20,12 @@ package protocol SaveEngine: Sendable {
     var savesInLibraryFolder: Bool { get }
     /// True when the launcher manages this engine's save folder, import/export, player isolation, and cloud sync.
     var managesSavesInLauncher: Bool { get }
+    /// True when this engine shares the same `dm` save folder as `nxnative`.
+    var sharesSaveWithNxnative: Bool { get }
+    /// True when `SaveLocations.environment` must always emit `saveKey` even for `.standard` paths.
+    var alwaysInjectsSavePath: Bool { get }
+    /// True when the launcher itself handles pre-launch pull and post-exit push against `save.dmsync`.
+    var syncsCloudInLauncher: Bool { get }
     /// The save when the launcher names none.
     func defaultSave(titleID: String, support: URL) -> URL
     /// Engine-owned save and backup paths to remove when deleting a build (when `managesSavesInLauncher` is false).
@@ -38,11 +44,14 @@ package protocol SaveEngine: Sendable {
 
 extension SaveEngine {
     package var managesSavesInLauncher: Bool { true }
+    package var sharesSaveWithNxnative: Bool { false }
+    package var alwaysInjectsSavePath: Bool { false }
+    package var syncsCloudInLauncher: Bool { false }
     package func deletionPaths(titleID: String, support: URL) -> [String] { [] }
 }
 
 package enum SaveEngines {
-    /// Save engine descriptor for an explicitly known upstream kind.
+    /// Save engine descriptor for an explicitly known upstream kind without an `.app` bundle context.
     package static func forUpstream(_ upstream: EngineUpstreamKind) -> any SaveEngine {
         switch upstream {
         case .nxnative, .kidWithSword, .noLagKart:
@@ -56,14 +65,35 @@ package enum SaveEngines {
         }
     }
 
-    /// The engine of the app at `path`, resolving MNG / S2Arm / nxkit explicitly so neither MNG nor S2Arm ever falls back to `dm`.
-    package static func forApp(_ path: String) -> any SaveEngine {
-        guard !path.isEmpty else { return DmSaveEngine() }
+    /// Save engine descriptor for an app bundle, resolving whether an MNG build supports #2375 shared `DM_SAVE`.
+    package static func forApp(
+        _ path: String,
+        titleID: String? = nil,
+        fallbackUpstream: EngineUpstreamKind? = nil
+    ) -> any SaveEngine {
+        guard !path.isEmpty else {
+            return fallbackUpstream.map(forUpstream) ?? DmSaveEngine()
+        }
         if let bundle = try? MacGameBundle.read(URL(fileURLWithPath: path)) {
+            if bundle.upstream == .macNativeGames,
+               MngSharedSave.appSupportsSharedDMSave(appPath: path, titleID: titleID ?? bundle.titleID) {
+                return MngSharedDmSaveEngine()
+            }
             return forUpstream(bundle.upstream)
         }
         if let detected = detectExternalUpstream(at: path) {
+            if detected == .macNativeGames,
+               MngSharedSave.appSupportsSharedDMSave(appPath: path, titleID: titleID) {
+                return MngSharedDmSaveEngine()
+            }
             return forUpstream(detected)
+        }
+        if let fallbackUpstream {
+            if fallbackUpstream == .macNativeGames,
+               MngSharedSave.appSupportsSharedDMSave(appPath: path, titleID: titleID) {
+                return MngSharedDmSaveEngine()
+            }
+            return forUpstream(fallbackUpstream)
         }
         return DmSaveEngine()
     }
@@ -110,6 +140,7 @@ package struct DmSaveEngine: SaveEngine {
     package var unaskedChoice: String? { nil }
     package var psoUserKey: String? { "DM_PSO_USER" }
     package var savesInLibraryFolder: Bool { true }
+    package var sharesSaveWithNxnative: Bool { true }
 
     package func defaultSave(titleID: String, support: URL) -> URL {
         support.appendingPathComponent("nxnative").appendingPathComponent(titleID).appendingPathComponent("save")
@@ -130,7 +161,7 @@ package struct DmSaveEngine: SaveEngine {
     package func sendCommand(app: String) -> [String]? { nil }
 }
 
-/// The send after a game ended, for an engine that has a command for it. It runs with the game's environment, also after a crash.
+/// The send after a game ended, for an engine that has a command for it, or one whose cloud sync runs in the launcher.
 package enum CloudSaveSend {
     /// What to run after the game of `app` ended, nil when its engine has no send or the game started without cloud saves.
     /// `environment` is the one the game started with. The launcher's own environment is under it, as it is under the game's.
@@ -141,11 +172,42 @@ package enum CloudSaveSend {
     }
 
     /// Runs the send in the background. Its exit code is 0 when the save is in step with the cloud or sync is off.
-    package static func afterExit(app: String, environment: [String: String], engine: any SaveEngine) {
+    package static func afterExit(app: String, titleID: String = "", environment: [String: String], engine: any SaveEngine,
+                                  isRunning: (@Sendable () -> Bool)? = nil) {
+        if let folder = CloudSaveSync.folder(for: environment[engine.syncKey]), engine.syncsCloudInLauncher {
+            let resolvedTitle = resolvedTitleID(app: app, fallback: titleID)
+            guard !resolvedTitle.isEmpty else { return }
+            let saveURL = environment[engine.saveKey].map { URL(fileURLWithPath: $0, isDirectory: true) }
+                ?? engine.defaultSave(titleID: resolvedTitle, support: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0])
+            let cloudFile = URL(fileURLWithPath: CloudSaveSync.saveFile(folder: folder, titleID: resolvedTitle))
+            let runningCheck = isRunning ?? { false }
+            let plan = CloudSaveNow.SyncPlan(
+                titleID: resolvedTitle,
+                gameName: resolvedTitle,
+                save: saveURL,
+                legacySave: nil,
+                cloudFile: cloudFile,
+                isDefaultPlayer: true
+            )
+            DispatchQueue.global(qos: .utility).async {
+                _ = CloudSaveNow.syncNow(plan: plan, isRunning: runningCheck)
+            }
+            return
+        }
         guard var launch = launch(app: app, environment: environment, engine: engine) else { return }
         launch.timeout = 120
         let job = launch
         DispatchQueue.global(qos: .utility).async { _ = SystemProcessRunner().capture(job) }
+    }
+
+    private static func resolvedTitleID(app: String, fallback: String) -> String {
+        if let parsed = MacNativeGamesBuilder.normalizedHex16(fallback) {
+            return parsed
+        }
+        if let bundle = try? MacGameBundle.read(URL(fileURLWithPath: app)) {
+            return bundle.titleID
+        }
+        return ""
     }
 }
 

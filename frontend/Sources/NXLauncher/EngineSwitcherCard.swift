@@ -360,12 +360,14 @@ package struct EngineSwitcherCard: View {
     }
 
     private func mngSaveLocationBar() -> some View {
-        let target = MacNativeGamesSaveEngine.resolveSaveTarget(titleID: build.gameTitleID)
+        let shared = build.isMacNativeGamesSharedSaveSupported
+        let target = build.mngSaveDisplayTarget()
+        let noteKey = shared ? "mng.saves.sharedNote" : "mng.saves.externalNote"
         return HStack(spacing: 12) {
             Image(systemName: "folder")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(LauncherPalette.secondaryText)
-            Text(loc.t("mng.saves.externalNote"))
+            Text(loc.t(noteKey))
                 .font(DS.Font.callout)
                 .foregroundStyle(LauncherPalette.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)

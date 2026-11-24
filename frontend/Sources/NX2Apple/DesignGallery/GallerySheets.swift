@@ -23,6 +23,7 @@ enum GallerySheet: String, CaseIterable {
     case cheats, invalidXcode
     case activityLog, activityLogEmpty
     case seedCompressionPrompt, seedCompressionProgress, seedCompressionDone, seedCompressionDonePartial, seedCompressionDoneStopped
+    case mngSaveMigration
 
     var title: String {
         switch self {
@@ -81,6 +82,7 @@ enum GallerySheet: String, CaseIterable {
         case .seedCompressionDone: return "Seed compression: completed"
         case .seedCompressionDonePartial: return "Seed compression: partial"
         case .seedCompressionDoneStopped: return "Seed compression: stopped"
+        case .mngSaveMigration: return "MNG shared save: migration"
         }
     }
 
@@ -298,6 +300,26 @@ extension GalleryFixtures {
             return confirm(t("launch.useTested"), subtitle: name, note: String(format: t("launch.useTestedMany"), 3), t("launch.useTested"), destructive: false)
         case .seedCompressionPrompt, .seedCompressionProgress, .seedCompressionDone, .seedCompressionDonePartial, .seedCompressionDoneStopped:
             return AnyView(seedCompressionGallerySheet(sheet, stores: stores, library: library))
+        case .mngSaveMigration:
+            let mngSource = directory.appendingPathComponent("MacNativeGames/TOTK/profile/save/53574e415449564578626c0000000001")
+            let nxTarget = directory.appendingPathComponent("Saves/0100F2C0115B6000")
+            let coordinator = MngSaveMigrationCoordinator(defaults: stores.defaults)
+            let now = Date(timeIntervalSince1970: 1_790_000_000)
+            coordinator.prompt = MngMigrationQuestion(
+                titleID: GalleryFixtures.mngTitleID,
+                gameName: name,
+                appPath: directory.appendingPathComponent("\(game.name).app").path,
+                assessment: .bothHaveSaves(
+                    mngSource: mngSource,
+                    nxTarget: nxTarget,
+                    nxExisting: nxTarget,
+                    mngFiles: 12,
+                    mngNewest: now.addingTimeInterval(-3600),
+                    nxFiles: 8,
+                    nxNewest: now.addingTimeInterval(-120)
+                )
+            )
+            return AnyView(MngSaveMigrationSheet(coordinator: coordinator, saveSettings: stores.saveSettings))
         }
     }
 }

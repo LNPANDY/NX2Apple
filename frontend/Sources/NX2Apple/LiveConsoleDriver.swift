@@ -87,6 +87,10 @@ struct ConsolePadSnapshot: Equatable {
     var cloudGate = CloudSaveGate() { didSet { watchCloudGate() } }
     var cloudGameID: String?
     var cloudWatch: AnyCancellable?
+    var mngMigration: MngSaveMigrationCoordinator
+    var mngMigrationGameID: String?
+    var mngMigrationWatch: AnyCancellable?
+    var mngSaveSettings: SaveSettingsStore?
     var timeoutTask: Task<Void, Never>?
     var launchGeneration: UInt64 = 0
     var pendingLaunchUpstreamOverride: (gameID: String, upstream: EngineUpstreamKind)? = nil
@@ -122,6 +126,7 @@ struct ConsolePadSnapshot: Equatable {
         self.launchGracePeriod = launchGracePeriod
         self.player = player
         self.library = library; self.controls = controls; self.repo = repo; self.lang = lang; self.labels = labels
+        self.mngMigration = MngSaveMigrationCoordinator(defaults: library.defaults)
         self.startingTimeout = startingTimeout
         self.pads = pads ?? { [] }
         self.steamPads = steamPads ?? { pads == nil ? SteamLinkGamepads.shared.snapshots : [] }
@@ -139,6 +144,7 @@ struct ConsolePadSnapshot: Equatable {
         controls.$pad.combineLatest(controls.$padMode).dropFirst().receive(on: DispatchQueue.main)
             .sink { [weak self] _ in MainActor.assumeIsolated { self?.refreshPadLayout() } }.store(in: &cancellables)
         watchCloudGate()
+        watchMngMigration()
         watchTools()
         refresh()
         refreshControllers(announce: false)
@@ -307,6 +313,7 @@ struct ConsolePadSnapshot: Equatable {
         timeoutTask?.cancel()
         if launchedPID == nil || launchedGame?.id.uuidString != state.startingGameID {
             launchGeneration &+= 1
+            mngMigration.cancel()
             cloudGate.cancel()
             state.returnFromGame()
             gameEnded()
@@ -323,8 +330,10 @@ struct ConsolePadSnapshot: Equatable {
             .merging(pointerHidden() ? ["DM_CURSOR_HIDDEN": "1", "NXKIT_CURSOR_HIDDEN": "1"] : [:]) { $1 }   // the game is a new process: without this its pointer shows until its own idle wait ends (nxkit reads its own name)
             .merging(FrameTimes.recordingEnvironment(for: game, library: library.folder)) { $1 }   // a frame-time recording, as the desktop Play adds (FrameTimes.swift)
         state.starting = .preparing
-        cloudGameID = gameID
-        cloudGate.begin(game, environment: environment, proceed: { [weak self] choice in   // the cloud's save first (LiveConsoleDriver+CloudSave.swift, #957)
+        beginAfterMngMigration(game: game, gameID: gameID, generation: generation) { [weak self] in
+            guard let self, self.launchGeneration == generation, self.state.startingGameID == gameID else { return }
+            self.cloudGameID = gameID
+            self.cloudGate.begin(game, environment: environment, proceed: { [weak self] choice in   // the cloud's save first (LiveConsoleDriver+CloudSave.swift, #957)
             guard let self, self.launchGeneration == generation, self.state.startingGameID == gameID else { return }
             self.state.starting = .preparing
             self.prepareLaunch { [weak self] in
@@ -345,6 +354,7 @@ struct ConsolePadSnapshot: Equatable {
             guard let self, self.launchGeneration == generation else { return }
             self.pendingLaunchUpstreamOverride = nil; self.state.returnFromGame()
         })
+        }
     }
 
     private func openGame(_ game: LibraryGame, environment: [String: String], gameID: String, generation: UInt64) {
@@ -365,7 +375,7 @@ struct ConsolePadSnapshot: Equatable {
                         CheatFuseMonitor.shared.didStart(pid: pid, pending: armedCheats)
                         GameReturnWatcher.shared.didStart(pid: pid) { [weak self] in
                             CheatFuseMonitor.shared.didExit(pid: pid)
-                            CloudSaveSend.afterExit(app: game.appPath, environment: environment, engine: SaveEngines.forApp(game.appPath))
+                            CloudSaveSend.afterExit(app: game.appPath, titleID: game.titleID, environment: environment, engine: SaveEngines.forApp(game.appPath, titleID: game.titleID))
                             self?.gameDidTerminate(pid: pid)
                         }
                     } else {

@@ -247,12 +247,21 @@ extension LauncherView {
         do {
             _ = try MacGameBundle.read(URL(fileURLWithPath: game.appPath))
             beginMacLaunch(game)
-            let environment = macEnvironment(game)   // the cloud check of an engine with its own report runs with it (CloudSaveGate)
-            cloudGate.begin(
-                game,
-                environment: environment,
-                proceed: { startMacGame(game, environment: environment, cloudChoice: $0) },
-                ended: { endGameLaunch() }
+            mngMigration.beginIfNeeded(
+                titleID: game.titleID,
+                gameName: game.displayName(loc.lang),
+                appPath: game.appPath,
+                saveSettings: stores.saveSettings,
+                proceed: {
+                    let environment = macEnvironment(game)   // the cloud check of an engine with its own report runs with it (CloudSaveGate)
+                    cloudGate.begin(
+                        game,
+                        environment: environment,
+                        proceed: { startMacGame(game, environment: environment, cloudChoice: $0) },
+                        ended: { endGameLaunch() }
+                    )
+                },
+                cancelled: { endGameLaunch() }
             )
         } catch {
             launchError = error.localizedDescription
@@ -310,7 +319,7 @@ extension LauncherView {
                                 GameReturnWatcher.shared.didStart(pid: pid) {
                                     sessionStore.ended(titleID: startedTitleID)
                                     CheatFuseMonitor.shared.didExit(pid: pid)
-                                    CloudSaveSend.afterExit(app: currentGame.appPath, environment: withRecording, engine: SaveEngines.forApp(currentGame.appPath))
+                                    CloudSaveSend.afterExit(app: currentGame.appPath, titleID: currentGame.titleID, environment: withRecording, engine: SaveEngines.forApp(currentGame.appPath, titleID: currentGame.titleID))
                                 }
                             } else {
                                 CheatFuseMonitor.shared.abort(armedCheats)

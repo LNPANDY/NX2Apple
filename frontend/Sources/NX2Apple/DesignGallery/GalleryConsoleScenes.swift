@@ -19,7 +19,7 @@ enum GalleryConsoleScene: String, CaseIterable {
     // the button mapping
     case mappingStandard, mappingByLabel, mappingAuto, mappingCustom, mappingButton, mappingGame, confirmMapping
     // a game's options and pages over them
-    case gamePad, advanced, confirmReset, manage, cloudSaveQuestion, cloudSaveUnreadable
+    case gamePad, advanced, confirmReset, manage, cloudSaveQuestion, cloudSaveUnreadable, mngMigration
     // All games and the search
     case allReady, allNotBuilt, allNeedsData, allByName, searchNoResults
     // the builds
@@ -69,6 +69,7 @@ enum GalleryConsoleScene: String, CaseIterable {
         case .manage: return "Manage a game"
         case .cloudSaveQuestion: return "Cloud save: both changed"
         case .cloudSaveUnreadable: return "Cloud save: cannot be read"
+        case .mngMigration: return "MNG shared save: migration"
         case .allReady: return "All games: Ready on Mac"
         case .allNotBuilt: return "All games: Not built"
         case .allNeedsData: return "All games: Needs game data"
@@ -165,6 +166,25 @@ extension GalleryFixtures {
                 : CloudSaveQuestion(gameName: name, outcome: .unreadable, local: .init(hash: "a", saved: now), cloud: nil,
                                     reason: "The Internet connection appears to be offline.", backups: backups)
             driver.state.askCloudSave(question)
+        case .mngMigration:
+            let mngSource = directory.appendingPathComponent("MacNativeGames/TOTK/profile/save/53574e415449564578626c0000000001")
+            let nxTarget = directory.appendingPathComponent("Saves/0100F2C0115B6000")
+            driver.state.askMngMigration(
+                MngMigrationQuestion(
+                    titleID: GalleryFixtures.mngTitleID,
+                    gameName: name,
+                    appPath: directory.appendingPathComponent("\(name).app").path,
+                    assessment: .bothHaveSaves(
+                        mngSource: mngSource,
+                        nxTarget: nxTarget,
+                        nxExisting: nxTarget,
+                        mngFiles: 12,
+                        mngNewest: now.addingTimeInterval(-3600),
+                        nxFiles: 8,
+                        nxNewest: now.addingTimeInterval(-120)
+                    )
+                )
+            )
         case .allReady, .allNotBuilt, .allNeedsData, .allByName:
             driver.openAllGames()
             driver.state.libraryFilter = [GalleryConsoleScene.allReady: ConsoleLibraryFilter.readyOnMac, .allNotBuilt: .notBuilt, .allNeedsData: .needsData][scene] ?? .all
