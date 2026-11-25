@@ -59,3 +59,4 @@
 0077-gfx-maximize-concurrent-shader-compilation-on-mt.patch
 0080-hid-games-0400a3a01ee4c000-add-virtual-switch-2.patch
 0081-gfx-gpu-bc-to-astc-4x4-transcode.patch
+0082-gfx-tests-align-early-fragment-tests-sumo-and-vb.patch
