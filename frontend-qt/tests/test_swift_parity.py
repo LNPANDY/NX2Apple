@@ -320,6 +320,31 @@ class SharedShellParityTests(unittest.TestCase):
                 bundle_dir = Path(real_bundle)
                 tpl = bundle_dir / 'shell_template' / 'DmShell.app'
                 self.assertTrue((tpl / 'DmShell').is_file(), f'packaged DmShell missing at {tpl}')
+                qtsvg_bindings = [
+                    p for p in bundle_dir.rglob('*')
+                    if p.is_file()
+                    and p.parent.name == 'PySide6'
+                    and (p.name == 'QtSvg.pyd' or p.name.startswith('QtSvg.'))
+                    and p.stat().st_size > 0
+                ]
+                self.assertTrue(
+                    qtsvg_bindings,
+                    f'packaged PySide6.QtSvg binding missing or empty under {bundle_dir}',
+                )
+                qtsvg_native = [
+                    p for p in bundle_dir.rglob('*')
+                    if p.is_file()
+                    and (
+                        p.name.lower() == 'qt6svg.dll'
+                        or p.name.startswith('libQt6Svg.')
+                        or p.name == 'QtSvg'
+                    )
+                    and p.stat().st_size > 0
+                ]
+                self.assertTrue(
+                    qtsvg_native,
+                    f'packaged Qt6Svg native library missing or empty under {bundle_dir}',
+                )
             else:
                 bundle_dir = root / 'dist' / 'NX2Apple' / '_internal'
                 tpl = bundle_dir / 'shell_template' / 'DmShell.app'
@@ -617,6 +642,71 @@ class SharedShellParityTests(unittest.TestCase):
                 rc = bst.main(['--engine', str(eng), '--out', str(fb_out)])
             self.assertEqual(rc, 0)
             self.assertTrue((fb_out / 'DmShell').is_file())
+
+    def test_build_qt_workflow_bundles_qtsvg_and_faulthandler(self) -> None:
+        wf = (ROOT / '.github' / 'workflows' / 'build-qt.yml').read_text(encoding='utf-8')
+        self.assertIn('--collect-submodules PySide6.QtSvg', wf)
+        self.assertIn('--hidden-import PySide6.QtSvg', wf)
+        self.assertIn('-X faulthandler -m unittest discover', wf)
+        self.assertNotIn('Qt6Svg', wf.split('- name: Trim the bundle', 1)[1].split('- name: Package', 1)[0])
+
+    def test_win_shell_reveal_com_guard_and_offscreen_fallback(self) -> None:
+        import ctypes
+        import types
+        from unittest import mock
+        from nspb_qt import platform_util as pu
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ipa_file = root / 'NX2Apple.ipa'
+            ipa_file.write_bytes(b'ipa')
+            plain_dir = root / 'plain_folder'
+            plain_dir.mkdir()
+
+            # 1. Under QT_QPA_PLATFORM=offscreen on Windows, reveal skips Shell COM and os.startfile
+            seen_popen: list[list[str]] = []
+            with (
+                mock.patch.object(pu, 'IS_WIN', True),
+                mock.patch.object(pu, 'IS_MAC', False),
+                mock.patch.dict(os.environ, {'QT_QPA_PLATFORM': 'offscreen'}, clear=False),
+                mock.patch.object(pu.subprocess, 'Popen', side_effect=lambda cmd, **_kw: seen_popen.append(list(cmd))),
+                mock.patch.object(os, 'startfile', side_effect=AssertionError('must not call os.startfile'), create=True),
+            ):
+                self.assertTrue(pu.reveal(str(ipa_file)))
+                self.assertTrue(pu.reveal(str(plain_dir)))
+            self.assertEqual(len(seen_popen), 2)
+            self.assertEqual(seen_popen[0][0], 'explorer.exe')
+            self.assertTrue(seen_popen[0][1].startswith('/select,'))
+            self.assertEqual(seen_popen[1], ['explorer.exe', os.path.normpath(str(plain_dir.resolve()))])
+
+            # 2. Interactive STA session: CoInitializeEx(S_OK) pairs with CoUninitialize and ILFree
+            calls: list[str] = []
+            fake_ole32 = types.SimpleNamespace(
+                CoInitializeEx=mock.MagicMock(side_effect=lambda _pv, _flag: (calls.append('CoInit'), 0)[1]),
+                CoUninitialize=mock.MagicMock(side_effect=lambda: calls.append('CoUninit')),
+            )
+            fake_shell32 = types.SimpleNamespace(
+                ILCreateFromPathW=mock.MagicMock(side_effect=lambda _p: (calls.append('ILCreate'), 0x1234)[1]),
+                SHOpenFolderAndSelectItems=mock.MagicMock(side_effect=lambda *_a: (calls.append('SHOpen'), 0)[1]),
+                ILFree=mock.MagicMock(side_effect=lambda _pidl: calls.append('ILFree')),
+            )
+            fake_windll = types.SimpleNamespace(ole32=fake_ole32, shell32=fake_shell32)
+            with (
+                mock.patch.dict(os.environ, {'QT_QPA_PLATFORM': ''}, clear=False),
+                mock.patch.object(ctypes, 'windll', fake_windll, create=True),
+            ):
+                self.assertTrue(pu._win_shell_select_item(r'C:\Games\NX2Apple.ipa'))
+            self.assertEqual(calls, ['CoInit', 'ILCreate', 'SHOpen', 'ILFree', 'CoUninit'])
+
+            # 3. MTA thread (RPC_E_CHANGED_MODE = -2147417850) skips SHOpenFolderAndSelectItems and CoUninitialize
+            calls.clear()
+            fake_ole32.CoInitializeEx.side_effect = lambda _pv, _flag: (calls.append('CoInitMTA'), -2147417850)[1]
+            with (
+                mock.patch.dict(os.environ, {'QT_QPA_PLATFORM': ''}, clear=False),
+                mock.patch.object(ctypes, 'windll', fake_windll, create=True),
+            ):
+                self.assertFalse(pu._win_shell_select_item(r'C:\Games\NX2Apple.ipa'))
+            self.assertEqual(calls, ['CoInitMTA'])
 
     def test_pso_archive_progress_and_pinned_emitter_stage_lifecycle(self) -> None:
         """Exercise pso_archive_progress and Model._on_line with the pinned engine's Progress emitter in a headless job."""
@@ -2232,6 +2322,9 @@ class ParityWindowTests(unittest.TestCase):
         self.assertIn('tools/build_shell_template.py', wf)
         self.assertIn('--hidden-import nspb_qt.win.shell_export', wf)
         self.assertIn('--add-data "shell_template${PATHSEP}shell_template"', wf)
+        self.assertIn('--collect-submodules PySide6.QtSvg', wf)
+        self.assertIn('--hidden-import PySide6.QtSvg', wf)
+        self.assertIn('-X faulthandler', wf)
 
     def test_real_onboarding_dialog_step2_live_progress_and_button_lock(self) -> None:
         """Instantiate the real OnboardingDialog with a real Model and verify live signal-driven
@@ -2750,6 +2843,178 @@ class ParityWindowTests(unittest.TestCase):
                     w.hero.primary_btn.click()
                     self.app.processEvents()
             self.assertEqual(revealed, [str(fw_dir), str(fw_dir)])
+
+    def test_keyboard_focus_filter_stays_off_qapplication_and_survives_teardown(self) -> None:
+        import gc
+        from unittest import mock
+        from PySide6.QtCore import QEvent, QObject, Qt
+        from PySide6.QtGui import QFocusEvent
+        from PySide6.QtWidgets import QToolButton
+        from nspb_qt.model import Model
+        from nspb_qt.ui import MainWindow
+        from nspb_qt.widgets import KeyboardFocusFilter
+
+        seen_watched: list[QObject] = []
+        orig_filter = KeyboardFocusFilter.eventFilter
+
+        def spy_filter(flt_self, watched, event):
+            seen_watched.append(watched)
+            return orig_filter(flt_self, watched, event)
+
+        from nspb_qt import platform_util as pu_mod
+
+        with (
+            mock.patch.object(KeyboardFocusFilter, 'eventFilter', spy_filter),
+            mock.patch.object(Model, 'check_deps', lambda self: None),
+            mock.patch.object(Model, 'check_upstream_updates', lambda self: None),
+            mock.patch.object(pu_mod, 'find_python', return_value=(sys.executable, True, '3.12.0')),
+        ):
+            for _ in range(3):
+                m = Model()
+                w = MainWindow(m)
+                try:
+                    w.resize(1120, 780)
+                    w.show()
+                    self.assertIn('fusion', self.app.style().objectName().lower())
+                    w._switch_page('library')
+                    self.app.processEvents()
+                    w._switch_page('builds')
+                    self.app.processEvents()
+                    w._switch_page('settings')
+                    self.app.processEvents()
+
+                    # Never install an application-wide filter on QApplication
+                    self.assertIsNone(getattr(self.app, '_nspb_kb_focus_filter', None))
+
+                    # Unrelated QObject events never enter KeyboardFocusFilter
+                    seen_watched.clear()
+                    plain_obj = QObject()
+                    self.app.sendEvent(plain_obj, QEvent(QEvent.Type.User))
+                    self.assertEqual(seen_watched, [])
+
+                    # QLineEdit internal clear button is excluded from KeyboardFocusFilter
+                    clear_btns = [
+                        b for b in w.search_input.findChildren(QToolButton)
+                        if b.objectName().startswith('qt_')
+                    ]
+                    for cb in clear_btns:
+                        self.assertFalse(getattr(cb, '_nspb_kb_flt_attached', False))
+
+                    # Interactive buttons track keyboard focus, clear cleanly on FocusOut, and
+                    # repolish away the cached cream border on subsequent MouseFocusReason
+                    w.activateWindow()
+                    w._switch_page('builds')
+                    self.app.processEvents()
+                    btn = w.out_btn
+
+                    def _top_border_rgb(target_btn):
+                        img = target_btn.grab().toImage()
+                        c = img.pixelColor(img.width() // 2, 0)
+                        return (c.red(), c.green(), c.blue())
+
+                    base_rgb = _top_border_rgb(btn)
+                    self.assertNotEqual(base_rgb, (255, 240, 214))
+
+                    btn.setFocus(Qt.TabFocusReason)
+                    self.app.processEvents()
+                    self.assertTrue(bool(btn.property('kbFocus')))
+                    self.assertEqual(_top_border_rgb(btn), (255, 240, 214))
+
+                    btn.clearFocus()
+                    self.app.processEvents()
+                    self.assertFalse(bool(btn.property('kbFocus')))
+
+                    btn.setFocus(Qt.MouseFocusReason)
+                    self.app.processEvents()
+                    self.assertFalse(bool(btn.property('kbFocus')))
+                    self.assertEqual(_top_border_rgb(btn), base_rgb)
+
+                    # Dynamically created buttons also receive KeyboardFocusFilter
+                    from PySide6.QtWidgets import QAbstractButton, QPushButton
+                    from nspb_qt import build_failure as bf_mod
+                    from nspb_qt.model import Dep, DepState
+
+                    popup = w._ensure_engine_popup()
+                    popup_btns = popup.findChildren(QAbstractButton)
+                    self.assertGreater(len(popup_btns), 0)
+                    for pb in popup_btns:
+                        self.assertTrue(getattr(pb, '_nspb_kb_flt_attached', False))
+                    popup.close()
+
+                    with mock.patch.object(type(m), 'selectable_titles', new_callable=mock.PropertyMock, return_value=('0100AAA000001000', '0100BBB000002000')):
+                        m.failure = bf_mod.Failure(kind=bf_mod.SEVERAL_GAMES, detail='pick one', title_ids=('0100AAA000001000', '0100BBB000002000'))
+                        w._show_failure()
+                        title_btns = [
+                            w.title_buttons.itemAt(i).widget()
+                            for i in range(w.title_buttons.count())
+                            if isinstance(w.title_buttons.itemAt(i).widget(), QPushButton)
+                        ]
+                        self.assertEqual(len(title_btns), 2)
+                        for tb in title_btns:
+                            self.assertTrue(getattr(tb, '_nspb_kb_flt_attached', False))
+                        m.failure = None
+                        w._show_failure()
+
+                    with mock.patch.object(type(w.queue_card.q), 'awaiting_resume', new_callable=mock.PropertyMock, return_value=True):
+                        w.queue_card.refresh()
+                        resume_btns = w.queue_card.rows_host.findChildren(QPushButton)
+                        self.assertGreater(len(resume_btns), 0)
+                        for rb in resume_btns:
+                            self.assertTrue(getattr(rb, '_nspb_kb_flt_attached', False))
+                    w.queue_card.refresh()
+
+                    w._onboarding_checked = True
+                    m.deps = [Dep('python', 'dep.python', 'dep.python.hint', DepState.MISSING, '', install=lambda: True)]
+                    m.deps_checked = True
+                    w._refresh_deps()
+                    dep_rw = w._dep_row_widgets['python']
+                    self.assertIsNone(getattr(dep_rw['frame'], '_nspb_kb_focus_filter', None))
+                    self.assertTrue(getattr(dep_rw['install_btn'], '_nspb_kb_flt_attached', False))
+
+                    w.close()
+                    self.assertFalse(w._init_timer.isActive())
+                    self.assertEqual(w._model_connections, [])
+                finally:
+                    self._delete(m, w)
+                    gc.collect()
+
+    def test_centered_column_widget_never_diverges_in_scroll_area(self) -> None:
+        from PySide6.QtCore import QEvent, Qt
+        from PySide6.QtWidgets import QLabel, QScrollArea, QVBoxLayout, QWidget
+        from nspb_qt.widgets import CenteredColumnWidget
+
+        sc = QScrollArea()
+        sc.setWidgetResizable(True)
+        sc.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.addCleanup(lambda: (sc.close(), sc.deleteLater(), self.app.sendPostedEvents(None, QEvent.DeferredDelete), self.app.processEvents()))
+
+        host = QWidget()
+        host_col = QVBoxLayout(host)
+        host_col.setContentsMargins(0, 0, 0, 0)
+        host_col.setSpacing(0)
+
+        col = CenteredColumnWidget(max_width=920, min_h_margin=28, top_margin=28, bottom_margin=36)
+        wide_child = QWidget()
+        wide_child.setMinimumWidth(960)
+        wrap_lbl = QLabel('Before your first build, finish setup ' * 12)
+        wrap_lbl.setWordWrap(True)
+        col.body_col.addWidget(wide_child)
+        col.body_col.addWidget(wrap_lbl)
+        host_col.addWidget(col)
+        sc.setWidget(host)
+
+        sc.resize(1120, 620)
+        sc.show()
+
+        observed_widths: list[int] = []
+        for _ in range(12):
+            self.app.processEvents()
+            observed_widths.append(col.width())
+
+        self.assertEqual(len(set(observed_widths)), 1, f'width diverged across layout passes: {observed_widths}')
+        self.assertLessEqual(observed_widths[-1], sc.viewport().width())
+        self.assertLessEqual(col.column_host.width(), 920)
+        sc.close()
 
 
 if __name__ == '__main__':

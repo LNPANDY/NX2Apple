@@ -26,7 +26,7 @@ from . import features as feat
 from . import library as lib
 from . import platform_util as pu
 from . import style
-from .widgets import CardGroup, LauncherSwitch, StatusDot
+from .widgets import CardGroup, LauncherSwitch, StatusDot, install_keyboard_focus_filter
 
 if TYPE_CHECKING:
     from .model import Model
@@ -41,6 +41,7 @@ class FreeSpaceDialog(QDialog):
         self.game = game
         self.setWindowTitle(f"{self.m.t('free.title')} — {game.name}")
         self.setMinimumSize(580, 460)
+        style.ensure_app_theme()
         self.setStyleSheet(style.STYLESHEET)
 
         folder = lib.BuildFolder.location(game) or (game.work_dir or '')
@@ -147,6 +148,7 @@ class FreeSpaceDialog(QDialog):
         lay.addLayout(foot)
 
         self._update_summary()
+        install_keyboard_focus_filter(self)
 
     def _on_toggle(self, part: str, checked: bool) -> None:
         if checked:
@@ -197,6 +199,7 @@ class DeleteGameDialog(QDialog):
         self.confirmed = False
         self.setWindowTitle(self.m.t('delete.question', game.name))
         self.setMinimumSize(520, 380)
+        style.ensure_app_theme()
         self.setStyleSheet(style.STYLESHEET)
 
         self.plan = lib.GameDeletionPlan.plan(game, measure=True, shell_root=self.m.shell_cache_path)
@@ -296,6 +299,7 @@ class DeleteGameDialog(QDialog):
         self.confirm_btn.clicked.connect(self._do_delete)
         foot.addWidget(self.confirm_btn)
         lay.addLayout(foot)
+        install_keyboard_focus_filter(self)
 
     def _on_saves_toggled(self, checked: bool) -> None:
         self.delete_saves = checked
@@ -322,6 +326,7 @@ class CheatsDialog(QDialog):
         self.game = game
         self.setWindowTitle(f"{self.m.t('cheats.title')} — {game.name}")
         self.setMinimumSize(620, 520)
+        style.ensure_app_theme()
         self.setStyleSheet(style.STYLESHEET)
 
         self.folder = feat.CheatFiles.cheats_dir(
@@ -412,6 +417,7 @@ class CheatsDialog(QDialog):
         lay.addLayout(foot)
 
         self._reload()
+        install_keyboard_focus_filter(self)
 
     def _reload(self) -> None:
         while self.list_layout.count():
@@ -496,6 +502,7 @@ class CheatsDialog(QDialog):
         else:
             self.status_lbl.setText(self.m.t('cheats.nothingFound'))
         self._reload()
+        install_keyboard_focus_filter(self)
 
     def _open_folder(self) -> None:
         os.makedirs(self.folder, exist_ok=True)
@@ -514,6 +521,7 @@ class OnboardingDialog(QDialog):
         self.setWindowTitle(self.m.t('onboarding.welcome.title'))
         self.setMinimumSize(640, 480)
         self.resize(640, 560)
+        style.ensure_app_theme()
         self.setStyleSheet(style.STYLESHEET)
 
         lay = QVBoxLayout(self)
@@ -875,6 +883,9 @@ class OnboardingDialog(QDialog):
             self.body_layout.addWidget(grp)
 
         self.body_layout.addStretch(1)
+        focus_fn = globals().get('install_keyboard_focus_filter')
+        if callable(focus_fn):
+            focus_fn(self)
         self._fit_dialog_height()
 
     def _fit_dialog_height(self) -> None:
@@ -950,6 +961,7 @@ class DefenderPromptDialog(QDialog):
         body_key = 'defender.removePrompt.body' if is_remove else 'defender.prompt.body'
         self.setWindowTitle(self.m.t(title_key))
         self.setMinimumSize(620, 440)
+        style.ensure_app_theme()
         self.setStyleSheet(style.STYLESHEET)
 
         if is_remove:
@@ -1083,6 +1095,7 @@ class DefenderPromptDialog(QDialog):
         lay.activate()
         hint_h = max(480, self.sizeHint().height() + 12)
         self.resize(680, hint_h)
+        install_keyboard_focus_filter(self)
 
     def _save_dont_ask(self) -> None:
         if self.mode == 'build' and self.dont_ask_switch.isChecked():
@@ -1126,6 +1139,7 @@ class DriveSelectDialog(QDialog):
 
         self.setWindowTitle(self.m.t('shell.selectGamesTitle'))
         self.setMinimumSize(620, 440)
+        style.ensure_app_theme()
         self.setStyleSheet(style.STYLESHEET)
 
         lay = QVBoxLayout(self)
@@ -1208,6 +1222,7 @@ class DriveSelectDialog(QDialog):
         lay.addLayout(foot)
 
         self._refresh_state()
+        install_keyboard_focus_filter(self)
 
     def chosen_items(self) -> list[tuple[str, str]]:
         return [

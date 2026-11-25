@@ -1799,6 +1799,7 @@ if HAS_QT:
             self.setWindowTitle(self.m.t('batchRefresh.title'))
             self.setModal(True)
             self.setFixedWidth(680)
+            style.ensure_app_theme()
             self.setStyleSheet(style.STYLESHEET)
 
             root_lay = QVBoxLayout(self)
@@ -1914,6 +1915,8 @@ if HAS_QT:
             root_lay.addLayout(foot_col)
 
             self._update_summary()
+            from .widgets import install_keyboard_focus_filter
+            install_keyboard_focus_filter(self)
 
         def _build_entry_card(
             self,
@@ -2078,6 +2081,7 @@ if HAS_QT:
             self.setWindowTitle(self.m.t('imgGuide.title'))
             self.setModal(True)
             self.setFixedWidth(680)
+            style.ensure_app_theme()
             self.setStyleSheet(style.STYLESHEET)
 
             root_lay = QVBoxLayout(self)
@@ -2191,6 +2195,8 @@ if HAS_QT:
             foot_col.addLayout(foot_btns)
 
             root_lay.addLayout(foot_col)
+            from .widgets import install_keyboard_focus_filter
+            install_keyboard_focus_filter(self)
 
             if sys.platform == 'darwin':
                 self._probe_ios_devices_async()

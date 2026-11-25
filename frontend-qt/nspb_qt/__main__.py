@@ -10,9 +10,8 @@ from PySide6.QtWidgets import QApplication
 
 from .model import Model
 from .platform_util import IS_WIN, hide_console_for_children
-from .style import STYLE, build_dark_palette, load_font
+from .style import STYLE, ensure_app_theme, load_font
 from .ui import MainWindow
-from .widgets import install_keyboard_focus_filter
 
 
 def app_icon() -> QIcon:
@@ -45,10 +44,8 @@ def main() -> int:
     icon = app_icon()
     if not icon.isNull():
         app.setWindowIcon(icon)
-    app.setStyle('Fusion')   # the same widget look on Windows and macOS
-    app.setPalette(build_dark_palette())
+    ensure_app_theme(app)   # the same Fusion widget look + Dark Glass palette on Windows and macOS
     app.setStyleSheet(STYLE)
-    install_keyboard_focus_filter(app)
     family = load_font()     # Manrope, as the Mac launcher; the system font when it cannot load
     if family:
         font = app.font()

@@ -39,7 +39,7 @@ try:
         QWidget,
     )
     from . import style
-    from .widgets import CardGroup, StatusDot, make_divider
+    from .widgets import CardGroup, StatusDot, install_keyboard_focus_filter, make_divider
     HAS_QT = True
 except ImportError:
     HAS_QT = False
@@ -1448,6 +1448,7 @@ if HAS_QT:
                 hint.setWordWrap(True)
                 er.addWidget(hint, 1)
                 self.rows_layout.addWidget(empty_row)
+                install_keyboard_focus_filter(self)
                 return
 
             for idx, entry in enumerate(entries):
@@ -1539,6 +1540,7 @@ if HAS_QT:
 
                 self._row_widgets.append(row)
                 self.rows_layout.addWidget(row)
+            install_keyboard_focus_filter(self)
 
     class QueueSelectGamesDialog(QDialog):
         """Multi-select dialog to batch-enqueue discovered games and/or library games."""
@@ -1562,6 +1564,7 @@ if HAS_QT:
             self.setModal(True)
             self.setMinimumSize(640, 460)
             self.resize(680, 540)
+            style.ensure_app_theme()
             self.setStyleSheet(style.STYLESHEET)
 
             root = QVBoxLayout(self)
@@ -1757,6 +1760,7 @@ if HAS_QT:
             self.list_layout.addWidget(grp)
             self.list_layout.addStretch(1)
             self._update_footer()
+            install_keyboard_focus_filter(self)
 
         def _update_footer(self) -> None:
             selected = sum(1 for cb, _g in self._checkboxes if cb.isEnabled() and cb.isChecked())
