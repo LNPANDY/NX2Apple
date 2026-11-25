@@ -8,6 +8,13 @@ package enum QueueEntryImgStatus: Codable, Equatable, Sendable {
     case transferred(imgName: String, deviceName: String)
     /// An updated `.img` (or `msl/` fallback) was produced, but device transfer was skipped, unavailable, or failed.
     case manualReplace(imgPath: String, reason: String?)
+
+    /// True when `pathOrName` points to an external `msl/` shader directory rather than a primary RomFS `.img`.
+    package static func isMSLFallback(_ pathOrName: String) -> Bool {
+        let trimmed = pathOrName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        return trimmed == "msl" || (trimmed as NSString).lastPathComponent == "msl"
+    }
 }
 
 /// One entry of the build queue (LNPANDY/NX2Apple#943): a snapshot of what to build, taken when the player adds it. Nothing in it

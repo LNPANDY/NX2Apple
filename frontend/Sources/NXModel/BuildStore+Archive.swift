@@ -107,14 +107,17 @@ extension BuildStore {
         let externalImg = fastRefreshExternalImgPath
         let knownArchive = activeQueuedArchivePath
         let refreshRoot = refreshBuildsRoot
-        let prefillCands = BuildSeedCache.prefillCandidates(
-            titleID: tid,
-            outDir: outFolder,
-            gameName: gameName,
-            macAppPath: macAppPath,
-            workDir: workDir,
-            archivePath: knownArchive
-        )
+        let seedRoot = seedCacheRoot
+        let shellCache = shellCachePath
+        let installDeviceID = devices.installDevice
+        let installDeviceName = installDeviceID.isEmpty ? "" : devices.deviceName(installDeviceID)
+        let snapshotDevices = devices.devices
+        let xcrunPath = devices.xcrun
+        let canAutoPullFromDevice = isIOSBuild && installsDirectly && !exportsShell && !installDeviceID.isEmpty
+        let cancelFlag = installCancel
+        let currentLang = localizer.lang
+        cancelFlag.set(false)
+        if canAutoPullFromDevice { installPhaseActive = true }
         let forceRebuildTrailer = activeRunRebuiltShaders || activeQueuedRebuildsShaders
         let runStartedAt = activeRunStartedAt
         let deferPackaging = deferShellPackaging
@@ -138,21 +141,79 @@ extension BuildStore {
 
                 var resolvedDest = canonicalDest
                 var resolvedImg = canonicalImg
-                if !fm.fileExists(atPath: resolvedImg),
+                var hasValidLocalImg = fm.fileExists(atPath: resolvedImg) && RomFSArchive.isValidPrimaryRomFSImage(atPath: resolvedImg)
+                if !hasValidLocalImg,
                    (externalImg?.isEmpty != false),
                    let fallback = Self.findFallbackLocalArchive(
                        tid: tid,
                        knownArchivePath: knownArchive,
                        outDir: outFolder,
                        refreshBuildsRoot: refreshRoot,
-                       prefillCandidates: prefillCands,
+                       prefillCandidates: [],
                        fm: fm
                    ) {
                     resolvedDest = fallback.archiveDir
                     resolvedImg = fallback.imgPath
+                    hasValidLocalImg = true
                 }
 
-                if fm.fileExists(atPath: resolvedImg) {
+                let shaderSrc = (!hasValidLocalImg && (externalImg?.isEmpty != false) && isIOSBuild)
+                    ? Self.locateIOSShaderSource(workDir: workDir, tid: tid, repoPath: repoPath, fm: fm)
+                    : nil
+                let needsShaderUpdate = isIOSBuild && (forceRebuildTrailer || (!isFastRefresh && shaderSrc != nil))
+                var pullFailureNote: String? = nil
+
+                if !hasValidLocalImg, (externalImg?.isEmpty != false), needsShaderUpdate, canAutoPullFromDevice {
+                    let pullRes = Self.pullDeviceImageIfOnline(
+                        deviceID: installDeviceID,
+                        snapshotDevices: snapshotDevices,
+                        xcrun: xcrunPath,
+                        shellCachePath: shellCache,
+                        seedRoot: seedRoot,
+                        repoPath: repoPath,
+                        tid: tid,
+                        gameName: resolvedName,
+                        outDir: outFolder,
+                        runner: runner,
+                        isCancelled: { cancelFlag.value },
+                        onStartingPull: { [weak self] in
+                            hop {
+                                guard let self, self.archiveGeneration == generation, !self.stopping else { return }
+                                let detail = String(format: self.t("prog.pullingDeviceImg"), installDeviceName)
+                                self.upsertArchiveStage(id: idx, state: .running, detail: detail)
+                                self.say(String(format: self.t("imgGuide.pulling"), installDeviceName))
+                            }
+                        }
+                    )
+                    if let pullRes {
+                        switch pullRes {
+                        case .success(let pulled):
+                            resolvedDest = pulled.archiveDir
+                            resolvedImg = pulled.imgPath
+                            hasValidLocalImg = true
+                        case .failure(.cancelled):
+                            hop {
+                                guard let self, self.archiveGeneration == generation else { return }
+                                self.installPhaseActive = false
+                                self.finishStoppedArchive()
+                            }
+                            return
+                        case .failure(let err):
+                            let reason = err.localizedReason { L10n.string($0, currentLang) }
+                            pullFailureNote = String(format: L10n.string("msg.devicePullFallbackMSL", currentLang), installDeviceName, reason)
+                        }
+                    }
+                }
+
+                if hasValidLocalImg {
+                    if cancelFlag.value {
+                        hop {
+                            guard let self, self.archiveGeneration == generation else { return }
+                            self.installPhaseActive = false
+                            self.finishStoppedArchive()
+                        }
+                        return
+                    }
                     try? fm.createDirectory(atPath: resolvedDest, withIntermediateDirectories: true)
                     try? (tid.uppercased() + "\n").write(toFile: resolvedDest + "/.titleid", atomically: true, encoding: .utf8)
 
@@ -167,6 +228,7 @@ extension BuildStore {
                     case .failure(let err):
                         hop {
                             guard let self, self.archiveGeneration == generation else { return }
+                            self.installPhaseActive = false
                             if self.stopping {
                                 self.finishStoppedArchive()
                                 return
@@ -179,6 +241,7 @@ extension BuildStore {
                     PostBuildCleanup.cleanWorkDirectory(workDir, removeExtractedRomFS: false, removeShellFramework: false)
                     hop {
                         guard let self, self.archiveGeneration == generation else { return }
+                        self.installPhaseActive = false
                         if self.stopping {
                             self.finishStoppedArchive()
                             return
@@ -209,17 +272,18 @@ extension BuildStore {
                         )
                     }
                     var fallbackMSLPath: String? = nil
-                    if !externalResult.succeeded, isIOSBuild,
-                       let shaderSrc = Self.locateIOSShaderSource(workDir: workDir, tid: tid, repoPath: repoPath, fm: fm) {
+                    if !externalResult.succeeded, needsShaderUpdate, let shaderSrc {
                         fallbackMSLPath = Self.stageMSLFallbackDirectory(shaderSourcePath: shaderSrc.path, dest: canonicalDest, tid: tid, fm: fm)
                     }
                     PostBuildCleanup.cleanWorkDirectory(workDir, removeExtractedRomFS: false, removeShellFramework: false)
                     hop {
                         guard let self, self.archiveGeneration == generation else { return }
+                        self.installPhaseActive = false
                         if self.stopping {
                             self.finishStoppedArchive()
                             return
                         }
+                        if let pullFailureNote { self.say(pullFailureNote) }
                         for note in extNotes where !note.isEmpty { self.say(note) }
                         if externalResult.succeeded, let externalImg {
                             let fileName = (externalImg as NSString).lastPathComponent
@@ -239,7 +303,8 @@ extension BuildStore {
                             self.recordActiveEntryArchiveOutcome(outcome)
                             then(outcome)
                         } else if let mslPath = fallbackMSLPath {
-                            self.upsertArchiveStage(id: idx, state: .done, detail: self.t("prog.noRomfs"))
+                            self.say(self.t("msg.mslFallbackStaged"))
+                            self.upsertArchiveStage(id: idx, state: .done, detail: self.t("prog.mslFallbackStaged"))
                             if !deferPackaging {
                                 self.needsReplaceOldImgReminder = true
                                 self.updatedImgPath = mslPath
@@ -281,6 +346,7 @@ extension BuildStore {
 
             let stampPath = dest + "/.packstamp"
             if fm.fileExists(atPath: targetImg),
+               RomFSArchive.isValidPrimaryRomFSImage(atPath: targetImg),
                let stamp = try? String(contentsOfFile: stampPath, encoding: .utf8), !stamp.isEmpty,
                let reused = RomFSArchive.archiveReusable(source: romfs, version: v, stamp: stamp) {
                 let trailerOutcome: TrailerInjectionOutcome
@@ -550,95 +616,7 @@ extension BuildStore {
         }
     }
 
-    // MARK: Legacy Migration & Trailer Injection
-
-    private nonisolated static func sameInode(_ a: String, _ b: String) -> Bool {
-        var sa = stat(), sb = stat()
-        guard stat(a, &sa) == 0, stat(b, &sb) == 0 else {
-            return URL(fileURLWithPath: a).standardizedFileURL == URL(fileURLWithPath: b).standardizedFileURL
-        }
-        return sa.st_dev == sb.st_dev && sa.st_ino == sb.st_ino
-    }
-
-    private nonisolated static func moveOrCopyReplacing(from src: String, to dst: String, fm: FileManager) -> Bool {
-        do {
-            try fm.moveItem(atPath: src, toPath: dst)
-            return true
-        } catch {
-            let parent = (dst as NSString).deletingLastPathComponent
-            let partial = parent + "/." + (dst as NSString).lastPathComponent + ".migrate-" + UUID().uuidString
-            defer { try? fm.removeItem(atPath: partial) }
-            do {
-                try fm.copyItem(atPath: src, toPath: partial)
-                try fm.moveItem(atPath: partial, toPath: dst)
-                try? fm.removeItem(atPath: src)
-                return true
-            } catch {
-                return false
-            }
-        }
-    }
-
-    private nonisolated static func migrateLegacyArchiveIfNeeded(
-        gamesRoot: String,
-        tid: String,
-        folderName: String,
-        dest: String,
-        targetImg: String,
-        fm: FileManager
-    ) {
-        guard !tid.isEmpty else { return }
-        // Same-folder upgrade: `<games>/<TID>/romfs.img` -> `<games>/<TID>/<TID>.img`.
-        let legacySameFolderImg = dest + "/romfs.img"
-        if folderName.caseInsensitiveCompare("romfs") != .orderedSame,
-           !fm.fileExists(atPath: targetImg),
-           fm.fileExists(atPath: legacySameFolderImg),
-           !sameInode(legacySameFolderImg, targetImg) {
-            if moveOrCopyReplacing(from: legacySameFolderImg, to: targetImg, fm: fm) {
-                RomFSArchive.copyImageIdentity(of: legacySameFolderImg, to: targetImg)
-                try? fm.removeItem(atPath: legacySameFolderImg + ".id")
-            }
-        }
-
-        // Cross-folder migration: `<games>/<tid>/` -> `<games>/<folderName>/`.
-        var checked = Set<String>()
-        for candidateName in [tid, tid.uppercased(), tid.lowercased()] where checked.insert(candidateName).inserted {
-            let legacyDir = gamesRoot + "/" + candidateName
-            var isDir: ObjCBool = false
-            guard fm.fileExists(atPath: legacyDir, isDirectory: &isDir), isDir.boolValue else { continue }
-            guard !sameInode(legacyDir, dest) else { continue }
-            let legacyImg = fm.fileExists(atPath: legacyDir + "/romfs.img")
-                ? (legacyDir + "/romfs.img")
-                : RomFSArchive.primaryImagePath(in: legacyDir, fm: fm)
-            guard let legacyImg, fm.fileExists(atPath: legacyImg) else { continue }
-            try? fm.createDirectory(atPath: dest, withIntermediateDirectories: true)
-
-            if !fm.fileExists(atPath: targetImg) {
-                if moveOrCopyReplacing(from: legacyImg, to: targetImg, fm: fm) {
-                    RomFSArchive.copyImageIdentity(of: legacyImg, to: targetImg)
-                    try? fm.removeItem(atPath: legacyImg + ".id")
-                }
-            }
-            let legacyStamp = legacyDir + "/.packstamp"
-            let destStamp = dest + "/.packstamp"
-            if fm.fileExists(atPath: legacyStamp), !fm.fileExists(atPath: destStamp) {
-                _ = moveOrCopyReplacing(from: legacyStamp, to: destStamp, fm: fm)
-            }
-            let legacyAOC = legacyDir + "/aoc"
-            let destAOC = dest + "/aoc"
-            if fm.fileExists(atPath: legacyAOC), !fm.fileExists(atPath: destAOC) {
-                _ = moveOrCopyReplacing(from: legacyAOC, to: destAOC, fm: fm)
-            }
-            let remaining = (try? fm.contentsOfDirectory(atPath: legacyDir)) ?? []
-            let disposable: Set<String> = [".DS_Store", ".titleid", ".packstamp"]
-            if remaining.allSatisfy({ disposable.contains($0) }) {
-                for item in remaining {
-                    try? fm.removeItem(atPath: legacyDir + "/" + item)
-                }
-                try? fm.removeItem(atPath: legacyDir)
-            }
-        }
-    }
+    // MARK: Shader Source & Trailer Injection
 
     nonisolated static func locateIOSShaderSource(
         workDir: String,

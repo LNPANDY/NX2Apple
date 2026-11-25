@@ -109,6 +109,9 @@ package enum RefreshCompletionFormatter {
                 base = t("refreshDone.itemFailed")
             }
             if case .manualReplace(let imgPath, _) = item.imgStatus {
+                if QueueEntryImgStatus.isMSLFallback(imgPath) {
+                    return base + " · " + t("refreshDone.statusMslManual")
+                }
                 let imgName = imgPath.isEmpty ? "romfs.img" : (imgPath as NSString).lastPathComponent
                 return base + " · " + String(format: t("refreshDone.statusImgManual"), imgName)
             }
@@ -120,8 +123,14 @@ package enum RefreshCompletionFormatter {
                 ? t("refreshDone.statusMacUpdated")
                 : t("refreshDone.statusNoImgChange")
         case .transferred(let imgName, let deviceName):
+            if QueueEntryImgStatus.isMSLFallback(imgName) {
+                return String(format: t("refreshDone.statusMslTransferred"), deviceName)
+            }
             return String(format: t("refreshDone.statusImgTransferred"), imgName, deviceName)
         case .manualReplace(let imgPath, _):
+            if QueueEntryImgStatus.isMSLFallback(imgPath) {
+                return t("refreshDone.statusMslManual")
+            }
             let imgName = imgPath.isEmpty ? "romfs.img" : (imgPath as NSString).lastPathComponent
             return String(format: t("refreshDone.statusImgManual"), imgName)
         }

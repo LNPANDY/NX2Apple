@@ -251,7 +251,7 @@ import NXModel
 
     func testDiffByPathAndSizeSkippingDotFiles() throws {
         let archive = path("games", titleID)
-        try write(archive + "/romfs.img", "0123456789")
+        try write(archive + "/romfs.img", "DMROMFS189")
         try write(archive + "/aoc/1.img", "abcd")
         try write(archive + "/.packstamp", "stamp")
         let local = ShellInstall.localFiles(in: archive)
@@ -454,7 +454,7 @@ import NXModel
         try write(framework + "/game.manifest.json", "{}")
         try write(framework + "/DmGame\(titleID)", "executable")
         let archive = path("out/games", titleID)
-        try write(archive + "/romfs.img", "0123456789")
+        try write(archive + "/romfs.img", "DMROMFS189")
         try write(archive + "/aoc/1.img", "abcd")
         try write(archive + "/.packstamp", "stamp")
         let made = Fixture(xcrun: try makeXcrun(), repo: try makeRepo(), framework: framework, archive: archive, root: path("shell-root"))
@@ -578,7 +578,7 @@ import NXModel
         XCTAssertEqual(r.status, 0, r.output)
         XCTAssertTrue(r.output.contains("OK: Installed on"), r.output)
         let games = container + "/\(bundle)/Documents/games/\(titleID)"
-        XCTAssertEqual(try String(contentsOfFile: games + "/romfs.img"), "0123456789")
+        XCTAssertEqual(try String(contentsOfFile: games + "/romfs.img"), "DMROMFS189")
         XCTAssertEqual(try String(contentsOfFile: games + "/aoc/1.img"), "abcd")
         XCTAssertFalse(fm.fileExists(atPath: games + "/.packstamp"))
         XCTAssertEqual(copies().count, 2)
@@ -606,7 +606,7 @@ import NXModel
         XCTAssertEqual(copies().count, 3)
         XCTAssertTrue(copies().last?.contains("--destination Documents/games/\(titleID)/aoc/1.img") ?? false)
         XCTAssertEqual(try String(contentsOfFile: games + "/aoc/1.img"), "abcdef")
-        XCTAssertEqual(try String(contentsOfFile: games + "/romfs.img"), "0123456789")
+        XCTAssertEqual(try String(contentsOfFile: games + "/romfs.img"), "DMROMFS189")
         XCTAssertEqual(try String(contentsOfFile: save), "my save")
 
         XCTAssertFalse(calls.contains { $0.contains("--remove-existing-content") })
@@ -704,7 +704,7 @@ import NXModel
         XCTAssertEqual(builds.count, 2)
         XCTAssertTrue(builds[0].contains("PRODUCT_BUNDLE_IDENTIFIER=org.nxnative.shell build"))
         XCTAssertTrue(builds[1].contains("PRODUCT_BUNDLE_IDENTIFIER=\(variant) build"))
-        XCTAssertEqual(try String(contentsOfFile: container + "/\(variant)/Documents/games/\(titleID)/romfs.img"), "0123456789")
+        XCTAssertEqual(try String(contentsOfFile: container + "/\(variant)/Documents/games/\(titleID)/romfs.img"), "DMROMFS189")
 
         r = run(f)   // the plain identifier is not tried again
         XCTAssertEqual(r.status, 0, r.output)
@@ -1011,7 +1011,7 @@ import NXModel
         XCTAssertTrue(r.ok && !r.copySkipped, r.message)
         XCTAssertEqual(waits, [true, false])
         XCTAssertEqual(copies().count, 2)
-        XCTAssertEqual(try String(contentsOfFile: container + "/org.nxnative.shell/Documents/games/\(titleID)/romfs.img"), "0123456789")
+        XCTAssertEqual(try String(contentsOfFile: container + "/org.nxnative.shell/Documents/games/\(titleID)/romfs.img"), "DMROMFS189")
     }
 
     func testCancellingTheWaitCopiesNothing() throws {
@@ -1054,7 +1054,7 @@ import NXModel
         XCTAssertTrue(r.message.contains("The game data on Z is incomplete: ERROR: The device is locked."), r.message)
         XCTAssertTrue(r.message.hasSuffix("Retry finishes it."), r.message)
         XCTAssertEqual(try String(contentsOfFile: games + "/aoc/1.img"), "abcd")
-        XCTAssertEqual(try String(contentsOfFile: games + "/romfs.img"), "01234")   // a short file on the device
+        XCTAssertEqual(try String(contentsOfFile: games + "/romfs.img"), "DMROM")   // a short file on the device
         let signs = calls.filter { $0.hasPrefix("xcodebuild") }.count, installs = calls.filter { $0.hasPrefix("devicectl device install") }.count
 
         try fm.removeItem(atPath: state + "/fail-on")
@@ -1063,7 +1063,7 @@ import NXModel
         XCTAssertTrue(r.ok, r.message)
         XCTAssertEqual(copies().count - before, 1, "only the short romfs.img")
         XCTAssertTrue(copies().last?.contains("Documents/games/\(titleID)/romfs.img") ?? false)
-        XCTAssertEqual(try String(contentsOfFile: games + "/romfs.img"), "0123456789")
+        XCTAssertEqual(try String(contentsOfFile: games + "/romfs.img"), "DMROMFS189")
         XCTAssertEqual(calls.filter { $0.hasPrefix("xcodebuild") }.count, signs, "Retry does not sign again")
         XCTAssertEqual(calls.filter { $0.hasPrefix("devicectl device install") }.count, installs, "or install again")
 
@@ -1140,7 +1140,7 @@ import NXModel
         var r = install(i, f)
         XCTAssertEqual(r.failure, .shellDataIncomplete)
         XCTAssertTrue(log.contains("The large files go over in 3 parts. The shared app joins them when it next opens."), log)
-        XCTAssertEqual(try String(contentsOfFile: games + "/romfs.img.nxpart.0000.0003"), "0123")
+        XCTAssertEqual(try String(contentsOfFile: games + "/romfs.img.nxpart.0000.0003"), "DMRO")
         XCTAssertFalse(fm.fileExists(atPath: games + "/romfs.img"), "the whole file never goes over")
         XCTAssertEqual(try String(contentsOfFile: games + "/aoc/1.img"), "abcd", "a file of one part goes whole")
 
@@ -1150,14 +1150,14 @@ import NXModel
         XCTAssertTrue(r.ok, r.message)
         XCTAssertEqual(copies().count - before, 2, "the short second part and the third, not the first")
         XCTAssertEqual(r.copied, 2)
-        XCTAssertEqual(try String(contentsOfFile: games + "/romfs.img.nxpart.0001.0003"), "4567")
+        XCTAssertEqual(try String(contentsOfFile: games + "/romfs.img.nxpart.0001.0003"), "MFS1")
         XCTAssertEqual(try String(contentsOfFile: games + "/romfs.img.nxpart.0002.0003"), "89")
 
         // before the app has joined them, the parts count as the data
         XCTAssertEqual(i.installData(titleID: titleID, archive: f.archive).copied, 0)
         // and after
         try joinOnDevice(games, file: "romfs.img")
-        XCTAssertEqual(try String(contentsOfFile: games + "/romfs.img"), "0123456789")
+        XCTAssertEqual(try String(contentsOfFile: games + "/romfs.img"), "DMROMFS189")
         let after = i.installData(titleID: titleID, archive: f.archive)
         XCTAssertEqual(after.copied, 0)
         XCTAssertEqual(after.message, "Installed on Z, the game data was already on the device")
@@ -1174,7 +1174,7 @@ import NXModel
         // an app that never said it joins parts: the 10-byte image fits one copy, so it goes whole
         XCTAssertEqual(i.copyGameData(titleID: titleID, archive: f.archive, app: "", bundleID: "org.nxnative.shell",
                                       outcome: .init(ok: true, message: "")).copied, 2)
-        XCTAssertEqual(try String(contentsOfFile: games + "/romfs.img"), "0123456789")
+        XCTAssertEqual(try String(contentsOfFile: games + "/romfs.img"), "DMROMFS189")
         XCTAssertTrue(calls.contains { $0.contains("--source Documents/shell-features.txt") })
 
         // too large for one copy: parts all the same
@@ -1480,7 +1480,7 @@ import NXModel
         XCTAssertTrue(model.buildingGame, "retrying the data copy keeps buildingGame true so BuildRecorder and BuildNotifications record the completed iOS build")
         XCTAssertEqual(model.installedOn, device)
         XCTAssertEqual(calls.filter { $0.hasPrefix("xcodebuild") }.count, signs)
-        XCTAssertEqual(try String(contentsOfFile: container + "/org.nxnative.shell/Documents/games/\(titleID)/romfs.img"), "0123456789")
+        XCTAssertEqual(try String(contentsOfFile: container + "/org.nxnative.shell/Documents/games/\(titleID)/romfs.img"), "DMROMFS189")
     }
 
     @MainActor func testShellTargetWithoutDeviceStopsBeforeBuilding() throws {
@@ -1504,7 +1504,7 @@ import NXModel
         try write(secondFramework + "/game.manifest.json", "{}")
         try write(secondFramework + "/DmGame\(secondID)", "executable")
         let secondArchive = path("out/games", secondID)
-        try write(secondArchive + "/romfs.img", "second")
+        try write(secondArchive + "/romfs.img", "DMROMFS1-second")
 
         var first = installer(f)
         first.decideCopy = { _ in .skip }
@@ -1566,7 +1566,7 @@ import NXModel
 
     @MainActor func testInstallShellForwardsCompileSignInstallAndWeightedTransferProgressToBuildStoreStages() throws {
         let f = try makeFixture()
-        try write(f.archive + "/romfs.img", String(repeating: "a", count: 60))
+        try write(f.archive + "/romfs.img", "DMROMFS1" + String(repeating: "a", count: 52))
         try write(f.archive + "/aoc/1.img", String(repeating: "b", count: 40))
 
         let customXcrun = path("xcrun-progress")
@@ -1628,7 +1628,7 @@ import NXModel
         var partStages: [ShellStage] = []
         var partBytes: [(Int64, Int64)] = []
         let partArchive = path("out/part-games", titleID)
-        try write(partArchive + "/romfs.img", String(repeating: "z", count: 25))
+        try write(partArchive + "/romfs.img", "DMROMFS1" + String(repeating: "z", count: 17))
         var chunked = installer(custom)
         chunked.partSize = 10
         chunked.stage = { partStages.append($0) }
@@ -1673,12 +1673,12 @@ import NXModel
         try write(deviceGameDir + "/romfs.img", "legacy-romfs-copy")
 
         let namedArchive = path("out/games/Hades")
-        try write(namedArchive + "/Hades.img", "fresh-hades-payload")
+        try write(namedArchive + "/Hades.img", "DMROMFS1-fresh-hades")
         try write(namedArchive + "/aoc/dlc1.img", "dlc-payload")
 
         let outcome = i.installData(titleID: titleID, archive: namedArchive)
         XCTAssertTrue(outcome.ok, outcome.message)
-        XCTAssertEqual(try String(contentsOfFile: deviceGameDir + "/romfs.img", encoding: .utf8), "fresh-hades-payload")
+        XCTAssertEqual(try String(contentsOfFile: deviceGameDir + "/romfs.img", encoding: .utf8), "DMROMFS1-fresh-hades")
         XCTAssertEqual(try String(contentsOfFile: deviceGameDir + "/aoc/dlc1.img", encoding: .utf8), "dlc-payload")
         XCTAssertFalse(fm.fileExists(atPath: deviceGameDir + "/Hades.img"))
     }

@@ -48,13 +48,19 @@ struct RefreshCompletionSheet: View {
                 .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(DS.Color.separator))
 
                 if !summary.manualReplaceItems.isEmpty {
+                    let allMSL = summary.manualReplaceItems.allSatisfy { item in
+                        if case .manualReplace(let path, _) = item.imgStatus {
+                            return QueueEntryImgStatus.isMSLFallback(path)
+                        }
+                        return false
+                    }
                     HStack(alignment: .top, spacing: DS.Space.s) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(LauncherPalette.building)
                             .padding(.top, 1)
                             .accessibilityHidden(true)
-                        Text(loc.t("refreshDone.manualActionHint"))
+                        Text(loc.t(allMSL ? "refreshDone.manualActionHintMsl" : "refreshDone.manualActionHint"))
                             .font(DS.Font.callout)
                             .foregroundStyle(DS.Color.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)

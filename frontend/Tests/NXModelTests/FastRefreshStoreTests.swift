@@ -175,7 +175,7 @@ import XCTest
         let targetImg = dest + "/" + folderName + ".img"
 
         try? fm.createDirectory(atPath: dest, withIntermediateDirectories: true)
-        try? "existing-romfs-data".write(toFile: targetImg, atomically: true, encoding: .utf8)
+        try? "DMROMFS1-existing".write(toFile: targetImg, atomically: true, encoding: .utf8)
         try? fm.createDirectory(atPath: work + "/extract", withIntermediateDirectories: true)
         // Note: No work/extract/v* exists!
 
@@ -195,7 +195,7 @@ import XCTest
         XCTAssertEqual(returnedDest, dest)
         XCTAssertTrue(fm.fileExists(atPath: targetImg))
         let contents = try? String(contentsOfFile: targetImg, encoding: .utf8)
-        XCTAssertEqual(contents, "existing-romfs-data")
+        XCTAssertEqual(contents, "DMROMFS1-existing")
     }
 
     func testPackArchiveGracefullyHandlesMissingLocalImageWhenVersionMissing() {
@@ -402,7 +402,7 @@ import XCTest
         let expectedGamesRoot = expectedFallback + "/games"
         let expectedDest = expectedGamesRoot + "/" + gameName
         try fm.createDirectory(atPath: expectedDest, withIntermediateDirectories: true)
-        try "fake img".write(toFile: expectedDest + "/" + gameName + ".img", atomically: true, encoding: .utf8)
+        try "DMROMFS1-fake".write(toFile: expectedDest + "/" + gameName + ".img", atomically: true, encoding: .utf8)
 
         let workDir = expectedFallback + "/" + tid + "_build"
         let fwDir = workDir + "/nxnative.framework"
@@ -506,7 +506,7 @@ import XCTest
         let legacyDirA = gamesRoot + "/" + tidA
         let legacyAOC = legacyDirA + "/aoc/0100888800008889"
         try fm.createDirectory(atPath: legacyAOC, withIntermediateDirectories: true)
-        try "romfs-legacy".write(toFile: legacyDirA + "/romfs.img", atomically: true, encoding: .utf8)
+        try "DMROMFS1-legacy".write(toFile: legacyDirA + "/romfs.img", atomically: true, encoding: .utf8)
         try "DMROMFSID1 size=12 index=cafe1234\n".write(toFile: legacyDirA + "/romfs.img.id", atomically: true, encoding: .utf8)
         try "stamp-v0".write(toFile: legacyDirA + "/.packstamp", atomically: true, encoding: .utf8)
         try "dlc-data".write(toFile: legacyAOC + "/addon.txt", atomically: true, encoding: .utf8)
@@ -580,7 +580,7 @@ import XCTest
         try Data("msl-payload".utf8).write(to: URL(fileURLWithPath: work + "/shader/ios/b-a5e7fb6e4fa4/shaders.metallib"))
 
         let extImg = temporary.appendingPathComponent("PulledMario.img").path
-        try Data("existing-romfs".utf8).write(to: URL(fileURLWithPath: extImg))
+        try Data("DMROMFS1-ext".utf8).write(to: URL(fileURLWithPath: extImg))
 
         store.outDir = out
         store.selectedTitleID = tid
@@ -627,7 +627,7 @@ import XCTest
         let dest = out + "/games/Mario"
         let targetImg = dest + "/Mario.img"
         try fm.createDirectory(atPath: dest, withIntermediateDirectories: true)
-        try Data("local-romfs".utf8).write(to: URL(fileURLWithPath: targetImg))
+        try Data("DMROMFS1-local".utf8).write(to: URL(fileURLWithPath: targetImg))
         try fm.createDirectory(atPath: work + "/extract", withIntermediateDirectories: true)
         try fm.createDirectory(atPath: work + "/shader/ios/b-a5e7fb6e4fa4", withIntermediateDirectories: true)
         try Data("msl-payload".utf8).write(to: URL(fileURLWithPath: work + "/shader/ios/b-a5e7fb6e4fa4/shaders.metallib"))
@@ -678,7 +678,7 @@ import XCTest
         try fm.createDirectory(atPath: romfsReuse, withIntermediateDirectories: true)
         try Data("asset".utf8).write(to: URL(fileURLWithPath: romfsReuse + "/data.bin"))
         try fm.createDirectory(atPath: destReuse, withIntermediateDirectories: true)
-        try Data("existing-img".utf8).write(to: URL(fileURLWithPath: targetImgReuse))
+        try Data("DMROMFS1-reuse".utf8).write(to: URL(fileURLWithPath: targetImgReuse))
         try fm.createDirectory(atPath: workReuse + "/shader/ios/b-a5e7fb6e4fa4", withIntermediateDirectories: true)
         try Data("msl-payload".utf8).write(to: URL(fileURLWithPath: workReuse + "/shader/ios/b-a5e7fb6e4fa4/shaders.metallib"))
         RomFSArchive.writeStamp(source: romfsReuse, version: version, to: destReuse + "/.packstamp")
@@ -704,7 +704,7 @@ import XCTest
         let destImg = outImg + "/games/Mario"
         let targetImg = destImg + "/Mario.img"
         try fm.createDirectory(atPath: extractVImg, withIntermediateDirectories: true)
-        try Data("romfs-image-bytes".utf8).write(to: URL(fileURLWithPath: extractVImg + "/RomFS.img"))
+        try Data("DMROMFS1-img-bytes".utf8).write(to: URL(fileURLWithPath: extractVImg + "/RomFS.img"))
         try fm.createDirectory(atPath: workImg + "/shader/ios/b-a5e7fb6e4fa4", withIntermediateDirectories: true)
         try Data("msl-payload".utf8).write(to: URL(fileURLWithPath: workImg + "/shader/ios/b-a5e7fb6e4fa4/shaders.metallib"))
 
