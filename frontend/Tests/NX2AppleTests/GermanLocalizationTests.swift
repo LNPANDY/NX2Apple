@@ -22,6 +22,7 @@ final class GermanLocalizationTests: IsolatedDefaultsTestCase {
         "update.pill", "launch.opt.DM_OPMODE.0", "launch.opt.NXKIT_OP_MODE.handheld", "launch.opt.DM_PRESENT_UPSCALE.off",
         "launch.opt.DM_FPS_TARGET.30", "launch.opt.DM_FPS_TARGET.40", "launch.opt.DM_FPS_TARGET.60", "launch.opt.DM_FPS_TARGET.120", "launch.opt.DM_PRESENT_UPSCALE.metalfx", "launch.opt.DM_UPSCALER.metalfx",
         "launch.opt.DM_SCREEN_ASPECT.0", "launch.opt.DM_SCREEN_ASPECT.1.6", "launch.opt.DM_NVN_TEX_MIP_SKIP.0",   // 16:9 (Switch), MacBook (16:10) and Original read the same in German
+        "launch.opt.DM_NVN_ANISO.2", "launch.opt.DM_NVN_ANISO.4", "launch.opt.DM_NVN_ANISO.8", "launch.opt.DM_NVN_ANISO.16",
         "switch2.badge",   // the console's name
         "nxkit.name", "nxkit.version",   // the engine's name and its version number
         "ios.ui.switch2Badge", "appearance.system", "settings.language.system", "sort.name", "launch.opt.DM_PRESENT_INTERVAL.display", "launch.opt.DM_PRESENT_INTERVAL.game",   // the console's name, System, Name, the frame rates

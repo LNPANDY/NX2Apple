@@ -1,8 +1,12 @@
 120 fps
 16:9 (Switch)
+16x
+2x
 30 fps
 40 fps
+4x
 60 fps
+8x
 American English
 Automatic
 Brazilian Portuguese
@@ -27,6 +31,7 @@ Frame-rate counter
 French
 Fullscreen
 Game
+Game default
 Game language
 Game rumble
 Game's own
@@ -75,6 +80,7 @@ Rumble strength
 Russian
 Saves memory on devices without hardware BC textures, with slightly less precise HDR textures.
 Shader prefetch
+Sharper ground and walls seen at an angle. 16x costs little on a Mac.
 Shows 60 frames a second while the game draws 30. MetalFX makes a frame between each two, with less work and heat than 60 fps, slightly more input delay, and possible smearing on fast motion.
 Simplified Chinese
 Size
@@ -85,6 +91,7 @@ Spanish
 Standard
 Switch 2 controllers
 Taller shapes render more pixels and can increase GPU time and heat.
+Texture filtering
 Texture quality
 Thai
 The first start waits a few minutes for it, once.

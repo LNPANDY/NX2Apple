@@ -122,12 +122,12 @@ dina egna spel.
 **På Mac** visas ett färdigt spel i biblioteket med sin key art. **Spela** startar det.
 **Startalternativ** (per spel, behålls vid ombyggen) styr bildfrekvens, konsolläge (dockad eller handhållen),
 renderskala och uppskalning, spelspråk, kontroller med mera. Vad varje alternativ gör står i
-[docs/settings.md](https://github.com/seedds/nxnative/blob/3f37dd3dce5b2700f5375fba70b8de8ee4193d73/docs/settings.md). En handkontroll styr launchern lika väl som spelen.
+[docs/settings.md](https://github.com/seedds/nxnative/blob/b680dbb9e925ffd122027dce2cf201653ab8a03d/docs/settings.md). En handkontroll styr launchern lika väl som spelen.
 
 **På iPhone** visar appen samma inställningar innan spelet startar. Tryck på **Spela**. Pekkontrollerna
 finns i en 2D- och en 3D-layout (tryck på knappen överst i mitten), och en ansluten handkontroll (Xbox,
 PlayStation, Switch Pro, MFi) ersätter dem.
-[docs/playing.md](https://github.com/seedds/nxnative/blob/3f37dd3dce5b2700f5375fba70b8de8ee4193d73/docs/playing.md) tar upp touch, vibration och rörelse. Korta hack första gången en scen visas är
+[docs/playing.md](https://github.com/seedds/nxnative/blob/b680dbb9e925ffd122027dce2cf201653ab8a03d/docs/playing.md) tar upp touch, vibration och rörelse. Korta hack första gången en scen visas är
 normala: Appen kompilerar grafiken för den en gång och kommer ihåg den. Spelets data (`romfs.img`) kan ligga
 på en extern enhet som appen Filer väljer.
 
@@ -164,12 +164,12 @@ profil som ännu inte har prövats på en telefon. Några av dem:
 
 | | Spel | Var det körs | Status |
 |---|---|---|---|
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/3f37dd3dce5b2700f5375fba70b8de8ee4193d73/docs/images/zelda-tears-of-the-kingdom.jpg" width="96" alt=""> | The Legend of Zelda: Tears of the Kingdom | Mac och iPhone | **Verifierat här**: 304 243 filer, bytekontrollerade, ca 17 GB |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/3f37dd3dce5b2700f5375fba70b8de8ee4193d73/docs/images/hades-ii.jpg" width="96" alt=""> | Hades II | Mac och iPhone | **Verifierat här** |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/3f37dd3dce5b2700f5375fba70b8de8ee4193d73/docs/images/animal-crossing-new-horizons.jpg" width="96" alt=""> | Animal Crossing: New Horizons | iPhone | **Verifierat här**: går smidigt |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/3f37dd3dce5b2700f5375fba70b8de8ee4193d73/docs/images/super-mario-odyssey.jpg" width="96" alt=""> | Super Mario Odyssey | iPhone | Rapporterat som spelbart uppströms |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/3f37dd3dce5b2700f5375fba70b8de8ee4193d73/docs/images/zelda-breath-of-the-wild.jpg" width="96" alt=""> | The Legend of Zelda: Breath of the Wild | iPhone | Rapporterat som spelbart uppströms, 60 fps med 1.9.0 |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/3f37dd3dce5b2700f5375fba70b8de8ee4193d73/docs/images/mario-kart-8-deluxe.jpg" width="96" alt=""> | Mario Kart 8 Deluxe | iPhone | Rapporterat som spelbart uppströms |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/b680dbb9e925ffd122027dce2cf201653ab8a03d/docs/images/zelda-tears-of-the-kingdom.jpg" width="96" alt=""> | The Legend of Zelda: Tears of the Kingdom | Mac och iPhone | **Verifierat här**: 304 243 filer, bytekontrollerade, ca 17 GB |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/b680dbb9e925ffd122027dce2cf201653ab8a03d/docs/images/hades-ii.jpg" width="96" alt=""> | Hades II | Mac och iPhone | **Verifierat här** |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/b680dbb9e925ffd122027dce2cf201653ab8a03d/docs/images/animal-crossing-new-horizons.jpg" width="96" alt=""> | Animal Crossing: New Horizons | iPhone | **Verifierat här**: går smidigt |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/b680dbb9e925ffd122027dce2cf201653ab8a03d/docs/images/super-mario-odyssey.jpg" width="96" alt=""> | Super Mario Odyssey | iPhone | Rapporterat som spelbart uppströms |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/b680dbb9e925ffd122027dce2cf201653ab8a03d/docs/images/zelda-breath-of-the-wild.jpg" width="96" alt=""> | The Legend of Zelda: Breath of the Wild | iPhone | Rapporterat som spelbart uppströms, 60 fps med 1.9.0 |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/b680dbb9e925ffd122027dce2cf201653ab8a03d/docs/images/mario-kart-8-deluxe.jpg" width="96" alt=""> | Mario Kart 8 Deluxe | iPhone | Rapporterat som spelbart uppströms |
 
 **[GAMES.md](GAMES.md)** har skärmbildsgalleriet med varje spels installationsstorlek och den fullständiga
 tabellen med den uppdateringsversion som varje spel behöver: Uppdaterings-NSP:ns visade version måste
@@ -190,7 +190,7 @@ Fire Emblem Fortune's Weave har verifierats i 60 fps på iPhone. Detaljerna finn
 ## Begränsningar
 
 - **Bara spelen med en profil.** En titel utanför listan kräver eget bring-up-arbete. Börja med
-  [docs/agents](https://github.com/seedds/nxnative/blob/3f37dd3dce5b2700f5375fba70b8de8ee4193d73/docs/agents/README.md), uppströmsprojektets guide för en annan Switch-titel.
+  [docs/agents](https://github.com/seedds/nxnative/blob/b680dbb9e925ffd122027dce2cf201653ab8a03d/docs/agents/README.md), uppströmsprojektets guide för en annan Switch-titel.
 - **Stora spel slår i en minnesgräns på iPhone.** Utan behörigheten Increased Memory Limit ger iOS appen
   cirka 3,4 GB, vilket inte räcker för Tears of the Kingdom. Appen begär den, och AltStore Classic 2.2+,
   Impactor och Xcode med ett Personal Team behåller den. SideStore med ett gratis Apple-ID behöver en
@@ -213,7 +213,7 @@ Fire Emblem Fortune's Weave har verifierats i 60 fps på iPhone. Detaljerna finn
   [patches/README.md](patches/README.md) förklarar det, och `python3 tools/engine.py status` listar vad som
   bärs. Ett dagligt jobb flyttar fästpunkten och öppnar en pull request, eller ett ärende som namnger patchen
   som inte längre passar. Länkarna till motorns dokument i den här README:n pekar på nxnative vid den fastlåsta committen.
-- **Ett annat Switch-spel:** [docs/agents](https://github.com/seedds/nxnative/blob/3f37dd3dce5b2700f5375fba70b8de8ee4193d73/docs/agents/README.md) (extrahering, binärgenomgång, bring-up).
+- **Ett annat Switch-spel:** [docs/agents](https://github.com/seedds/nxnative/blob/b680dbb9e925ffd122027dce2cf201653ab8a03d/docs/agents/README.md) (extrahering, binärgenomgång, bring-up).
 - **Versionshistorik:** [CHANGELOG.md](CHANGELOG.md).
 
 ## Tack
@@ -241,7 +241,7 @@ Allt motorarbete är andras. Det här förrådet lägger launchern och patchkön
 - **[SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross)**: SPIR-V till Metal Shading Language.
 - **yuzu**, **deko3d**, **libvpx**, **stb_vorbis**, **libdeflate**: uppströmsprojektets tackslista säger vad var och en bidrar med.
 
-`dm/third_party` innehåller andra projekt med deras licenser ([lista](https://github.com/seedds/nxnative/blob/3f37dd3dce5b2700f5375fba70b8de8ee4193d73/dm/third_party/README.md)).
+`dm/third_party` innehåller andra projekt med deras licenser ([lista](https://github.com/seedds/nxnative/blob/b680dbb9e925ffd122027dce2cf201653ab8a03d/dm/third_party/README.md)).
 
 ## Juridik
 

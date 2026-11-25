@@ -35,7 +35,7 @@ Issue: LNPANDY/NX2Apple#422
  2 files changed, 132 insertions(+), 2 deletions(-)
 
 diff --git a/dm/ios/tests/test_framework_build.py b/dm/ios/tests/test_framework_build.py
-index 6cde1022..8c0640f2 100644
+index 00995f7..a5d220c 100644
 --- a/dm/ios/tests/test_framework_build.py
 +++ b/dm/ios/tests/test_framework_build.py
 @@ -467,5 +467,122 @@ class FrameworkOnlyShaderLibrariesTests(unittest.TestCase):
@@ -162,7 +162,7 @@ index 6cde1022..8c0640f2 100644
  if __name__ == '__main__':
      unittest.main()
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 8c8e3a53..5e67574e 100755
+index 3baeca6..fb87c0b 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -353,7 +353,19 @@ fi

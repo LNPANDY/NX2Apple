@@ -18,7 +18,7 @@ Issue: LNPANDY/NX2Apple#971
  1 file changed, 7 insertions(+), 4 deletions(-)
 
 diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
-index f4de3cf8..66b33e22 100644
+index f4de3cf..66b33e2 100644
 --- a/dm/host/tests/t_controllers_mac.m
 +++ b/dm/host/tests/t_controllers_mac.m
 @@ -333,6 +333,11 @@ static void test_nintendo_labels(void) {

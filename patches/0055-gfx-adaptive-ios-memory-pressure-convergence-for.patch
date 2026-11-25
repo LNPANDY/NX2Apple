@@ -28,10 +28,10 @@ Issue: none
  create mode 100644 dm/gfx/tests/t_rt_recycle_policy.c
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 7da07b74..606e4106 100644
+index bb595c6..db1a162 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -19,6 +19,7 @@
+@@ -20,6 +20,7 @@
  #include <IOKit/IOKitLib.h>   // the GPU's core count (nvn_geometry.inc mesh_scratch)
  #endif
  #include <os/os_sync_wait_on_address.h>   // the uniform copy hand-off (nvn_rec.h ubc_wait)
@@ -39,7 +39,7 @@ index 7da07b74..606e4106 100644
  #if TARGET_OS_IPHONE
  #include <os/proc.h>   // os_proc_available_memory: for the memory readout line
  #endif
-@@ -42,6 +43,7 @@
+@@ -44,6 +45,7 @@
  #include "nvn_link_latch.h"
  #include "nvn_present_history.h"
  #include "nvn_timestamp.h"
@@ -47,7 +47,7 @@ index 7da07b74..606e4106 100644
  #include "msl_image.h"
  #include "../msl_mount.h"
  #include "dmsh_chain.h"   // DMSH_CHAIN: the translation chain version of the B shader library expected by this source tree, one for every game (beside this file, tools/dmsh_chain.py --header)
-@@ -585,22 +587,103 @@ static void res_remove(id<MTLAllocation> r) { @autoreleasepool {
+@@ -592,22 +594,103 @@ static void res_remove(id<MTLAllocation> r) { @autoreleasepool {
  // added (resource_vis). Heaps idle for RH_IDLE_NS, and the oldest past
  // RH_CAP bytes waiting, leave the residency set when a submission begins (rh_trim). DM_NVN_RT_RECYCLE=0 makes each texture its own allocation and each family heap exact and freed
  // with its last texture, as before; ab alternates it with the DM_AB phases
@@ -156,10 +156,10 @@ index 7da07b74..606e4106 100644
  }
  @interface NvRecycledHeap : NSObject { @public id<MTLHeap> heap; } @end
  @implementation NvRecycledHeap
-@@ -611,13 +694,14 @@ @implementation NvImageHeap
- - (void)dealloc { rh_wait(heap); atomic_fetch_sub(&g_image_heap_n, 1); }
- @end
- static char g_image_heap_owner_key, g_rh_owner_key;
+@@ -700,13 +783,14 @@ static inline void fam_mark_valid(id<MTLTexture> t) {
+     uint64_t wh = 0; NvImageHeap *o = fam_owner(t, &wh);
+     if (o) fam_set_valid(o, wh);
+ }
 -// A waiting heap can cover a nearby dynamic-resolution size. For new heaps, cap the extra space so a single large target does not keep tens of MB resident for reuse.
 -enum { RH_SLACK = 4u << 20 };
 +// A waiting heap can cover a nearby dynamic-resolution size. For new heaps, cap the extra space so a single large target does not keep tens of MB resident for reuse (RH_SLACK in nvn_rt_recycle.h).
@@ -174,7 +174,7 @@ index 7da07b74..606e4106 100644
      void *got = NULL;
      if (on) {
          os_unfair_lock_lock(&g_rh_lk);
-@@ -628,11 +712,11 @@ - (void)dealloc { rh_wait(heap); atomic_fetch_sub(&g_image_heap_n, 1); }
+@@ -717,11 +801,11 @@ static inline void fam_mark_valid(id<MTLTexture> t) {
              if (h.storageMode != sm || h.cpuCacheMode != cm) continue;   // (a placed texture takes its heap's hazard tracking: a placement heap reports untracked, a descriptor default)
              best = i;
          }
@@ -188,7 +188,7 @@ index 7da07b74..606e4106 100644
      hd.storageMode = sm; hd.cpuCacheMode = cm; hd.hazardTrackingMode = hm;
      id<MTLHeap> h = [g_dev newHeapWithDescriptor:hd];
      if (h && on) atomic_fetch_add(&g_rh_made, 1);
-@@ -689,27 +773,17 @@ static void tu_register(id<MTLTexture> t, uint64_t serial) {
+@@ -778,27 +862,17 @@ static void tu_register(id<MTLTexture> t, uint64_t serial) {
      if (g_tu_gone.n && nvn_hm_del(&g_tu_gone, &serial)) g_tu_remade++;
      os_unfair_lock_unlock(&g_tu_lk);
  }
@@ -225,7 +225,7 @@ index 7da07b74..606e4106 100644
  }
  static void rh_trim(void) { rh_trim_n(0, NULL); }
  // The whole system's memory (host_statistics64), in MB: what the per-app headroom misses. An iPhone 17 ended the app for proc-thrashing in Ocarina of Time with 67 MB free and 5.56 GB of its
-@@ -742,6 +816,7 @@ static void mem_pressure_said(char *b, size_t n) {
+@@ -831,6 +905,7 @@ static void mem_pressure_said(char *b, size_t n) {
               (unsigned long long)atomic_load(&g_sweep_n), (unsigned long long)(atomic_load(&g_sweep_bytes) >> 20));
  }
  static void mem_pressure_event(int lv) {   // lv: 0 normal, 1 warn, 2 critical (the source's handler; a test calls it directly)
@@ -233,7 +233,7 @@ index 7da07b74..606e4106 100644
      atomic_fetch_add(&g_mp_n[lv], 1);
      sys_mem_t m = sys_mem(); char room[32] = "none";
  #if TARGET_OS_IPHONE
-@@ -768,7 +843,14 @@ static void mem_pressure_start(void) {
+@@ -857,7 +932,14 @@ static void mem_pressure_start(void) {
      dispatch_source_set_event_handler(src, ^{ @autoreleasepool {
          if (g_mp_src != src || atomic_load(&g_gfx_teardown)) return;
          unsigned long d = dispatch_source_get_data(src);
@@ -249,15 +249,15 @@ index 7da07b74..606e4106 100644
      } });
      dispatch_resume(src);
  }
-@@ -1968,6 +2050,7 @@ void mtl_sub_begin(void) {
-     tu_tick();   // the render targets drawn over since their last use go, once a second
+@@ -2140,6 +2222,7 @@ void mtl_sub_begin(void) {
      spare_trim(0, NULL);   // packaged textures' spares no re-upload took
+     movie_trim(0);   // idle direct-upload movie staging buffers
      mem_trim();   // memory pressure asked for one (mem_pressure_event)
 +    rh_mem_trim_sub_begin();
      pkg_sweep();   // small devices: uploaded textures idle for PKG_IDLE_DS
      mtl_prepare();   // done by then in the submit entry; the replay tool (nvn_replay) reaches it here
      warm_claim();
-@@ -8139,6 +8222,85 @@ static void vc_drop_pool(const void *pool) {   // caller holds g_rmu
+@@ -8963,6 +9046,85 @@ static void vc_drop_pool(const void *pool) {   // caller holds g_rmu
          else i++;
      }
  }
@@ -343,7 +343,7 @@ index 7da07b74..606e4106 100644
  // A texture buffer bound to a slot whose 1D integer fetches the translator made 2D reads of rows of NVN_TBUF_ROW texels (nvn_refl f1d; Program.cs RecordTexelFetch1D): a linear 2D texture of
  // such rows over the same pool memory, so the shader reads the buffer. Maxwell reads 1D textures and texture buffers with the same instruction and the descriptor decides; without a type
  // answer the translator read them as 2D, and Age of Calamity's light and decal lists (and Three Houses' lighting) read the dummy texture, zeros. Kept with the texture's views (vc_set),
-@@ -21878,6 +22040,14 @@ void dm_gfx_teardown(void) { @autoreleasepool {
+@@ -24066,6 +24228,14 @@ void dm_gfx_teardown(void) { @autoreleasepool {
      for (unsigned i = 0; i < g_rh_n; i++) if (g_rh[i].heap) CFRelease(g_rh[i].heap);
      free(g_rh); g_rh = NULL; g_rh_n = g_rh_cap = 0; g_rh_bytes = 0;
      os_unfair_lock_unlock(&g_rh_lk);
@@ -359,10 +359,10 @@ index 7da07b74..606e4106 100644
      pthread_mutex_lock(&g_res_commit_mu);
      pthread_mutex_lock(&g_res_mu);
 diff --git a/dm/gfx/nvn/nvn_owner.h b/dm/gfx/nvn/nvn_owner.h
-index ee9ace0d..ec666bbb 100644
+index 1ac3f75..251b431 100644
 --- a/dm/gfx/nvn/nvn_owner.h
 +++ b/dm/gfx/nvn/nvn_owner.h
-@@ -112,6 +112,9 @@ void own_alias_at_locked(const void *pool, int64_t off, void (^fn)(const alias_k
+@@ -113,6 +113,9 @@ void own_alias_at_locked(const void *pool, int64_t off, void (^fn)(const alias_k
  void own_alias_each_locked(void (^fn)(const alias_key *k, id o));
  typedef struct { uint32_t n, cap, cells; uint64_t evicted, taken, pool_entries, looks; } own_alias_stats;   // entries, capacity, index cells, evicted with pools / on takeover in total, serial entries that went with their pools, entries takeovers looked at
  own_alias_stats own_alias_stats_locked(void);
@@ -373,7 +373,7 @@ index ee9ace0d..ec666bbb 100644
  // (allocatedSize, several keys can name one); writable_bytes is the part made to be drawn into or written by shaders, whose content the pool may not have; oldest_idle is the
  // longest any of them has gone without a lookup, in submissions (issue #2629: how much of a long session's memory growth they are). A walk: the memory report
 diff --git a/dm/gfx/nvn/nvn_owner.m b/dm/gfx/nvn/nvn_owner.m
-index 7f256c43..0399cb4a 100644
+index f410093..00934ef 100644
 --- a/dm/gfx/nvn/nvn_owner.m
 +++ b/dm/gfx/nvn/nvn_owner.m
 @@ -68,6 +68,7 @@ static void pool_tex_del(uint64_t serial) {
@@ -384,7 +384,7 @@ index 7f256c43..0399cb4a 100644
  typedef struct ghost_use { struct ghost_use *prev, *next; uint64_t serial, frame, sub; } ghost_use;   // a ghost entry's last use
  static nvn_hmap g_ghost_use = {.klen = 8};    // serial → its ghost_use: the same serials as g_ghost
  static ghost_use *g_ghost_lru, *g_ghost_mru;  // the list, least recently used first
-@@ -335,16 +336,32 @@ static void ghost_used(uint64_t k) {   // a lookup or a put of k's ghost entry:
+@@ -339,16 +340,32 @@ static void ghost_used(uint64_t k) {   // a lookup or a put of k's ghost entry:
      id old = hm_get_id(&g_ghost, &k); if (!old) return;
      ghost_held_add((__bridge void *)old, -1); obj_drop(old); hm_del_id(&g_ghost, &k); own_note(k);
  }
@@ -420,7 +420,7 @@ index 7f256c43..0399cb4a 100644
  const void *own_resolve_ref(uint64_t k) {
      pthread_mutex_lock(&g_smu); const void *o = nvn_hm_get(&g_by_serial, &k);
      if (!o && g_ghost.n && (o = nvn_hm_get(&g_ghost, &k))) ghost_used(k);
-@@ -359,7 +376,7 @@ static void tex_put_locked(uint64_t k, id o) {   // serials from 2^62 up are ext
+@@ -363,7 +380,7 @@ static void tex_put_locked(uint64_t k, id o) {   // serials from 2^62 up are ext
      else if (m == &g_ghost) g_ghost_puts++;
      hm_put_id(m, &k, o); tex_pin *pin = nvn_hm_get(&g_tex_pins, &k); if (pin) tex_pin_set(pin, o); own_note(k);
      count_add(m == &g_by_serial ? &g_by_serial_held : &g_ghost_held, (__bridge void *)o, 1);
@@ -429,7 +429,7 @@ index 7f256c43..0399cb4a 100644
  }
  void tex_put(uint64_t k, id o) { pthread_mutex_lock(&g_smu); tex_put_locked(k, o); pthread_mutex_unlock(&g_smu); }
  
-@@ -604,6 +621,28 @@ own_alias_unheld own_alias_unheld_locked(void) {
+@@ -608,6 +625,28 @@ own_alias_unheld own_alias_unheld_locked(void) {
      }
      CFRelease(sized); return s;
  }
@@ -458,7 +458,7 @@ index 7f256c43..0399cb4a 100644
  own_stats own_stats_locked(void) { return (own_stats){.live = g_by_serial.n, .live_cap = g_by_serial.cap, .ghost = g_ghost.n, .retire_wait = g_retire_wait.n, .ghost_puts = g_ghost_puts}; }
  void own_each_locked(void (^fn)(uint64_t serial, id o, int ghost)) {
      const nvn_hmap *tables[] = {&g_by_serial, &g_ghost};
-@@ -716,6 +755,7 @@ void own_teardown(void) {
+@@ -747,6 +786,7 @@ void own_teardown(void) {
      nvn_hm_clear(&g_ghost_use, free);
      g_ghost_lru = g_ghost_mru = NULL;
      g_ghost_puts = 0;
@@ -468,7 +468,7 @@ index 7f256c43..0399cb4a 100644
      nvn_hm_clear(&g_pool_tex, hm_rel_own);
 diff --git a/dm/gfx/nvn/nvn_rt_recycle.h b/dm/gfx/nvn/nvn_rt_recycle.h
 new file mode 100644
-index 00000000..36917631
+index 0000000..3691763
 --- /dev/null
 +++ b/dm/gfx/nvn/nvn_rt_recycle.h
 @@ -0,0 +1,60 @@
@@ -533,10 +533,10 @@ index 00000000..36917631
 +
 +#endif
 diff --git a/dm/gfx/tests/Makefile b/dm/gfx/tests/Makefile
-index 22962fc7..159885bc 100644
+index 9ebbc07..7367059 100644
 --- a/dm/gfx/tests/Makefile
 +++ b/dm/gfx/tests/Makefile
-@@ -728,6 +728,8 @@ t_image_alias: t_image_alias.m $(MTL_T_DEP)
+@@ -750,6 +750,8 @@ t_image_alias: t_image_alias.m $(MTL_T_DEP)
  check_t_image_alias: t_image_alias
  	DM_NVN_ENC_THREAD=0 MTL_DEBUG_LAYER=1 ./t_image_alias
  	DM_NVN_ENC_THREAD=1 MTL_DEBUG_LAYER=1 ./t_image_alias
@@ -546,7 +546,7 @@ index 22962fc7..159885bc 100644
  	clang $(CFLAGS) -fobjc-arc -o $@ t_rt_recycle.m $(MTL_T_SRC) $(FW)
  .PHONY: check_t_rt_recycle
 diff --git a/dm/gfx/tests/t_rt_recycle.m b/dm/gfx/tests/t_rt_recycle.m
-index e1350582..f447973f 100644
+index e135058..f447973 100644
 --- a/dm/gfx/tests/t_rt_recycle.m
 +++ b/dm/gfx/tests/t_rt_recycle.m
 @@ -198,6 +198,160 @@ int main(void) { @autoreleasepool {
@@ -721,7 +721,7 @@ index e1350582..f447973f 100644
  } }
 diff --git a/dm/gfx/tests/t_rt_recycle_policy.c b/dm/gfx/tests/t_rt_recycle_policy.c
 new file mode 100644
-index 00000000..29ea6264
+index 0000000..29ea626
 --- /dev/null
 +++ b/dm/gfx/tests/t_rt_recycle_policy.c
 @@ -0,0 +1,169 @@
@@ -895,7 +895,7 @@ index 00000000..29ea6264
 +    return failed != 0;
 +}
 diff --git a/dm/gfx/tests/t_serial_owner.m b/dm/gfx/tests/t_serial_owner.m
-index c8cc289c..997034b6 100644
+index b50547f..954453a 100644
 --- a/dm/gfx/tests/t_serial_owner.m
 +++ b/dm/gfx/tests/t_serial_owner.m
 @@ -156,6 +156,36 @@ int main(void) { @autoreleasepool {

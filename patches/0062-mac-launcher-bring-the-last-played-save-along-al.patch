@@ -51,7 +51,7 @@ Issue: LNPANDY/NX2Apple#1118
  2 files changed, 275 insertions(+), 60 deletions(-)
 
 diff --git a/dm/mac/launcher.c b/dm/mac/launcher.c
-index 2b3d7ba6..ff744a98 100644
+index 9b3781b..527113a 100644
 --- a/dm/mac/launcher.c
 +++ b/dm/mac/launcher.c
 @@ -24,9 +24,11 @@
@@ -340,12 +340,12 @@ index 2b3d7ba6..ff744a98 100644
      CFArrayRef rules = setting_rules();   // the settings the launch environment already set: the window shows them, fixed
      for (CFIndex i = 0; rules && i < CFArrayGetCount(rules); i++) { char env[128]; if (rule_env(CFArrayGetValueAtIndex(rules, i), env, sizeof env) && getenv(env)) add_key(&g_launch_keys, env); }
 diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
-index 4a2d4265..be7cd422 100644
+index 32d9963..8572944 100644
 --- a/dm/tools/tests/test_nsp_mac_app.py
 +++ b/dm/tools/tests/test_nsp_mac_app.py
-@@ -1029,17 +1029,42 @@ int main(void) { @autoreleasepool {
-         self.assertIn('standin host output', (logs / f'{TID}.prev.log').read_text())
-         self.assertEqual(self.host_run()['DM_LANG'], 'fr')   # Info.plist DMLanguage
+@@ -1060,17 +1060,42 @@ int main(void) { @autoreleasepool {
+         shutil.rmtree(self.tmp / 'seen-shader', ignore_errors=True)   # not from the last build's own list
+         self.assertEqual(keys(), [key, 'b' * 16])
  
 -    def run_in_library(self, lib, home):   # the app in a game library folder (the .nx2apple-library marker beside it), as the Mac front end lays it out
 +    def run_in_library(self, lib, home, code=7, fsize=None, env=None):   # the app in a game library folder (the .nx2apple-library marker beside it), as the Mac front end lays it out
@@ -391,7 +391,7 @@ index 4a2d4265..be7cd422 100644
      def test_library_folder_on_apfs(self):   # saves and log beside the app
          lib, home = self.tmp / 'library-apfs', self.tmp / 'home-library-apfs'
          lib.mkdir(); home.mkdir(); (lib / '.nx2apple-library').touch()
-@@ -1047,18 +1072,14 @@ int main(void) { @autoreleasepool {
+@@ -1078,18 +1103,14 @@ int main(void) { @autoreleasepool {
          if r['DM_SAVE'] != str(lib / 'save' / TID): self.skipTest(f'{self.tmp} is not on APFS')
          self.assertIn('standin host output', (lib / f'log/{TID}.log').read_text())
          self.assertFalse((home / 'alert.txt').exists())
@@ -416,7 +416,7 @@ index 4a2d4265..be7cd422 100644
              r = self.run_in_library(lib, home)
              self.assertEqual(r['DM_SAVE'], str(sup / 'save'))   # on the Mac's own APFS disk, not the library folder
              self.assertEqual(sorted(p.name for p in (sup / 'save').iterdir()), ['savedata0.bin'])   # the earlier save copied in, without the AppleDouble file
-@@ -1070,8 +1091,87 @@ int main(void) { @autoreleasepool {
+@@ -1101,8 +1122,87 @@ int main(void) { @autoreleasepool {
              self.run_in_library(lib, home)
              self.assertFalse((home / 'alert.txt').exists())
              self.assertIn('is not on an APFS volume', (lib / f'log/{TID}.log').read_text())   # the log line at every start

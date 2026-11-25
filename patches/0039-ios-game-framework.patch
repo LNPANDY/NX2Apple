@@ -15,7 +15,7 @@ Issue: LNPANDY/NX2Apple#392
  dm/ios/framework/DmGameMarker.m      |  10 +
  dm/ios/framework/ShellGlue.h         |  11 +
  dm/ios/framework/ShellGlue.m         |  76 +++++++
- dm/ios/project-framework.yml         | 200 ++++++++++++++++
+ dm/ios/project-framework.yml         | 199 ++++++++++++++++
  dm/ios/tests/test_bc_device_check.py |  56 +++++
  dm/ios/tests/test_framework_build.py | 323 ++++++++++++++++++++++++++
  dm/ios/tests/test_framework_link.py  | 191 ++++++++++++++++
@@ -25,7 +25,7 @@ Issue: LNPANDY/NX2Apple#392
  dm/ios/tools/gen_manifest.py         | 130 +++++++++++
  dm/tools/tests/test_nsp_progress.py  | 329 +++++++++++++++++++++++++++
  scripts/build_ipa_from_nsp.py        | 214 ++++++++++++++---
- 18 files changed, 1730 insertions(+), 46 deletions(-)
+ 18 files changed, 1729 insertions(+), 46 deletions(-)
  create mode 100644 dm/ios/Sources/FrameworkBootstrap.h
  create mode 100644 dm/ios/Sources/FrameworkBootstrap.m
  create mode 100644 dm/ios/framework/DmGameMarker.m
@@ -38,7 +38,7 @@ Issue: LNPANDY/NX2Apple#392
  create mode 100644 dm/ios/tools/gen_manifest.py
 
 diff --git a/dm/ios/Sources/DmGameMenu.h b/dm/ios/Sources/DmGameMenu.h
-index a7e9c692..82c284aa 100644
+index a7e9c69..82c284a 100644
 --- a/dm/ios/Sources/DmGameMenu.h
 +++ b/dm/ios/Sources/DmGameMenu.h
 @@ -13,6 +13,7 @@ void dm_pad_layout_set(int layout);   // releases every touch first, and is save
@@ -51,7 +51,7 @@ index a7e9c692..82c284aa 100644
  #endif
 diff --git a/dm/ios/Sources/FrameworkBootstrap.h b/dm/ios/Sources/FrameworkBootstrap.h
 new file mode 100644
-index 00000000..a2049d4d
+index 0000000..a2049d4
 --- /dev/null
 +++ b/dm/ios/Sources/FrameworkBootstrap.h
 @@ -0,0 +1,25 @@
@@ -82,7 +82,7 @@ index 00000000..a2049d4d
 +#endif
 diff --git a/dm/ios/Sources/FrameworkBootstrap.m b/dm/ios/Sources/FrameworkBootstrap.m
 new file mode 100644
-index 00000000..663ebe8d
+index 0000000..663ebe8
 --- /dev/null
 +++ b/dm/ios/Sources/FrameworkBootstrap.m
 @@ -0,0 +1,47 @@
@@ -134,7 +134,7 @@ index 00000000..663ebe8d
 +}
 +#endif
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index e763931d..1ecbae9d 100644
+index e763931..e862fb2 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
 @@ -190,7 +190,10 @@ - (void)startGame {
@@ -150,7 +150,7 @@ index e763931d..1ecbae9d 100644
      self.pad = dm_gamepad_view(self.view.bounds);
      self.pad.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index 693e0cc0..e1355af0 100644
+index 693e0cc..e1355af 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
 @@ -10,7 +10,6 @@
@@ -215,7 +215,7 @@ index 693e0cc0..e1355af0 100644
      // the app's shared <App>/msl (the program's <App>/msl/p<N> in a game of several programs).
 diff --git a/dm/ios/framework/DmGameMarker.m b/dm/ios/framework/DmGameMarker.m
 new file mode 100644
-index 00000000..c03357d4
+index 0000000..c03357d
 --- /dev/null
 +++ b/dm/ios/framework/DmGameMarker.m
 @@ -0,0 +1,10 @@
@@ -231,7 +231,7 @@ index 00000000..c03357d4
 +const char dmgame_image_marker[] = "DmGame";
 diff --git a/dm/ios/framework/ShellGlue.h b/dm/ios/framework/ShellGlue.h
 new file mode 100644
-index 00000000..e5b52e21
+index 0000000..e5b52e2
 --- /dev/null
 +++ b/dm/ios/framework/ShellGlue.h
 @@ -0,0 +1,11 @@
@@ -248,7 +248,7 @@ index 00000000..e5b52e21
 +typedef void (*dm_glue_focus_fn)(int ev);
 diff --git a/dm/ios/framework/ShellGlue.m b/dm/ios/framework/ShellGlue.m
 new file mode 100644
-index 00000000..4bc48ff1
+index 0000000..4bc48ff
 --- /dev/null
 +++ b/dm/ios/framework/ShellGlue.m
 @@ -0,0 +1,76 @@
@@ -330,10 +330,10 @@ index 00000000..4bc48ff1
 +bool dm_show_launcher(void *view_controller, void (*done)(void)) { (void)view_controller; (void)done; return false; }
 diff --git a/dm/ios/project-framework.yml b/dm/ios/project-framework.yml
 new file mode 100644
-index 00000000..89a2df5f
+index 0000000..4a14327
 --- /dev/null
 +++ b/dm/ios/project-framework.yml
-@@ -0,0 +1,200 @@
+@@ -0,0 +1,199 @@
 +# Route C framework project (docs/launcher-c-plan.md M1): the same app as project.yml, except that the game's rewritten
 +# modules are not compiled into the executable (no Gen/embed.S) but into DmGame.framework, which the app dlopens at launch.
 +# build_ipa.sh DM_FRAMEWORK=1 generates Gen/ and Gen/framework before xcodegen runs; the app source reads the framework's
@@ -488,7 +488,6 @@ index 00000000..89a2df5f
 +      - path: Sources/GameMenu.swift
 +      - path: Sources/LauncherSettings.swift
 +      - path: Sources/CloudSaves.m
-+      - path: Sources/SaveSync.m
 +      - path: Sources/DataBookmark.m
 +      - path: Gen/framework/dm
 +        type: folder
@@ -536,7 +535,7 @@ index 00000000..89a2df5f
 +      config: Release
 diff --git a/dm/ios/tests/test_bc_device_check.py b/dm/ios/tests/test_bc_device_check.py
 new file mode 100644
-index 00000000..6c443e5b
+index 0000000..6c443e5
 --- /dev/null
 +++ b/dm/ios/tests/test_bc_device_check.py
 @@ -0,0 +1,56 @@
@@ -598,7 +597,7 @@ index 00000000..6c443e5b
 +    unittest.main()
 diff --git a/dm/ios/tests/test_framework_build.py b/dm/ios/tests/test_framework_build.py
 new file mode 100644
-index 00000000..f1c89929
+index 0000000..f1c8992
 --- /dev/null
 +++ b/dm/ios/tests/test_framework_build.py
 @@ -0,0 +1,323 @@
@@ -927,7 +926,7 @@ index 00000000..f1c89929
 +    unittest.main()
 diff --git a/dm/ios/tests/test_framework_link.py b/dm/ios/tests/test_framework_link.py
 new file mode 100644
-index 00000000..5c6d3d03
+index 0000000..5c6d3d0
 --- /dev/null
 +++ b/dm/ios/tests/test_framework_link.py
 @@ -0,0 +1,191 @@
@@ -1123,7 +1122,7 @@ index 00000000..5c6d3d03
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/dm/ios/tests/test_xcode_workflow.py b/dm/ios/tests/test_xcode_workflow.py
-index bf7dbe7e..3c1ef44b 100644
+index bf7dbe7..3c1ef44 100644
 --- a/dm/ios/tests/test_xcode_workflow.py
 +++ b/dm/ios/tests/test_xcode_workflow.py
 @@ -31,7 +31,12 @@ class XcodePipelineTests(unittest.TestCase):
@@ -1159,7 +1158,7 @@ index bf7dbe7e..3c1ef44b 100644
              register.assert_called_once()
              self.assertEqual(mocks['derive_profile'].call_count, int(derived))
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index c7953be0..c00099a1 100755
+index 498b295..31ac076 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -8,6 +8,12 @@
@@ -1312,7 +1311,7 @@ index c7953be0..c00099a1 100755
  # the entitlements of the signature they replace; the Xcode project gets them through CODE_SIGN_ENTITLEMENTS, above). The executable gets an ad-hoc signature that carries them: the sideloader
  # replaces the signature and keeps the entitlements. Only the executable is signed: the bundle's resources are packed from elsewhere and the signature is replaced anyway
 diff --git a/dm/ios/tools/compile_check.py b/dm/ios/tools/compile_check.py
-index 77299e3b..821daaa3 100755
+index 77299e3..821daaa 100755
 --- a/dm/ios/tools/compile_check.py
 +++ b/dm/ios/tools/compile_check.py
 @@ -4,7 +4,9 @@
@@ -1354,7 +1353,7 @@ index 77299e3b..821daaa3 100755
  sys.exit(1 if bad else 0)
 diff --git a/dm/ios/tools/gen_manifest.py b/dm/ios/tools/gen_manifest.py
 new file mode 100644
-index 00000000..963156fd
+index 0000000..963156f
 --- /dev/null
 +++ b/dm/ios/tools/gen_manifest.py
 @@ -0,0 +1,130 @@
@@ -1489,7 +1488,7 @@ index 00000000..963156fd
 +if __name__ == '__main__':
 +    main()
 diff --git a/dm/tools/tests/test_nsp_progress.py b/dm/tools/tests/test_nsp_progress.py
-index cd34db90..a57b1f33 100644
+index cd34db9..a57b1f3 100644
 --- a/dm/tools/tests/test_nsp_progress.py
 +++ b/dm/tools/tests/test_nsp_progress.py
 @@ -236,5 +236,334 @@ class HumanModes(unittest.TestCase):
@@ -1828,10 +1827,10 @@ index cd34db90..a57b1f33 100644
  if __name__ == '__main__':
      unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 17c3aea6..2d6134cb 100755
+index 79a54e2..b97059b 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -3163,58 +3163,187 @@ def build_gl_shaders(py, repo, roots, sh, env, logs, g, reuse=True, mac=False, p
+@@ -3311,58 +3311,187 @@ def build_gl_shaders(py, repo, roots, sh, env, logs, g, reuse=True, mac=False, p
  
  
  class IpaWatch:
@@ -2048,7 +2047,7 @@ index 17c3aea6..2d6134cb 100755
  
  
  def env_file_pairs(path):   # an environment file's switches (one KEY=VALUE per line, # starts a comment), read as the iOS app reads them (dm/ios/Sources/main.m)
-@@ -3541,6 +3670,10 @@ def parse_args(argv):
+@@ -3690,6 +3819,10 @@ def parse_args(argv):
      ap.add_argument('--shader-files', action=argparse.BooleanOptionalAction, help='an NVN game\'s shader library goes into the IPA as its separate files, not as one file, for install tools that cannot copy '
                      'a large file (AltServer: 2 GiB; the game files then need --romfs separate too) (default: the SHADER_FILES setting, off)')
      ap.add_argument('--prepare-xcode', action='store_true', help='prepare a per-game Xcode project and add it to the shared workspace instead of packing an IPA (requires keeping extracted files)')
@@ -2059,7 +2058,7 @@ index 17c3aea6..2d6134cb 100755
      ap.add_argument('--platform', choices=('ios', 'mac', 'mac-app'), help='ios = the IPA (or the Xcode project); mac = for development: build only what running the game on this Mac needs (the Mac shaders and the Mac host, '
                      'no iOS shaders, Xcode project or IPA), keep the extracted files and print the command that runs the game; mac-app = what mac builds, then a self-contained, double-clickable '
                      'Mac app of the game (default: <game name>.app in the NSP folder, -o names another) (default: the PLATFORM setting, ios)')
-@@ -3735,6 +3868,11 @@ def main(args=None):
+@@ -3938,6 +4071,11 @@ def _main(args, cleanup):
      if args.mac_sign and not mac_pack: raise BuildError('--mac-sign signs the Mac app: it needs --platform mac-app')
      if args.prebake and not mac_pack: raise BuildError('--prebake makes the Mac app\'s prewarm pipelines: it needs --platform mac-app')
      if mac and prepare_xcode: raise BuildError(f'--prepare-xcode makes an iPhone project: it cannot be combined with --platform {platform}')
@@ -2071,7 +2070,7 @@ index 17c3aea6..2d6134cb 100755
      if mac and not apple_silicon(): raise BuildError(f'--platform {platform} runs the game in the Mac host, which runs the game\'s own arm64 code natively: it needs a Mac with Apple silicon, and this Mac has an Intel processor')
      check_native_python()
      keep = KEEP_EXTRACTED if args.keep_extracted is None else args.keep_extracted
-@@ -4035,11 +4173,12 @@ def main(args=None):
+@@ -4253,11 +4391,12 @@ def _main(args, cleanup):
          rmtree(work / 'tmp'); return {'row': (PROGRAM_INDEX, g.id, patched, romfs, ios, gfx), 'ex': ex, 'keep': keep}
      programs = other_programs(args, g)
      if programs and romfs_mode == 'separate': raise BuildError('a game of several programs keeps its files in the app (ROMFS / --romfs bundle): Documents holds one RomFS image, one program\'s')
@@ -2086,7 +2085,7 @@ index 17c3aea6..2d6134cb 100755
      separate = romfs_mode == 'separate'
      if separate: ipa_env['DM_COPY_ROMFS'] = 'NO'; say('game files: separate (DM_COPY_ROMFS=NO), left out of the app; the image stays at ' + str(romfs))
      if shader_files: ipa_env['DM_SHADER_FILES'] = '1'; say('shader library: its separate files (DM_SHADER_FILES=1), for install tools that cannot copy a large file')
-@@ -4060,6 +4199,19 @@ def main(args=None):
+@@ -4278,6 +4417,19 @@ def _main(args, cleanup):
          rows = [(0, g.id, patched, romfs, ios, gfx)] + [programs[n]['row'] for n in sorted(programs)]
          tsv.write_text('# program\tprofile\trewritten modules\tRomFS\tiOS shaders\tgraphics API (build_ipa.sh PROGRAMS_TSV)\n' + ''.join('\t'.join(map(str, r)) + '\n' for r in rows))
          say(f'one app holding programs {", ".join(str(r[0]) for r in rows)}')
