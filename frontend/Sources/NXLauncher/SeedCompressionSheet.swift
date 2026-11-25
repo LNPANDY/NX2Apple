@@ -12,15 +12,26 @@ package struct SeedCompressionSheet: View {
     @EnvironmentObject private var pad: PadFocus
     @State private var dontAskAgain = false
     @State private var showAllPromptGames = false
+    @State private var renderedPhase: SeedCompressionStore.Phase?
 
     package init(store: SeedCompressionStore, gameNameResolver: @escaping (String) -> String? = { _ in nil }) {
         self.store = store
         self.gameNameResolver = gameNameResolver
+        self._renderedPhase = State(initialValue: store.phase)
+    }
+
+    /// Resolves the phase to render so sheet dismissal keeps the last visible frame instead of collapsing into `EmptyView`.
+    package static func displayedPhase(
+        current: SeedCompressionStore.Phase?,
+        cached: SeedCompressionStore.Phase?
+    ) -> SeedCompressionStore.Phase? {
+        current ?? cached
     }
 
     package var body: some View {
+        let activePhase = Self.displayedPhase(current: store.phase, cached: renderedPhase)
         Group {
-            switch store.phase {
+            switch activePhase {
             case .prompt(let scan):
                 promptSheet(scan)
             case .running(let state):
@@ -32,8 +43,20 @@ package struct SeedCompressionSheet: View {
             }
         }
         .padScope("seedCompress", pad)
-        .onAppear { setInitialFocus() }
-        .onChange(of: phaseFocusKey) { _ in setInitialFocus() }
+        .onAppear {
+            if let phase = store.phase {
+                renderedPhase = phase
+            }
+            setInitialFocus()
+        }
+        .onChange(of: store.phase) { newPhase in
+            if let newPhase {
+                renderedPhase = newPhase
+            }
+        }
+        .onChange(of: phaseFocusKey) { _ in
+            setInitialFocus()
+        }
     }
 
     private var phaseFocusKey: String {
@@ -46,8 +69,9 @@ package struct SeedCompressionSheet: View {
     }
 
     private func setInitialFocus() {
+        guard let phase = store.phase else { return }
         pad.scope = "seedCompress"
-        switch store.phase {
+        switch phase {
         case .prompt:
             showAllPromptGames = false
             dontAskAgain = store.promptDismissed
@@ -56,8 +80,6 @@ package struct SeedCompressionSheet: View {
             pad.focused = "seedCompress.stop"
         case .done:
             pad.focused = "seedCompress.finish"
-        case nil:
-            break
         }
     }
 

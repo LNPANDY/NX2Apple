@@ -349,12 +349,17 @@ import Foundation
         phase = nil
     }
 
-    /// Closes the completion sheet and refreshes Settings scan state.
+    /// Closes the completion sheet and refreshes Settings scan state after sheet dismissal finishes.
     package func finishDone() {
         guard case .done = phase else { return }
         phase = nil
         startError = nil
-        _ = scan(autoPromptOnFind: false)
+        let finishGen = scanGeneration
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard let self, self.scanGeneration == finishGen, self.phase == nil, !self.isScanning else { return }
+            _ = self.scan(autoPromptOnFind: false)
+        }
     }
 
     /// Starts streaming `build_seed.py compress-seeds --progress json` for the prompted seeds.
