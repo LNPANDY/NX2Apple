@@ -400,8 +400,13 @@ extension BuildStore {
         }
         var resolved = failure ?? note ?? String(format: t("dev.installed"), devices.deviceName(devices.installDevice))
         if failure == nil, !deferShellPackaging, needsReplaceOldImgReminder {
-            let imgName = updatedImgPath.isEmpty ? "romfs.img" : (updatedImgPath as NSString).lastPathComponent
-            let reminder = String(format: t("imgGuide.replaceOldImgBody"), imgName)
+            let reminder: String
+            if QueueEntryImgStatus.isMSLFallback(updatedImgPath) {
+                reminder = t("imgGuide.mslUpdateBody")
+            } else {
+                let imgName = updatedImgPath.isEmpty ? "romfs.img" : (updatedImgPath as NSString).lastPathComponent
+                reminder = String(format: t("imgGuide.replaceOldImgBody"), imgName)
+            }
             if !resolved.contains(reminder) {
                 resolved = resolved.isEmpty ? reminder : (resolved + "\n" + reminder)
             }

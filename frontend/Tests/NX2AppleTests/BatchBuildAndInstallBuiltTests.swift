@@ -156,7 +156,7 @@ import XCTest
                 break
         tid = tid or '0100000000000000'
         os.makedirs(work_dir + '/extract/v0', exist_ok=True)
-        open(work_dir + '/extract/v0/RomFS.img', 'w').write('romfs-for-' + tid)
+        open(work_dir + '/extract/v0/RomFS.img', 'w').write('DMROMFS1-' + tid)
         open(work_dir + '/extract/v0/RomFS.img.id', 'w').write('{"title":"' + tid.lower() + '"}\\n')
         fw_parent = val('--shell-framework')
         if fw_parent:
@@ -309,9 +309,9 @@ import XCTest
         XCTAssertTrue(fm.fileExists(atPath: appPath + "/Frameworks/DmGame\(idB).framework"))
         let bundle = ShellLibrary.load(root: env.shellRoot).bundleID
         XCTAssertEqual(try String(contentsOfFile: "\(deviceContainer)/\(bundle)/Documents/games/\(idA)/romfs.img", encoding: .utf8),
-                       "romfs-for-\(idA)")
+                       "DMROMFS1-\(idA)")
         XCTAssertEqual(try String(contentsOfFile: "\(deviceContainer)/\(bundle)/Documents/games/\(idB)/romfs.img", encoding: .utf8),
-                       "romfs-for-\(idB)")
+                       "DMROMFS1-\(idB)")
 
         let libA = try XCTUnwrap(library.games.first { $0.titleID == idA })
         let libB = try XCTUnwrap(library.games.first { $0.titleID == idB })
@@ -358,8 +358,8 @@ import XCTest
             try write(fw + "/DmGame\(id)", "bin")
         }
         let archA = path("out/games/\(idA)"), archB = path("out/games/\(idB)")
-        try write(archA + "/romfs.img", "data-A")
-        try write(archB + "/romfs.img", "data-B")
+        try write(archA + "/romfs.img", "DMROMFS1-A")
+        try write(archB + "/romfs.img", "DMROMFS1-B")
 
         let gA = addLibraryGame(library, titleID: idA, name: "Hades", target: BuildTarget.ios, archivePath: archA)
         let gB = addLibraryGame(library, titleID: idB, name: "BotW", target: BuildTarget.ios, archivePath: archB)
@@ -413,8 +413,8 @@ import XCTest
         try shell.save(root: env.shellRoot)
 
         let archA = path("out/games/\(idA)"), archB = path("out/games/\(idB)")
-        try write(archA + "/romfs.img", "romfs-A")
-        try write(archB + "/romfs.img", "romfs-B")
+        try write(archA + "/romfs.img", "DMROMFS1-A")
+        try write(archB + "/romfs.img", "DMROMFS1-B")
         _ = addLibraryGame(library, titleID: idA, name: "Hades", target: BuildTarget.ios, archivePath: archA)
         _ = addLibraryGame(library, titleID: idB, name: "BotW", target: BuildTarget.ios, archivePath: archB)
 
@@ -473,7 +473,7 @@ import XCTest
         shell.add(.init(titleID: idB, name: "Hades", framework: fwB))
         try shell.save(root: shellPopulated)
         let archA = path("archives/\(idA)")
-        try write(archA + "/romfs.img", "romfs")
+        try write(archA + "/romfs.img", "DMROMFS1")
 
         let fakeRepo = path("fake-repo")
         try write(fakeRepo + "/dm/tools/nx_extract/Program.cs", "// marker\n")

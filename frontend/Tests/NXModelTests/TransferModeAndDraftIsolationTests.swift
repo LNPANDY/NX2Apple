@@ -407,7 +407,7 @@ import XCTest
             let archive = tempDir.appendingPathComponent("archive-\(tid)").path
             try fm.createDirectory(atPath: fw, withIntermediateDirectories: true)
             try fm.createDirectory(atPath: archive, withIntermediateDirectories: true)
-            try Data("img-\(tid)".utf8).write(to: URL(fileURLWithPath: archive + "/romfs.img"))
+            try Data("DMROMFS1-\(tid)".utf8).write(to: URL(fileURLWithPath: archive + "/romfs.img"))
             return DeferredShellGame(framework: fw, titleID: tid, name: name, archive: archive)
         }
         let game1 = try makeGameFixture("0100152000022000", "Mario Kart 8")

@@ -304,15 +304,20 @@ package struct BuildQueueCard: View {
     private func imgStatusView(for entry: QueueEntry) -> some View {
         switch entry.imgStatus {
         case .transferred(let imgName, let deviceName):
-            Text(String(format: loc.t("refreshDone.queueTransferredRow"), imgName, deviceName))
+            let text = QueueEntryImgStatus.isMSLFallback(imgName)
+                ? String(format: loc.t("refreshDone.queueMslTransferredRow"), deviceName)
+                : String(format: loc.t("refreshDone.queueTransferredRow"), imgName, deviceName)
+            Text(text)
                 .font(DS.Font.callout)
                 .foregroundStyle(LauncherPalette.ready)
                 .fixedSize(horizontal: false, vertical: true)
         case .manualReplace(let imgPath, _):
+            let isMSL = QueueEntryImgStatus.isMSLFallback(imgPath)
             let imgName = imgPath.isEmpty ? "romfs.img" : (imgPath as NSString).lastPathComponent
+            let label = isMSL ? loc.t("refreshDone.queueMslManualRow") : String(format: loc.t("refreshDone.queueManualRow"), imgName)
             HStack(spacing: 8) {
                 Circle().fill(LauncherPalette.building).frame(width: 6, height: 6).accessibilityHidden(true)
-                Text(String(format: loc.t("refreshDone.queueManualRow"), imgName))
+                Text(label)
                     .font(DS.Font.callout)
                     .foregroundStyle(LauncherPalette.building)
                     .fixedSize(horizontal: false, vertical: true)

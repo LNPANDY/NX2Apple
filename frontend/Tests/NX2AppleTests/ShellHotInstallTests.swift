@@ -215,7 +215,7 @@ import XCTest
         let fw1 = try makeSignableFramework(id: firstID, name: "First Game")
         let fw2 = try makeSignableFramework(id: secondID, name: "Second Game")
         let arch1 = path("archives", firstID)
-        try write(arch1 + "/romfs.img", "romfs-one")
+        try write(arch1 + "/romfs.img", "DMROMFS1-one")
 
         var inst = ShellInstaller(xcrun: xcrun, repo: repo, python: "/usr/bin/python3", root: root, device: device, team: team)
         inst.resources = nil
@@ -258,7 +258,7 @@ import XCTest
 
         let fw1 = try makeSignableFramework(id: firstID, name: "First Game")
         let arch1 = path("archives", firstID)
-        try write(arch1 + "/romfs.img", "romfs-one")
+        try write(arch1 + "/romfs.img", "DMROMFS1-one")
 
         var inst = ShellInstaller(xcrun: xcrun, repo: repo, python: "/usr/bin/python3", root: root, device: device, team: team)
         inst.resources = nil
@@ -281,7 +281,7 @@ import XCTest
         // 2. Second game installs via ~2s hot framework push: 0 xcodebuild, 0 devicectl install app!
         let fw2 = try makeSignableFramework(id: secondID, name: "Second Hot Game")
         let arch2 = path("archives", secondID)
-        try write(arch2 + "/romfs.img", "romfs-two-bytes")
+        try write(arch2 + "/romfs.img", "DMROMFS1-two-bytes")
 
         let secondOut = inst.install(framework: fw2, titleID: secondID, name: "Second Hot Game", archive: arch2)
         XCTAssertTrue(secondOut.ok, secondOut.message)
@@ -323,7 +323,7 @@ import XCTest
         XCTAssertEqual(Set(lib.games.map(\.titleID)), [firstID, secondID])
         XCTAssertTrue(ShellLibrary.installedReceipt(root: root).contains(secondID))
         XCTAssertEqual(try String(contentsOfFile: container + "/\(ShellLibrary.defaultBundleID)/Documents/games/\(secondID)/romfs.img", encoding: .utf8),
-                       "romfs-two-bytes")
+                       "DMROMFS1-two-bytes")
     }
 
     func testInstallBuiltAndInstallBatchBothUseHotPushAndFiveBoundariesFallBackToXcodebuild() throws {
@@ -337,7 +337,7 @@ import XCTest
         let fw2 = try makeSignableFramework(id: secondID, name: "Game Two")
         let fw3 = try makeSignableFramework(id: thirdID, name: "Game Three")
         let arch1 = path("archives", firstID)
-        try write(arch1 + "/romfs.img", "one")
+        try write(arch1 + "/romfs.img", "DMROMFS1-one")
 
         var inst = ShellInstaller(xcrun: xcrun, repo: repo, python: "/usr/bin/python3", root: root, device: device, team: team)
         inst.resources = nil
@@ -358,15 +358,15 @@ import XCTest
 
         // Parallel entry 3: multi-game installBatch uses hot push (0 xcodebuild).
         let arch2 = path("archives", secondID), arch3 = path("archives", thirdID)
-        try write(arch2 + "/romfs.img", "two")
-        try write(arch3 + "/romfs.img", "three")
+        try write(arch2 + "/romfs.img", "DMROMFS1-two")
+        try write(arch3 + "/romfs.img", "DMROMFS1-three")
         let batchOut = inst.installBatch([
             .init(framework: fw2, titleID: secondID, name: "Game Two", archive: arch2),
             .init(framework: fw3, titleID: thirdID, name: "Game Three", archive: arch3),
         ])
         XCTAssertTrue(batchOut.ok, batchOut.message)
         XCTAssertEqual(calls.filter { $0.hasPrefix("xcodebuild") }.count, 0)
-        XCTAssertEqual(try String(contentsOfFile: container + "/\(ShellLibrary.defaultBundleID)/Documents/games/\(thirdID)/romfs.img", encoding: .utf8), "three")
+        XCTAssertEqual(try String(contentsOfFile: container + "/\(ShellLibrary.defaultBundleID)/Documents/games/\(thirdID)/romfs.img", encoding: .utf8), "DMROMFS1-three")
 
         // Fallback Boundary 1: < 24h left on 7-day profile -> falls back to xcodebuild so profile is renewed.
         try writeDeviceBeacon(teamID: team, expiresIn: 12 * 3600, nowEpoch: nowEpoch)
@@ -406,7 +406,7 @@ import XCTest
         let fw1 = try makeSignableFramework(id: firstID, name: "First Game")
         let fw2 = try makeSignableFramework(id: secondID, name: "Second Game")
         let arch1 = path("archives", firstID)
-        try write(arch1 + "/romfs.img", "romfs-one")
+        try write(arch1 + "/romfs.img", "DMROMFS1-one")
 
         var inst = ShellInstaller(xcrun: xcrun, repo: repo, python: "/usr/bin/python3", root: root, device: device, team: team)
         inst.resources = nil
@@ -443,9 +443,9 @@ import XCTest
         let fw2 = try makeSignableFramework(id: secondID, name: "Second Game")
         let fw3 = try makeSignableFramework(id: thirdID, name: "Third Game")
         let arch1 = path("archives", firstID), arch2 = path("archives", secondID), arch3 = path("archives", thirdID)
-        try write(arch1 + "/romfs.img", "one")
-        try write(arch2 + "/romfs.img", "two")
-        try write(arch3 + "/romfs.img", "three")
+        try write(arch1 + "/romfs.img", "DMROMFS1-one")
+        try write(arch2 + "/romfs.img", "DMROMFS1-two")
+        try write(arch3 + "/romfs.img", "DMROMFS1-three")
 
         var inst = ShellInstaller(xcrun: xcrun, repo: repo, python: "/usr/bin/python3", root: root, device: device, team: team)
         inst.resources = nil

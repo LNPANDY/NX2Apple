@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// The RomFS tree a build extracts and the stamp that lets the next build skip the pack (pure file-system functions).
@@ -214,11 +215,42 @@ package enum RomFSArchive {
         return sortedCandidates.count == 1 ? sortedCandidates[0] : nil
     }
 
+    /// Returns true for compiled shader library images such as `b-108c5f92c3c4.img` so they are never treated as game RomFS archives.
+    package nonisolated static func isShaderLibraryImageFileName(_ name: String) -> Bool {
+        let base = (name as NSString).lastPathComponent.lowercased()
+        guard base.hasPrefix("b-"), base.hasSuffix(".img") else { return false }
+        let stem = base.dropFirst(2).dropLast(4)
+        return !stem.isEmpty && stem.allSatisfy(\.isHexDigit)
+    }
+
+    /// Lightweight O(1) header check verifying `path` is a regular file whose first 8 bytes match `DMROMFS1`.
+    package nonisolated static func hasValidRomFSHeader(atPath path: String) -> Bool {
+        guard !path.isEmpty, !path.utf8.contains(0) else { return false }
+        let fd = Darwin.open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+        guard fd >= 0 else { return false }
+        defer { Darwin.close(fd) }
+        var st = Darwin.stat()
+        guard Darwin.fstat(fd, &st) == 0,
+              (st.st_mode & S_IFMT) == S_IFREG,
+              st.st_size >= 8 else {
+            return false
+        }
+        var magic = [UInt8](repeating: 0, count: 8)
+        return Darwin.pread(fd, &magic, 8, 0) == 8 && magic.elementsEqual("DMROMFS1".utf8)
+    }
+
+    /// Validates both filename (excluding shader library images such as `b-<hex>.img`) and `DMROMFS1` file magic.
+    package nonisolated static func isValidPrimaryRomFSImage(atPath path: String) -> Bool {
+        guard !path.isEmpty, !isShaderLibraryImageFileName(path) else { return false }
+        return hasValidRomFSHeader(atPath: path)
+    }
+
     private nonisolated static func isTopLevelImageFileName(_ name: String) -> Bool {
         guard !name.isEmpty, !name.hasPrefix(".") else { return false }
         let lower = name.lowercased()
         guard (lower as NSString).pathExtension == "img",
-              !lower.contains(".nxpart") else { return false }
+              !lower.contains(".nxpart"),
+              !isShaderLibraryImageFileName(lower) else { return false }
         return true
     }
 

@@ -212,7 +212,7 @@ import XCTest
         let workDir = temporary.appendingPathComponent("work")
         let extractV0 = workDir.appendingPathComponent("extract/v0")
         try fm.createDirectory(at: extractV0, withIntermediateDirectories: true)
-        try Data("image".utf8).write(to: extractV0.appendingPathComponent("RomFS.img"))
+        try Data("DMROMFS1-image".utf8).write(to: extractV0.appendingPathComponent("RomFS.img"))
         m.buildingGame = false
         var packed = ""
         let archiveEnded = expectation(description: "packArchive")

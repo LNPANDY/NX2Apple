@@ -371,10 +371,13 @@ extension BuildStore {
                         workDir: workDir,
                         archivePath: knownArchivePath
                     )
-                    let imgCandidate = adoptCandidates.first { $0.hasSuffix(".img") && !$0.contains(".app") }
+                    let imgCandidate = adoptCandidates.first {
+                        $0.lowercased().hasSuffix(".img") && !$0.contains(".app") && RomFSArchive.isValidPrimaryRomFSImage(atPath: $0)
+                    }
                         ?? validExternalImg
                         ?? (resolvedOutDir + "/games/" + tid + "/romfs.img")
-                    if FileManager.default.fileExists(atPath: imgCandidate) {
+                    if FileManager.default.fileExists(atPath: imgCandidate),
+                       RomFSArchive.isValidPrimaryRomFSImage(atPath: imgCandidate) {
                         adoptArgs += ["--img-path", imgCandidate]
                     }
                     _ = runner.runCaptured([py] + adoptArgs, env: adoptEnv) { _ in }

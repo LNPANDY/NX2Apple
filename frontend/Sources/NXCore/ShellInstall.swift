@@ -597,12 +597,11 @@ package struct ShellInstaller {
             let srcPath = origins[srcPrimary] ?? (archive + "/" + srcPrimary)
             for key in local.keys where !key.contains("/") && !key.contains("\\") {
                 let lower = key.lowercased()
-                if lower.hasSuffix(".img") && !lower.contains(".nxpart") {
-                    local.removeValue(forKey: key); origins.removeValue(forKey: key)
-                }
+                if lower.hasSuffix(".img") && !lower.contains(".nxpart") { local.removeValue(forKey: key); origins.removeValue(forKey: key) }
             }
-            local["romfs.img"] = primarySize; origins["romfs.img"] = srcPath
-            primaryImage = "romfs.img"
+            if RomFSArchive.isValidPrimaryRomFSImage(atPath: srcPath) {
+                local["romfs.img"] = primarySize; origins["romfs.img"] = srcPath; primaryImage = "romfs.img"
+            } else { primaryImage = nil }
         } else { primaryImage = nil }
         let receipt = "shellCopiedRomFS/\(device)/\(bundleID)/\(titleID)", partsReceipt = receipt + "/parts"
         let previous = defaults.string(forKey: receipt)

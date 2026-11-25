@@ -520,7 +520,7 @@ import NXModel
 
     private func makeArchive() throws -> String {
         let archive = path("out/games", titleID)
-        try write(archive + "/romfs.img", "0123456789")
+        try write(archive + "/romfs.img", "DMROMFS189")
         try write(archive + "/aoc/1.img", "abcd")
         return archive
     }
@@ -811,7 +811,7 @@ import NXModel
         var progress: [(Int64, Int64)] = []
         try DriveCopy.copy(archive: archive, files: local, to: destination) { progress.append(($0, $1)) }
         XCTAssertEqual(progress.last?.1, 10)
-        XCTAssertEqual(try String(contentsOfFile: destination + "/romfs.img"), "0123456789")
+        XCTAssertEqual(try String(contentsOfFile: destination + "/romfs.img"), "DMROMFS189")
         XCTAssertEqual(try String(contentsOfFile: destination + "/" + cache), "prepared shaders")
         XCTAssertEqual(try String(contentsOfFile: destination + "/save/progress.sav"), "player save")
     }
@@ -825,7 +825,7 @@ import NXModel
         var seen: [(Int64, Int64)] = []
         try DriveCopy.copy(archive: archive, files: ShellInstall.localFiles(in: archive), to: destination, chunk: 3) { seen.append(($0, $1)) }
         // what the shell scans for: <folder>/<title ID>/romfs.img of the size the image has, and the aoc images beside it
-        XCTAssertEqual(try String(contentsOfFile: destination + "/romfs.img"), "0123456789")
+        XCTAssertEqual(try String(contentsOfFile: destination + "/romfs.img"), "DMROMFS189")
         XCTAssertEqual(try String(contentsOfFile: destination + "/aoc/1.img"), "abcd")
         XCTAssertEqual(ShellInstall.localFiles(in: destination), ShellInstall.localFiles(in: archive))
         XCTAssertFalse(fm.fileExists(atPath: destination + "/.packstamp"))
@@ -838,7 +838,7 @@ import NXModel
         var second: [(Int64, Int64)] = []
         try DriveCopy.copy(archive: archive, files: ShellInstall.localFiles(in: archive), to: destination) { second.append(($0, $1)) }
         XCTAssertEqual(second.last?.1, 10, "only romfs.img was short")
-        XCTAssertEqual(try String(contentsOfFile: destination + "/romfs.img"), "0123456789")
+        XCTAssertEqual(try String(contentsOfFile: destination + "/romfs.img"), "DMROMFS189")
     }
 
     func testTheDriveCopyStopsWhenCancelledAndLeavesNoCutOffImage() throws {
@@ -905,7 +905,7 @@ import NXModel
         model.copyToDrive()
         wait(for: [copied], timeout: 30)
         token.cancel()
-        XCTAssertEqual(try String(contentsOfFile: folder + "/" + titleID + "/romfs.img"), "0123456789")
+        XCTAssertEqual(try String(contentsOfFile: folder + "/" + titleID + "/romfs.img"), "DMROMFS189")
         XCTAssertFalse(model.running)
         // a FAT32 drive keeps the button inert
         model.drive = DriveState(volume: DriveCopy.Volume(freeBytes: 1 << 40, fileSystem: "msdos", readOnly: false), needed: 5_000_000_000,
@@ -971,7 +971,7 @@ import NXModel
         XCTAssertFalse(model.installsDirectly)
         try write(f.repo + "/dm/tools/nx_extract/Program.cs", "")
         for tool in RepoLayout.requiredTools.filter({ $0 != RepoLayout.buildScript }) { try write(f.repo + "/" + tool, "") }
-        try write(f.repo + "/dm/tools/romfs_image.py", "import sys\nopen(sys.argv[3], 'wb').write(b'image')\n")
+        try write(f.repo + "/dm/tools/romfs_image.py", "import sys\nopen(sys.argv[3], 'wb').write(b'DMROMFS1-image')\n")
         try write(f.repo + "/scripts/build_ipa_from_nsp.py", """
         import sys, json, pathlib
         pathlib.Path('\(state)/build-env.txt').write_text(pathlib.Path(sys.argv[sys.argv.index('--env-file') + 1]).read_text())

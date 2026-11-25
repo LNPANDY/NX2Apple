@@ -365,7 +365,7 @@ import XCTest
 
         let archiveDir = temporary.appendingPathComponent("games/0100000000001000")
         try FileManager.default.createDirectory(at: archiveDir, withIntermediateDirectories: true)
-        try Data(repeating: 0xAA, count: 1024).write(to: archiveDir.appendingPathComponent("romfs.img"))
+        try (Data("DMROMFS1".utf8) + Data(repeating: 0xAA, count: 1016)).write(to: archiveDir.appendingPathComponent("romfs.img"))
 
         // 1. Stop while blocked on the askCopy semaphore with proc == nil / not running.
         store.installShell(framework: temporary.appendingPathComponent("Dummy.framework").path,

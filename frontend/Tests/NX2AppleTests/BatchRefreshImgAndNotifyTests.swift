@@ -454,7 +454,7 @@ import XCTest
         let mslDest = path("no-img-games/Stardew Valley")
         let staged = BuildStore.stageMSLFallbackDirectory(shaderSourcePath: mslDir, dest: mslDest, tid: stardewTID)
         let stagedPath = try XCTUnwrap(staged)
-        XCTAssertTrue(fm.fileExists(atPath: stagedPath + "/\(chainHex)_b.metallib"))
+        XCTAssertTrue(fm.fileExists(atPath: stagedPath + "/b-\(chainHex)/\(chainHex)_b.metallib"))
         XCTAssertTrue(fm.fileExists(atPath: mslDest + "/.titleid"))
     }
 

@@ -66,12 +66,15 @@ package struct OutcomeCard: View {
     }
 
     @ViewBuilder private var replaceOldImgRow: some View {
+        let isMSL = QueueEntryImgStatus.isMSLFallback(build.updatedImgPath)
         let imgName = build.updatedImgPath.isEmpty ? "romfs.img" : (build.updatedImgPath as NSString).lastPathComponent
+        let titleText = isMSL ? loc.t("imgGuide.mslUpdateTitle") : loc.t("imgGuide.replaceOldImgTitle")
+        let bodyText = isMSL ? loc.t("imgGuide.mslUpdateBody") : String(format: loc.t("imgGuide.replaceOldImgBody"), imgName)
         HStack(alignment: .top, spacing: 12) {
             Circle().fill(LauncherPalette.building).frame(width: 7, height: 7).padding(.top, 5)
             VStack(alignment: .leading, spacing: 4) {
-                Text(loc.t("imgGuide.replaceOldImgTitle")).font(DS.Font.bodyStrong)
-                Text(String(format: loc.t("imgGuide.replaceOldImgBody"), imgName))
+                Text(titleText).font(DS.Font.bodyStrong)
+                Text(bodyText)
                     .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
