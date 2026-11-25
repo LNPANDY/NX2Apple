@@ -24,7 +24,7 @@ Issue: LNPANDY/NX2Apple#123
 
 diff --git a/dm/ios/Sources/DataBookmark.h b/dm/ios/Sources/DataBookmark.h
 new file mode 100644
-index 00000000..3aef3338
+index 0000000..3aef333
 --- /dev/null
 +++ b/dm/ios/Sources/DataBookmark.h
 @@ -0,0 +1,32 @@
@@ -62,7 +62,7 @@ index 00000000..3aef3338
 +void dm_clear_picked_data(void);
 diff --git a/dm/ios/Sources/DataBookmark.m b/dm/ios/Sources/DataBookmark.m
 new file mode 100644
-index 00000000..3dcc3834
+index 0000000..3dcc383
 --- /dev/null
 +++ b/dm/ios/Sources/DataBookmark.m
 @@ -0,0 +1,79 @@
@@ -146,7 +146,7 @@ index 00000000..3dcc3834
 +    [NSUserDefaults.standardUserDefaults removeObjectForKey:kPickedData];
 +}
 diff --git a/dm/ios/Sources/DmIOS-Bridging-Header.h b/dm/ios/Sources/DmIOS-Bridging-Header.h
-index c63e36f5..7de6a830 100644
+index c63e36f..7de6a83 100644
 --- a/dm/ios/Sources/DmIOS-Bridging-Header.h
 +++ b/dm/ios/Sources/DmIOS-Bridging-Header.h
 @@ -1,6 +1,11 @@
@@ -163,7 +163,7 @@ index c63e36f5..7de6a830 100644
 +// action (re-send the game data as romfs.img from the launcher), or NULL. The launcher's Game data section shows it.
 +const char *dm_old_archive_message(void);
 diff --git a/dm/ios/Sources/Launcher.swift b/dm/ios/Sources/Launcher.swift
-index 6f47ee95..d796e5fa 100644
+index 49774f2..852cafd 100644
 --- a/dm/ios/Sources/Launcher.swift
 +++ b/dm/ios/Sources/Launcher.swift
 @@ -10,6 +10,65 @@ import os
@@ -258,7 +258,7 @@ index 6f47ee95..d796e5fa 100644
              CloudSavesSection(checking: checking)
              Section {
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index c6b0de3d..5cd1b626 100644
+index c6b0de3..5cd1b62 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
 @@ -27,6 +27,7 @@
@@ -303,7 +303,7 @@ index c6b0de3d..5cd1b626 100644
  }
  - (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index 5f9b4204..6f61c333 100644
+index 5f9b420..6f61c33 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
 @@ -9,9 +9,10 @@
@@ -531,7 +531,7 @@ index 5f9b4204..6f61c333 100644
  }
  static int g_boot_ok;
 diff --git a/dm/ios/project.yml b/dm/ios/project.yml
-index d89d0aed..4835c62e 100644
+index d89d0ae..4835c62 100644
 --- a/dm/ios/project.yml
 +++ b/dm/ios/project.yml
 @@ -83,7 +83,7 @@ targets:
@@ -545,7 +545,7 @@ index d89d0aed..4835c62e 100644
  schemes:
 diff --git a/dm/ios/tests/test_aoc_layouts.py b/dm/ios/tests/test_aoc_layouts.py
 new file mode 100644
-index 00000000..3b042cd6
+index 0000000..3b042cd
 --- /dev/null
 +++ b/dm/ios/tests/test_aoc_layouts.py
 @@ -0,0 +1,92 @@
@@ -642,7 +642,7 @@ index 00000000..3b042cd6
 +
 +if __name__ == '__main__': unittest.main()
 diff --git a/dm/ios/tests/test_romfs_startup.py b/dm/ios/tests/test_romfs_startup.py
-index efc36f41..4792b5ef 100644
+index efc36f4..4792b5e 100644
 --- a/dm/ios/tests/test_romfs_startup.py
 +++ b/dm/ios/tests/test_romfs_startup.py
 @@ -24,12 +24,19 @@ class Startup(unittest.TestCase):

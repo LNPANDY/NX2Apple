@@ -22,7 +22,7 @@ Issue: LNPANDY/NX2Apple#1025
  3 files changed, 148 insertions(+), 8 deletions(-)
 
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index f81b4d4..1ac65ca 100644
+index e630710..af7b0db 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
 @@ -64,12 +64,16 @@ void dm_input_set(uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t
@@ -56,10 +56,10 @@ index f81b4d4..1ac65ca 100644
      atomic_store(&g_joy_axes[p][side], pack(sx, sy, 0, 0));
  }
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 8442453..083e29e 100644
+index c1c3b19..3a1d548 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
-@@ -99,6 +99,7 @@ run: $(B)/t_mii $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_siz
+@@ -103,6 +103,7 @@ run: $(B)/t_mii $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_siz
  	$(B)/t_pad_map
  	$(B)/t_pad_motion
  	$(B)/t_controllers_mac
@@ -67,7 +67,7 @@ index 8442453..083e29e 100644
  run: $(B)/t_nro
  run: $(B)/t_album
  $(B)/t_album: t_album.c ../hle_album.c ../hle.h ../dm.h $(GAME_H) ../hle_profile.c ../hle_profile.h | $(B)
-@@ -555,8 +556,8 @@ profile-runtime: $(B)/t_profile_runtime
+@@ -594,8 +595,8 @@ profile-runtime: $(B)/t_profile_runtime
  	TMPDIR="$(abspath $(B))" $(B)/t_profile_runtime
  
  run: $(B)/t_pad_map $(B)/t_pad_motion $(B)/t_controllers_mac $(B)/t_stick_deadzone

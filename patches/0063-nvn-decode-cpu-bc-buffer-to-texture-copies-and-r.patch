@@ -23,10 +23,10 @@ Issue: LNPANDY/NX2Apple#446
  2 files changed, 99 insertions(+), 2 deletions(-)
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 606e4106..4a32d516 100644
+index db1a162..314de76 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -18327,6 +18327,10 @@ static void copy_t2b(const p_copy_b2t *c, uint32_t size) {
+@@ -19754,6 +19754,10 @@ static void copy_t2b(const p_copy_b2t *c, uint32_t size) {
      int is3d = c->tex->d.target == 2, nz = c->r.depth ? c->r.depth : 1;
      void *mb; uint64_t mo;
      if (!mtl_addr(c->src, img * nz, &mb, &mo)) { RED_ONCE(31, "texture→buffer copy destination is in no memory pool"); return; }
@@ -35,21 +35,21 @@ index 606e4106..4a32d516 100644
 +        return;
 +    }
      sbw_note(c->src, img * nz, SBW_GPU);
+     if (!fam_is_valid(t)) { mtl_sub_fill(c->src, img * nz, 0); return; }   // cross-size read of a compressed family: zero without decoding another size's blocks or disturbing the live size
      id<MTL4ComputeCommandEncoder> b = blit();
-     if (is3d)
-@@ -18400,7 +18404,10 @@ void mtl_read_texels(const tex_t *t, unsigned level, unsigned layer0, const NVNc
+@@ -19830,7 +19834,10 @@ void mtl_read_texels(const tex_t *t, unsigned level, unsigned layer0, const NVNc
      int in_storage = 0; AP_B;
      id<MTLTexture> mt = tex_mtl_(t, &in_storage); AP_E(4);
      if (in_storage) { read_texels_storage(t, level, layer0, r, dst, row, img); return; }
--    if (!mt || !tex_level_ok(mt, level, "CPU readback")) { memset(dst, 0, img * nz); return; }
-+    if (!mt || !tex_level_ok(mt, level, "CPU readback") || (g_bc_cpu && nvn_fmt_bc(t->d.format))) {
-+        if (mt && g_bc_cpu && nvn_fmt_bc(t->d.format)) RED_ONCE(95, "CPU readback of CPU-decoded BC texture from GPU is not supported");
+-    if (!mt || !tex_level_ok(mt, level, "CPU readback") || !fam_is_valid(mt)) { memset(dst, 0, img * nz); return; }
++    if (!mt || !tex_level_ok(mt, level, "CPU readback") || !fam_is_valid(mt) || (g_bc_cpu && nvn_fmt_bc(t->d.format))) {
++        if (mt && tex_level_ok(mt, level, "CPU readback") && fam_is_valid(mt) && g_bc_cpu && nvn_fmt_bc(t->d.format)) RED_ONCE(95, "CPU readback of CPU-decoded BC texture from GPU is not supported");
 +        memset(dst, 0, img * nz); return;
 +    }
      mtl_finish_gpu_at(WS_READTEX);
      id<MTLBuffer> buf = [g_dev newBufferWithLength:wb * hb * nz options:MTLResourceStorageModeShared];
      id<MTLCommandBuffer> cb = q_cb(); id<MTLBlitCommandEncoder> b = enc_b_begin(cb);
-@@ -18473,7 +18480,28 @@ static void copy_b2t(const p_copy_b2t *c, uint32_t size) {
+@@ -19905,7 +19912,28 @@ static void copy_b2t(const p_copy_b2t *c, uint32_t size) {
      // Into Metal's order (rb_copy_shift): converted on the GPU into a staging area of the frame arena, which the blit copies from
      int shift = rb_copy_shift(c->tex, t);
      uint64_t gsrc = sb.gpuAddress + mo; size_t grow = row, gimg = img;   // the guest's bytes, the storage's order (gsb_store_buf)
@@ -80,7 +80,7 @@ index 606e4106..4a32d516 100644
          if (rb_swap_gpu(sb.gpuAddress + mo, row, img, ab.gpuAddress + ao, wb, wb * rows, wb, rows, nz, shift)) { sb = ab; mo = ao; row = wb; img = wb * rows; }
          else RED_ONCE(7, "RGB565-family buffer→texture copy left in the guest's order: red and blue exchanged");
 diff --git a/dm/gfx/tests/t_bc_cpu.m b/dm/gfx/tests/t_bc_cpu.m
-index b395b557..f0e6fc3b 100644
+index b395b55..f0e6fc3 100644
 --- a/dm/gfx/tests/t_bc_cpu.m
 +++ b/dm/gfx/tests/t_bc_cpu.m
 @@ -81,10 +81,79 @@ static void views(void) {

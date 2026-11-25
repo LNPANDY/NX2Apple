@@ -22,10 +22,10 @@ Issue: LNPANDY/NX2Apple (v1.5.0 local)
  11 files changed, 240 insertions(+), 23 deletions(-)
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index beaf84d1..cc69679b 100644
+index eae61c0..a53fc54 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -124,6 +124,7 @@ static inline uint64_t tex_slot_h(const uint64_t *tex, const uint64_t *img, unsi
+@@ -126,6 +126,7 @@ static inline uint64_t tex_slot_h(const uint64_t *tex, const uint64_t *img, unsi
  static id<MTLFunction> g_draw_tex_vf, g_draw_tex_ff;
  static id<MTL4ArgumentTable> g_draw_tex_at;
  static int g_draw_tex_failed;
@@ -33,7 +33,7 @@ index beaf84d1..cc69679b 100644
  static dispatch_group_t g_bg_group __attribute__((section("__DATA,__dm_keep")));
  static dispatch_once_t g_bg_group_once __attribute__((section("__DATA,__dm_keep")));
  static inline dispatch_group_t bg_group(void) {
-@@ -963,13 +964,18 @@ static void defer_obj_at(id obj, int keep_resident, uint64_t fence) {
+@@ -1057,13 +1058,18 @@ static void defer_obj_at(id obj, int keep_resident, uint64_t fence) {
  // oe::PopNotificationMessage and submits nothing, while its streaming threads remade a run of about 10 MB of a virtual pool 70 times a second (vrun_set). Each old buffer waited for
  // the next submission's fence, and GPU allocated went from 11 to 20 GB in 12 s, with 6.7 GB of swap in 20 s (PR #1392). Entries handed back while g_smu was busy are tried again 10 ms later
  static _Atomic int g_defer_queued;
@@ -55,7 +55,7 @@ index beaf84d1..cc69679b 100644
      } });
  }
  // What a drain takes out of the residency set leaves it, and is released, at the set's next commit, which the next submission makes. With none open none may come: the drain is
-@@ -21540,6 +21546,7 @@ static void cpu_pool_free_cb(void *v) {
+@@ -23669,6 +23675,7 @@ static void cpu_pool_free_cb(void *v) {
  
  void dm_gfx_teardown(void) { @autoreleasepool {
      atomic_store(&g_gfx_teardown, 1);
@@ -63,16 +63,16 @@ index beaf84d1..cc69679b 100644
      mtl_present_discard(1);
      nvn_hle_wait_suspend();
      if (g_mp_src) {
-@@ -21929,6 +21936,7 @@ void dm_gfx_teardown(void) { @autoreleasepool {
-     g_mdi_waits = 0; g_mdi_epoch = ~0ull; g_mdi_sub = 0; g_mdi_addr = 0; g_mdi_count = 0;   // the indirect-count multi-draw's last count (mdi_count)
+@@ -24131,6 +24138,7 @@ void dm_gfx_teardown(void) { @autoreleasepool {
+     g_pre_out = nil;
      g_q4 = nil; g_q = nil; g_dev = nil;
      g_feedback_q = nil;
 +    atomic_fetch_add(&g_defer_gen, 1);
  }
-     atomic_store(&g_gfx_teardown, 0);
- }
+     atomic_store(&g_image_heap_n, 0);
+     atomic_store(&g_image_heap_comp_n, 0);
 diff --git a/dm/host/haptics_apple.m b/dm/host/haptics_apple.m
-index dab22c51..fc750c39 100644
+index dab22c5..fc750c3 100644
 --- a/dm/host/haptics_apple.m
 +++ b/dm/host/haptics_apple.m
 @@ -15,6 +15,7 @@
@@ -209,7 +209,7 @@ index dab22c51..fc750c39 100644
      gain = 1;
      rumble_min = 0;
 diff --git a/dm/host/hle_cheats.c b/dm/host/hle_cheats.c
-index bd33c4ac..7c9653e9 100644
+index bd33c4a..7c9653e 100644
 --- a/dm/host/hle_cheats.c
 +++ b/dm/host/hle_cheats.c
 @@ -1005,10 +1005,14 @@ void dm_cheats_present(void) {
@@ -270,7 +270,7 @@ index bd33c4ac..7c9653e9 100644
  // ---------- the Mac cheats menu and panel (callers: front_mac.m; nothing else uses these) ----------
  // Cheap accessors read straight from the shared state: the list itself is rebuilt only from the main thread (this
 diff --git a/dm/host/hle_codec_video.c b/dm/host/hle_codec_video.c
-index 9b57466f..d8c2a696 100644
+index 9b57466..d8c2a69 100644
 --- a/dm/host/hle_codec_video.c
 +++ b/dm/host/hle_codec_video.c
 @@ -710,3 +710,56 @@ HLE_FORCE("_ZN2nn6syncpt3sdk21DestroySyncPointEventEPNS1_18SyncPointEventTypeE",
@@ -331,7 +331,7 @@ index 9b57466f..d8c2a696 100644
 +    pthread_mutex_unlock(&g_spt_mu);
 +}
 diff --git a/dm/host/hle_lifecycle.c b/dm/host/hle_lifecycle.c
-index e19cda85..19a03767 100644
+index da9b01b..b6421b9 100644
 --- a/dm/host/hle_lifecycle.c
 +++ b/dm/host/hle_lifecycle.c
 @@ -58,7 +58,12 @@ __attribute__((weak)) void dm_audren_teardown_post(void) {}
@@ -347,7 +347,7 @@ index e19cda85..19a03767 100644
  __attribute__((weak)) void dm_gfx_quit_begin(void) {}
  __attribute__((weak)) void dm_gfx_teardown(void) {}
  __attribute__((weak)) void dm_fs_teardown(void) {}
-@@ -80,16 +85,21 @@ void dm_host_teardown_for_shell(void) {
+@@ -82,16 +87,21 @@ void dm_host_teardown_for_shell(void) {
      dm_audren_stop_all();
      dm_audio_stop_all();
      dm_movie_stop_all();
@@ -371,7 +371,7 @@ index e19cda85..19a03767 100644
      dm_net_teardown();
      dm_sdk16_teardown();
 diff --git a/dm/host/pad_switch2_apple.h b/dm/host/pad_switch2_apple.h
-index cf7b96d2..56f3d6db 100644
+index cf7b96d..56f3d6d 100644
 --- a/dm/host/pad_switch2_apple.h
 +++ b/dm/host/pad_switch2_apple.h
 @@ -33,6 +33,7 @@ typedef struct {
@@ -383,7 +383,7 @@ index cf7b96d2..56f3d6db 100644
  s2_pad *dm_switch2_pads(void);                          // the pads, a list through next
  // Rumble: the sink for a player whose pad is a Switch 2 controller (dm_haptics_apple_set_sink(player, dm_switch2_rumble)). The game's two full-key motors, left and right, reach the
 diff --git a/dm/host/pad_switch2_apple.m b/dm/host/pad_switch2_apple.m
-index 2e2cac0d..3e9520ab 100644
+index 2e2cac0..3e9520a 100644
 --- a/dm/host/pad_switch2_apple.m
 +++ b/dm/host/pad_switch2_apple.m
 @@ -58,6 +58,7 @@ @interface S2Session : NSObject <CBPeripheralDelegate>
@@ -502,7 +502,7 @@ index 2e2cac0d..3e9520ab 100644
      e = getenv("DM_SW2_VERBOSE"); g_verbose = e && atoi(e);
      e = getenv("DM_PAD_MERGE"); g_joy = !(e && atoi(e));   // merged, every pad is player 1: no pad holds a game's Joy-Cons apart
 diff --git a/dm/host/tests/t_cheats.c b/dm/host/tests/t_cheats.c
-index f7eb1935..e52c0246 100644
+index f7eb193..e52c024 100644
 --- a/dm/host/tests/t_cheats.c
 +++ b/dm/host/tests/t_cheats.c
 @@ -652,6 +652,12 @@ int main(void) {
@@ -519,7 +519,7 @@ index f7eb1935..e52c0246 100644
      if (system(rmcmd)) fprintf(stderr, "cannot remove %s\n", root);   // NOLINT(bugprone-command-processor): a fixed rm of the folder mkdtemp made above, no outside input
      printf("%d / %d checks passed\n", checks - fails, checks);
 diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
-index b460907d..f4de3cf8 100644
+index b460907..f4de3cf 100644
 --- a/dm/host/tests/t_controllers_mac.m
 +++ b/dm/host/tests/t_controllers_mac.m
 @@ -165,6 +165,7 @@ static IOReturn fake_write(IOHIDDeviceRef d, IOHIDReportType type, CFIndex id, c
@@ -531,7 +531,7 @@ index b460907d..f4de3cf8 100644
  void dm_switch2_rumble(const dm_haptic_state *s) { (void)s; }
  static dm_motion motions[DM_PLAYERS]; static int motion_present[DM_PLAYERS];
 diff --git a/dm/host/tests/t_haptics_apple.m b/dm/host/tests/t_haptics_apple.m
-index 47a660b3..a6a365d6 100644
+index 47a660b..a6a365d 100644
 --- a/dm/host/tests/t_haptics_apple.m
 +++ b/dm/host/tests/t_haptics_apple.m
 @@ -907,5 +907,53 @@ int main(void) { @autoreleasepool {
@@ -589,7 +589,7 @@ index 47a660b3..a6a365d6 100644
      puts("Apple haptics: channels, pulses, idle release, startup handlers, engine replacement, backoff, stale callbacks, plain players, Joy-Con recovery and lifetime, the DualSense's handles, level cutoff, DualShock 4, Pro Controller and 8BitDo report routes passed");
  } }
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index a631ea89..1c6e9319 100644
+index a631ea8..1c6e931 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -922,7 +922,9 @@ void dm_gamepad_reset(void) {   // On resign active: release everything (a key h

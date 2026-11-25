@@ -21,7 +21,7 @@ Issue: LNPANDY/NX2Apple#1120
  10 files changed, 798 insertions(+), 45 deletions(-)
 
 diff --git a/dm/host/controllers_mac.h b/dm/host/controllers_mac.h
-index bd852c4e..dc7a3509 100644
+index bd852c4..dc7a350 100644
 --- a/dm/host/controllers_mac.h
 +++ b/dm/host/controllers_mac.h
 @@ -14,6 +14,11 @@ void front_controllers_window(int active);
@@ -37,7 +37,7 @@ index bd852c4e..dc7a3509 100644
  
  // Called on the main thread when mapped input reaches the game.
 diff --git a/dm/host/controllers_mac.m b/dm/host/controllers_mac.m
-index e7e0be29..bf68f02f 100644
+index 07ef97d..095779e 100644
 --- a/dm/host/controllers_mac.m
 +++ b/dm/host/controllers_mac.m
 @@ -17,6 +17,7 @@
@@ -183,7 +183,7 @@ index e7e0be29..bf68f02f 100644
      IOHIDDeviceClose(hid->device,kIOHIDOptionsTypeNone); hid->opened=NO;
  }
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index 4124ca01..958e7097 100644
+index f2fb595..3702d0d 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
 @@ -1,7 +1,7 @@
@@ -195,7 +195,7 @@ index 4124ca01..958e7097 100644
  // Cheats (hle_cheats.c): the Cheats menu's rows toggle, reload (⌘R) and open the cheats folder; its first item "Show Cheats
  // Window" (⌘⇧C, or DM_CHEATS_WINDOW=1 at launch) opens a Cheats panel beside the game: sections, search, the master switch,
  // safe mode, values, details and the import of cheat files (see the code below).
-@@ -238,8 +238,10 @@ static int fn_shortcut(NSEvent *e) {
+@@ -266,8 +266,10 @@ static int fn_shortcut(NSEvent *e) {
  }
  static ctrl_prompt g_cp; static int g_cp_confirm, g_cp_cancel;   // the controller applet's prompt (front_ctrl_support) and a key pressed in it since its last step
  int front_cp_poll(void);
@@ -206,7 +206,7 @@ index 4124ca01..958e7097 100644
      if (cp_blocks_input(g_cp.phase)) {   // the prompt has the keyboard: Return or J (A) is done, Escape or K (B) closes it, no key reaches the game
          unsigned short c = e.keyCode;
          if (down && g_cp.phase == CP_OPEN) { if (c == 53 || c == 40) g_cp_cancel = 1; else if (c == 36 || c == 38) g_cp_confirm = 1; front_cp_poll(); }
-@@ -280,19 +282,36 @@ static void input_resume(void) {
+@@ -308,19 +310,36 @@ static void input_resume(void) {
  
  // Quit with the Home button (home_quit.h, LNPANDY/NX2Apple#336): held for 2 s it opens the prompt (home_quit_mac.h) over the game's view, A quits through the same path as ⌘Q
  // (NSApp terminate, so the save writer and the other exit handlers run as there), B or Home closes it. While the prompt is open the game is told it lost the focus, as the
@@ -249,7 +249,7 @@ index 4124ca01..958e7097 100644
  }
  // The Home button setting for apps (macOS 27), once, when the first controller is there (GameController reads it only while one is connected): "system" in the log
  // explains a hold that does nothing, since the system keeps Home whatever the host asks. A front end reads the setting itself (GCControllerHomeButtonSettingsManager)
-@@ -316,58 +335,335 @@ static void hq_fade(NSView *v, int in) {
+@@ -344,58 +363,335 @@ static void hq_fade(NSView *v, int in) {
      [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) { ctx.duration = 0.18; v.animator.alphaValue = in ? 1 : 0; }
                          completionHandler:^{ if (!in) [v removeFromSuperview]; }];
  }
@@ -596,7 +596,7 @@ index 4124ca01..958e7097 100644
  // The controller applet's prompt (front.h front_ctrl_support, ctrl_prompt.h; GitHub issue #1640): the game asked for more players than it sees, and the game's thread waits while
  // the prompt is up over the game, as the Switch's player screen. A controller that joins meanwhile is a player at once (its first button with DM_PAD_PRESS_TO_JOIN, its
  // connection without), and the count on the card follows. A and B are the physical buttons A and B on any controller (controllers_mac.m front_controllers_applet_buttons, as the Home
-@@ -1447,7 +1743,9 @@ void front_run(void (*guest)(void)) {
+@@ -1485,7 +1781,9 @@ void front_run(void (*guest)(void)) {
          NSString *keys = input_preference_map(input_preferences_domain(), "DM_KEYMAP", 0);
          if (keys) key_map_parse(&g_keys, keys.UTF8String);
          hq_start();
@@ -606,7 +606,7 @@ index 4124ca01..958e7097 100644
          hq_log_setting();
          [NSNotificationCenter.defaultCenter addObserverForName:GCControllerDidConnectNotification object:nil queue:NSOperationQueue.mainQueue
                                                     usingBlock:^(NSNotification *n) { (void)n; hq_log_setting(); }];
-@@ -1475,10 +1773,10 @@ void front_run(void (*guest)(void)) {
+@@ -1513,10 +1811,10 @@ void front_run(void (*guest)(void)) {
          // DM_FOCUS_KEEP (on by default, =0 turns it off): the game stays in focus while its window is up, whichever app is active. Tears of the Kingdom and Ocarina of Time
          // stop presenting out of focus, so clicking into another app read as a hang (no frame and no sound after the last focus change)
          static int keep = -1; if (keep < 0) keep = !getenv("DM_FOCUS_KEEP") || atoi(getenv("DM_FOCUS_KEEP"));
@@ -622,7 +622,7 @@ index 4124ca01..958e7097 100644
          // Guest thread: 64 MiB stack (the Switch main thread stack is specified by npdm; the host gives plenty)
          static guest_arg ga; ga.fn = guest;
 diff --git a/dm/host/home_quit.h b/dm/host/home_quit.h
-index ddab1156..e7b8eba1 100644
+index ddab115..e7b8eba 100644
 --- a/dm/host/home_quit.h
 +++ b/dm/host/home_quit.h
 @@ -7,13 +7,22 @@
@@ -842,7 +842,7 @@ index ddab1156..e7b8eba1 100644
      const char *s = text;
      for (int k = 0; s && k < i; k++) { s = strchr(s, '\n'); if (s) s++; }
 diff --git a/dm/host/home_quit_mac.h b/dm/host/home_quit_mac.h
-index ffc3ab57..d0714066 100644
+index ffc3ab5..d071406 100644
 --- a/dm/host/home_quit_mac.h
 +++ b/dm/host/home_quit_mac.h
 @@ -97,6 +97,69 @@ static NSView *hq_prompt_view(NSRect bounds, NSString *title, NSString *note, NS
@@ -916,7 +916,7 @@ index ffc3ab57..d0714066 100644
  static NSView *hq_hold_view(NSRect bounds, NSString *label, CAShapeLayer **ring_out) {
      CGFloat k = hq_scale(bounds.size), d = 26 * k, line = 3.5 * k;
 diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
-index 5ff9f93d..1dec8fa1 100644
+index 5ff9f93..1dec8fa 100644
 --- a/dm/host/tests/t_controllers_mac.m
 +++ b/dm/host/tests/t_controllers_mac.m
 @@ -745,6 +745,8 @@ static void generic_value(hid_pad *pad,int page,int usage,int value,int min,int
@@ -954,7 +954,7 @@ index 5ff9f93d..1dec8fa1 100644
  }
  static void test_generic_hid_routing(void) {
 diff --git a/dm/host/tests/t_home_quit.c b/dm/host/tests/t_home_quit.c
-index ff11b7d9..b904d9bb 100644
+index ff11b7d..b904d9b 100644
 --- a/dm/host/tests/t_home_quit.c
 +++ b/dm/host/tests/t_home_quit.c
 @@ -1,5 +1,6 @@
@@ -1128,7 +1128,7 @@ index ff11b7d9..b904d9bb 100644
      CHECK(!strcmp(small, "Abc"), "a long line is cut to the buffer");
  
 diff --git a/dm/host/tests/t_home_quit_mac.m b/dm/host/tests/t_home_quit_mac.m
-index 0b716c4e..0aa2164d 100644
+index 0b716c4..0aa2164 100644
 --- a/dm/host/tests/t_home_quit_mac.m
 +++ b/dm/host/tests/t_home_quit_mac.m
 @@ -1,5 +1,6 @@
@@ -1194,7 +1194,7 @@ index 0b716c4e..0aa2164d 100644
      }
      printf("t_home_quit_mac: %d checks, %d failed\n", checks, fails);
 diff --git a/docs/frontends.md b/docs/frontends.md
-index 351ea4fb..8ac1ed4e 100644
+index 8eebc89..11981db 100644
 --- a/docs/frontends.md
 +++ b/docs/frontends.md
 @@ -59,7 +59,9 @@ A built app carries the settings its game supports, as the iPhone app's settings
@@ -1209,7 +1209,7 @@ index 351ea4fb..8ac1ed4e 100644
  Settings a player chose in a front end and wants kept, also for a start from Finder or the Dock, go in the app's saved choices ([Saved choices](#saved-choices)), not in its environment.
  
 diff --git a/docs/playing.md b/docs/playing.md
-index 93e88126..6b91df1e 100644
+index 31814ae..367dc01 100644
 --- a/docs/playing.md
 +++ b/docs/playing.md
 @@ -63,7 +63,7 @@ On the Mac, if a single Switch Pro-compatible controller has a thumbstick that s

@@ -38,7 +38,7 @@ Issue: LNPANDY/NX2Apple#303
  3 files changed, 23 insertions(+), 7 deletions(-)
 
 diff --git a/dm/games/0100F2C0115B6000/README.md b/dm/games/0100F2C0115B6000/README.md
-index c4941d4f..76e8496f 100644
+index c4941d4..76e8496 100644
 --- a/dm/games/0100F2C0115B6000/README.md
 +++ b/dm/games/0100F2C0115B6000/README.md
 @@ -25,6 +25,13 @@ Render conditions, which the host evaluates for every game ([Conditional renderi
@@ -56,7 +56,7 @@ index c4941d4f..76e8496f 100644
  
  - **Current (issue #3240): in-game `pkg_edges_take` null-destination fix and crash/VA diagnostics landed; iPhone VA-exhaustion root cause remains open.** On an iPhone 17 Pro Max (iOS 27.2.1, 1.4.3, commit `3a2a62f705ed`, `--romfs separate --shader-files`, `DM_PSO_MTL4=0`, `DM_NVN_PREFETCH=0`), manifest prewarm succeeded, then gameplay hit two distinct failures with VA exhausted (`449.93–449.97 / 449.99 GB`, `largest free 0.00–0.01 GB`, footprint `2.11–2.28 GB`, headroom `> 1,000 MB`): uncaught `std::bad_alloc` on `_pthread_wqthread` (`<redacted>` framework frames) at frame 11,116, and `SIGSEGV` at `_platform_memmove+0xa8` (`addr=0`, `x2=0x2fe0`) from `pkg_edges_take` at frame 55,987 with `DM_NVN_PREDICT=0` after `malloc(0x3000)` returned `NULL` for edge 1. The host now drops partial edge snapshots to take the conservative re-upload path and reports edge-snapshot / owned shader-library bytes, unredacted framework image+offsets, and top `file` / non-guard `other` VM regions ([Packaged-texture edge snapshot copied into a null allocation](../../../docs/reference/memory.md#packaged-texture-edge-snapshot-copied-into-a-null-allocation)); iPhone retest is needed to attribute the underlying `file` / `malloc` VA growth and `std::bad_alloc` caller.
 diff --git a/dm/games/0100F2C0115B6000/game.tsv b/dm/games/0100F2C0115B6000/game.tsv
-index 81c54eb9..742aba2e 100644
+index 81c54eb..742aba2 100644
 --- a/dm/games/0100F2C0115B6000/game.tsv
 +++ b/dm/games/0100F2C0115B6000/game.tsv
 @@ -16,7 +16,9 @@ app_category	public.app-category.adventure-games
@@ -70,7 +70,7 @@ index 81c54eb9..742aba2e 100644
  shader_versions	v720896
  
 diff --git a/dm/games/0100F2C0115B6000/patches.py b/dm/games/0100F2C0115B6000/patches.py
-index fa3897d1..a858b0a4 100644
+index fa3897d..a858b0a 100644
 --- a/dm/games/0100F2C0115B6000/patches.py
 +++ b/dm/games/0100F2C0115B6000/patches.py
 @@ -8,9 +8,11 @@ from nso_asm import ADRP, B, NOP, STP_PRE

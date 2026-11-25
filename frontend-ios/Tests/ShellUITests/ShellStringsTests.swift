@@ -12,6 +12,8 @@ import Testing
     private static let cognates: [String: Set<String>] = [
         "30 fps": ["de", "sv", "it", "ja"], "40 fps": ["de", "sv", "it", "ja"], "60 fps": ["de", "sv", "it", "ja"],   // a unit
         "120 fps": ["de", "sv", "it", "ja"],                              // a unit
+        "2x": ["de", "sv", "fr", "it", "ja"], "4x": ["de", "sv", "fr", "it", "ja"],   // anisotropic filtering levels
+        "8x": ["de", "sv", "fr", "it", "ja"], "16x": ["de", "sv", "fr", "it", "ja"],
         "16:9 (Switch)": ["de", "sv", "fr", "it"],                 // aspect ratio and console name
         "MacBook (16:10)": ["de", "sv", "fr", "it"],               // aspect ratio and device name
         "MetalFX": ["de", "sv", "fr", "it", "ja"],                          // a name

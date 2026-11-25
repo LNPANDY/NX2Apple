@@ -13,7 +13,7 @@ Issue: LNPANDY/NX2Apple#123
  2 files changed, 171 insertions(+)
 
 diff --git a/dm/mac/launcher.c b/dm/mac/launcher.c
-index 39e3555c..2b3d7ba6 100644
+index fb1f35a..9b3781b 100644
 --- a/dm/mac/launcher.c
 +++ b/dm/mac/launcher.c
 @@ -23,7 +23,9 @@
@@ -177,12 +177,12 @@ index 39e3555c..2b3d7ba6 100644
      for (CFIndex i = 0; rules && i < CFArrayGetCount(rules); i++) { char env[128]; if (rule_env(CFArrayGetValueAtIndex(rules, i), env, sizeof env) && getenv(env)) add_key(&g_launch_keys, env); }
      for (const char **key=(const char *[]){"DM_KEYMAP","DM_PAD_MAP",NULL}; *key; key++) if(getenv(*key)) add_key(&g_launch_keys,*key);
 diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
-index 9ff4b30c..4a2d4265 100644
+index 54d7720..32d9963 100644
 --- a/dm/tools/tests/test_nsp_mac_app.py
 +++ b/dm/tools/tests/test_nsp_mac_app.py
-@@ -1029,6 +1029,50 @@ int main(void) { @autoreleasepool {
-         self.assertIn('standin host output', (logs / f'{TID}.prev.log').read_text())
-         self.assertEqual(self.host_run()['DM_LANG'], 'fr')   # Info.plist DMLanguage
+@@ -1060,6 +1060,50 @@ int main(void) { @autoreleasepool {
+         shutil.rmtree(self.tmp / 'seen-shader', ignore_errors=True)   # not from the last build's own list
+         self.assertEqual(keys(), [key, 'b' * 16])
  
 +    def run_in_library(self, lib, home):   # the app in a game library folder (the .nx2apple-library marker beside it), as the Mac front end lays it out
 +        app = lib / self.app.name

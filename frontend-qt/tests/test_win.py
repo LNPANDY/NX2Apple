@@ -7770,7 +7770,6 @@ class RomfsTrailerAndManifestArgsTests(unittest.TestCase):
                 'dm/ios/Sources/front_ios.m',
                 'dm/ios/Sources/DmGamepad.m',
                 'dm/ios/Sources/CloudSaves.m',
-                'dm/ios/Sources/SaveSync.m',
                 'dm/ios/Sources/DataBookmark.m',
             ):
                 p = repo / rel
@@ -8183,7 +8182,6 @@ class WindowsIosPackagerParityTest(unittest.TestCase):
             'dm/ios/Sources/front_ios.m',
             'dm/ios/Sources/DmGamepad.m',
             'dm/ios/Sources/CloudSaves.m',
-            'dm/ios/Sources/SaveSync.m',
             'dm/ios/Sources/DataBookmark.m',
         ):
             p = repo / rel

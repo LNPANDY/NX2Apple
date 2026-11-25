@@ -17,7 +17,7 @@ Issue: none
  create mode 100644 dm/tools/tests/test_build_seed_gfx_api.py
 
 diff --git a/dm/tools/build_seed.py b/dm/tools/build_seed.py
-index 5a45afe1..1b77aae2 100755
+index 5a45afe..1b77aae 100755
 --- a/dm/tools/build_seed.py
 +++ b/dm/tools/build_seed.py
 @@ -484,7 +484,7 @@ def _discover_b_libs_in_dir(parent_dir):
@@ -260,7 +260,7 @@ index 5a45afe1..1b77aae2 100755
              _link_or_copy_file(sp, os.path.join(work_shader, stamp_name), quota)
 diff --git a/dm/tools/tests/test_build_seed_gfx_api.py b/dm/tools/tests/test_build_seed_gfx_api.py
 new file mode 100644
-index 00000000..dcfe8876
+index 0000000..dcfe887
 --- /dev/null
 +++ b/dm/tools/tests/test_build_seed_gfx_api.py
 @@ -0,0 +1,153 @@
@@ -418,10 +418,10 @@ index 00000000..dcfe8876
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index c1f3525a..d7f829cf 100755
+index 01683e7..451428d 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -4262,6 +4262,21 @@ def _prepare_from_seed(args, from_seed_arg, seed_root, prefill_msl, gamemod, env
+@@ -4460,6 +4460,21 @@ def _prepare_from_seed(args, from_seed_arg, seed_root, prefill_msl, gamemod, env
      if out_hint and out_hint.suffix == '.app' and out_hint.is_dir() and out_hint not in prefill_msl:
          prefill_msl.append(out_hint)
  
@@ -443,7 +443,7 @@ index c1f3525a..d7f829cf 100755
      return {
          'app': app,
          'nsp_dir': nsp_dir,
-@@ -4276,7 +4291,7 @@ def _prepare_from_seed(args, from_seed_arg, seed_root, prefill_msl, gamemod, env
+@@ -4474,7 +4489,7 @@ def _prepare_from_seed(args, from_seed_arg, seed_root, prefill_msl, gamemod, env
          'seed_dir': seed_dir,
          'seed': seed,
          'seed_romfs_id': seed.get('romfs_identity'),
@@ -452,7 +452,7 @@ index c1f3525a..d7f829cf 100755
      }
  
  
-@@ -4683,11 +4698,11 @@ def main(args=None):
+@@ -4892,11 +4907,11 @@ def _main(args, cleanup):
      if uedec: decode_ue_shaders(repo, {v: dirs[v] for v in sv}, pkg_ver, patched, work, env, logs, g)
      sh = work / 'shader'
      if gfx == 'vulkan':   # the packed version's merged RomFS holds the SPIR-V files the game loads; a capture holds those it generates. A damaged copy (ALLOW_DAMAGED) is keyed by its files' times, as split_shaders keys it
@@ -466,7 +466,7 @@ index c1f3525a..d7f829cf 100755
          has_romfs = Path(str(rfs.source(game))).exists()
          rom_root = rfs.source(game) if has_romfs else (game / 'RomFS')
          roots = [rom_root, game / 'ExeFS/main'] + dlc_roms + ([cap] if cap else [])
-@@ -4695,13 +4710,13 @@ def main(args=None):
+@@ -4904,13 +4919,13 @@ def _main(args, cleanup):
          try:
              ios = build_gl_shaders(py, repo, roots, sh, env, logs, g, mac=mac, provisional=prov, fixed=fixed, from_seed=from_seed_arg is not None)
          except BuildError:

@@ -13,7 +13,7 @@ Issue: LNPANDY/NX2Apple
  2 files changed, 229 insertions(+), 29 deletions(-)
 
 diff --git a/dm/ios/tests/test_framework_build.py b/dm/ios/tests/test_framework_build.py
-index e86c3e93..6cde1022 100644
+index e86c3e9..00995f7 100644
 --- a/dm/ios/tests/test_framework_build.py
 +++ b/dm/ios/tests/test_framework_build.py
 @@ -7,19 +7,22 @@ Four parts, each on synthetic inputs, no game files or Xcode:
@@ -89,7 +89,7 @@ index e86c3e93..6cde1022 100644
 +                for stub in ('Gen/dm.xcconfig', 'Gen/framework.xcconfig', 'Gen/embed.S', 'Gen/main/main.c',
 +                             'framework/DmGameMarker.m', 'framework/ShellGlue.m', 'Sources/front_ios.m', 'Sources/DmGamepad.m',
 +                             'Sources/GameMenu.swift', 'Sources/LauncherSettings.swift', 'Sources/CloudSaves.m',
-+                             'Sources/SaveSync.m', 'Sources/DataBookmark.m', 'Gen/framework/profile.tsv',
++                             'Sources/DataBookmark.m', 'Gen/framework/profile.tsv',
 +                             'Gen/framework/game.manifest.json', 'Gen/framework/objc_namespace.h', 'Gen/framework/exported_symbols.txt'):
 +                    (root / stub).write_text('')
 +                (root / 'project-framework.yml').write_text(spec)
@@ -235,7 +235,7 @@ index e86c3e93..6cde1022 100644
  
  if __name__ == '__main__':
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 3dd9fa60..f8964a97 100755
+index a7e3cc5..daf3ddc 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -297,8 +297,9 @@ if [ "$PREPARE_XCODE" = YES ]; then

@@ -21,7 +21,6 @@
 0021-ios-hide-the-settings-gear-during-tv-play-with-a.patch
 0022-keep-the-mac-game-in-focus-while-its-window-is-u.patch
 0026-ios-fade-out-the-settings-gear-after-3-idle-seco.patch
-0027-hid-report-vibration-device-info-for-startup-han.patch
 0028-mac-app-exit-at-once-with-dm-preflight.patch
 0029-pack-app-the-game-s-name-in-each-of-its-language.patch
 0030-mac-app-an-update-without-control-data-gets-no-b.patch
@@ -58,7 +57,5 @@
 0075-cheats-ios-trampoline-and-scanner.patch
 0076-gfx-30-to-60-metalfx-frame-generation-with-optic.patch
 0077-gfx-maximize-concurrent-shader-compilation-on-mt.patch
-0078-gfx-keep-shader-cache-directory-resolvable-acros.patch
 0080-hid-games-0400a3a01ee4c000-add-virtual-switch-2.patch
 0081-gfx-gpu-bc-to-astc-4x4-transcode.patch
-0082-gfx-tests-align-test-dmsh-meshstage-with-dual-so.patch

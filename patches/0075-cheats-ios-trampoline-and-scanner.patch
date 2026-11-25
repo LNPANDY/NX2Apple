@@ -28,10 +28,10 @@ Issue: none
  create mode 100644 dm/tools/tests/test_cheat_bake.py
 
 diff --git a/dm/host/dm.h b/dm/host/dm.h
-index 3424aed..9076174 100644
+index 4e6b7a6..0bdb107 100644
 --- a/dm/host/dm.h
 +++ b/dm/host/dm.h
-@@ -108,6 +108,7 @@ typedef struct {
+@@ -109,6 +109,7 @@ typedef struct {
      uint64_t unity_qs_ptr;     // Unity's QualitySettings (main's offset of the global pointer); the current level's vSyncCount, an int32, is at
      uint32_t unity_qs_idx, unity_qs_arr, unity_qs_size, unity_qs_vsync;   // [obj + arr] + (int32)[obj + idx] * size + vsync; 0 = none
      uint64_t fps_state_off;    // frame step state page (patch_nso.py FRAME_STEP: Tears of the Kingdom 1.4.3 and Breath of the Wild 1.9.0 main); 0 = none
@@ -39,7 +39,7 @@ index 3424aed..9076174 100644
      uint32_t step_max;         // the largest step the frame step stubs give the game (the fixups table's STEP_MAX, patch_nso.py ctx.step_max); 0 = FSTEP_MAX
      uint32_t render_scale_max; // a render-scale stub's largest scale (the fixups table's RENDER_SCALE, patch_nso.py): DM_RENDER_SCALE is held to it; 0 = no such stub
      int fstep_t120;            // the frame step stub takes its step in ticks of 1/120 s (the FRAME_STEP_120 capability: state +0x38 120, and 40 fps)
-@@ -286,6 +287,33 @@ const char *dm_cheats_skipped_name(int i);
+@@ -290,6 +291,33 @@ const char *dm_cheats_skipped_name(int i);
  const char *dm_cheats_skipped_why(int i);
  int dm_cheats_nsources(void);         // anchored sources (*.cheats.toml) in the cheats folder
  const char *dm_cheats_source(int i);
@@ -74,10 +74,10 @@ index 3424aed..9076174 100644
  // Graphics lifecycle (hle_nvn.c): on=1 closes submission and waits up to three seconds for the drain, on=0 requests reopening once the drain completes.
  void dm_gfx_suspend(int on);
 diff --git a/dm/host/front.h b/dm/host/front.h
-index 8365fc7..2bf2e3c 100644
+index 3aadb3e..f7a9ec4 100644
 --- a/dm/host/front.h
 +++ b/dm/host/front.h
-@@ -104,3 +104,29 @@ void dm_web_failed(const char *why);
+@@ -106,3 +106,29 @@ void dm_web_failed(const char *why);
  // again, when the player allowed notifications (else it asks on screen to open the app again); it returns when the notification is scheduled. With no DM_EXEC_OUT (an app of one program, which asks to start itself again) it asks the player on
  // screen to open the app again. The default (hle_oe.c, weak) returns at once
  void front_program_handoff(int index, const char *name);
@@ -1131,7 +1131,7 @@ index 7c9653e..2bf9702 100644
 +    pthread_mutex_unlock(&g_scan_lock);
 +}
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index 85d971d..6998651 100644
+index a3f98dd..3aeef5a 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
 @@ -735,29 +735,20 @@ static void fill(NpadState *s, uint32_t id, uint32_t style) {
@@ -1170,10 +1170,10 @@ index 85d971d..6998651 100644
  // GetNpadStates(out, n, id): newest first, n entries: the current state repeated with consecutive sampling numbers. The host keeps no history, but on hardware the
  // 16-entry history is always full, and games read all of it whatever count comes back: Super Mario Odyssey (main+0x93fc20) polls every controller slot each frame, which advances
 diff --git a/dm/host/loader.c b/dm/host/loader.c
-index fd27d7c..cdd68d3 100644
+index 8147ea4..0098806 100644
 --- a/dm/host/loader.c
 +++ b/dm/host/loader.c
-@@ -386,6 +386,7 @@ static void read_layout(module_t *m, const char *dir) {
+@@ -422,6 +422,7 @@ static void read_layout(module_t *m, const char *dir) {
          else if (!strcmp(key, "RO_OFF")) m->ro_off = v;
          else if (!strcmp(key, "DATA_OFF")) m->data_off = v;
          else if (!strcmp(key, "FPS_STATE_OFF")) m->fps_state_off = v;
@@ -1181,7 +1181,7 @@ index fd27d7c..cdd68d3 100644
          else if (!strcmp(key, "RENDER_SCALE")) m->render_scale_max = (uint32_t)v;
          else if (!strcmp(key, "MOVIE_NATIVE_COLOR_KEYS")) m->movie_native_color_keys = v == 1;
          else if (!strcmp(key, "STEP_MAX")) m->step_max = (uint32_t)v;
-@@ -522,6 +523,13 @@ static void install_key_page(module_t *m) {
+@@ -559,6 +560,13 @@ static void install_key_page(module_t *m) {
      for (int k = 0; k < KEY_N; k++) if (!page[m->key_idx[k]]) die("%s: key page entry %d is 0 (host key not created) -- the game would read TSD slot 0", m->name, k);
      if (mprotect(m->base + m->key_page_off, m->key_page_size, PROT_READ)) die("%s key page mprotect", m->name);
      if (m->fps_state_off) install_fps_state(m);
@@ -1438,10 +1438,10 @@ index e52c024..5c08d60 100644
      char rmcmd[1100]; snprintf(rmcmd, sizeof rmcmd, "rm -rf '%s'", root);   // the test's cheats folders
      if (system(rmcmd)) fprintf(stderr, "cannot remove %s\n", root);   // NOLINT(bugprone-command-processor): a fixed rm of the folder mkdtemp made above, no outside input
 diff --git a/dm/host/tests/t_hid.c b/dm/host/tests/t_hid.c
-index 022c586..cc9d3cc 100644
+index 5961bd9..3a92260 100644
 --- a/dm/host/tests/t_hid.c
 +++ b/dm/host/tests/t_hid.c
-@@ -2053,6 +2053,42 @@ static void t_joy_hold_type(void) {
+@@ -2085,6 +2085,42 @@ static void t_joy_hold_type(void) {
      h_hid_JoyDual(&(uint32_t){0}); h_hid_HoldType(0); dm_joy_attach(0, 0); dm_pad_players(1); h_hid_SetStyles(0xffffffffu);
  }
  
@@ -1484,7 +1484,7 @@ index 022c586..cc9d3cc 100644
  int main(void) {
      CHECK(setenv("DM_RUMBLE_LOG", "1", 1) == 0, "enable rumble diagnostics");
      setenv("DM_IMU_DELAY", "0", 1);   // the tests of the live history read it at the present; t_live_delay checks the playout delay
-@@ -2186,6 +2222,7 @@ int main(void) {
+@@ -2218,6 +2254,7 @@ int main(void) {
      t_bind_gap();
      t_applet_input();
      t_joy_hold_type();
@@ -1493,7 +1493,7 @@ index 022c586..cc9d3cc 100644
      return fails != 0;
  }
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 5e67574..b4883f0 100755
+index fb87c0b..6391ef4 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -173,6 +173,7 @@ echo "OTHER_LDFLAGS = \$(inherited) \$(DM_FRAMEWORKS) $F" >> Gen/dm.xcconfig
@@ -3045,7 +3045,7 @@ index 0000000..cd8ac3a
 +        emit_fn(bx_fn(here_fn(), orig_pc + 4))
 +    return start
 diff --git a/dm/tools/patch_nso.py b/dm/tools/patch_nso.py
-index 9ff762d..aa67442 100644
+index 7eb097c..9831f90 100644
 --- a/dm/tools/patch_nso.py
 +++ b/dm/tools/patch_nso.py
 @@ -23,7 +23,7 @@ if capstone.cs_version()[0] != 5:   # the rewriter uses Capstone 5's names (CS_A
@@ -3126,7 +3126,7 @@ index 9ff762d..aa67442 100644
  
  # ---- Unreal console variables in main (dm/tools/ue_cvar.py finds them by their registered names, without a build ID) ----
  # The fixups table names each one's TAutoConsoleVariable (UE_CVAR:<name>); the host writes those the profile decides on (hle_fpslock.c, hle_uecvar.c)
-@@ -1529,7 +1558,7 @@ if (BUILD_ID in FRAME_STEP or FS_MATCH) and NAME == 'main':
+@@ -1532,7 +1561,7 @@ if (BUILD_ID in FRAME_STEP or FS_MATCH) and NAME == 'main':
      if FAR:
          # The loader supplies zero-filled BSS/key pages for a front patch area.
          # Reserve the frame state after the key page there too; stubs reach it by ADRP.
@@ -3135,7 +3135,7 @@ index 9ff762d..aa67442 100644
      assert FS_STATE_OFF % 0x1000 == 0 and (FAR or FS_STATE_OFF + 0x40 <= PATCH_OFF) and not any(IMG[FS_STATE_OFF:]), 'frame step state page'
  # What frame step and stub code (STUBS below) may write: a site whose original bytes match and that holds no rewrite site, the cuts list (<name>.cuts.tsv) that names it, and
  # data addresses read from the original text
-@@ -1909,6 +1938,52 @@ for g in spin_regions: spin_emit(g)
+@@ -1912,6 +1941,52 @@ for g in spin_regions: spin_emit(g)
  if os.environ.get('DM_SPIN_LIST'):
      for T, bes, n in spin_sites: print(f'{NAME} spin wait {T:#x} ({n} instructions), back-edges ' + ' '.join(f'{b:#x}' for b in bes))
  
@@ -3188,7 +3188,7 @@ index 9ff762d..aa67442 100644
  os.makedirs(outdir, exist_ok=True)
  P = lambda ext: os.path.join(outdir, f'{NAME}.{ext}')
  patch = patch_front
-@@ -1920,7 +1995,7 @@ if FAR:   # patch area before the base: file = text + ro + data (padded to 16K)
+@@ -1923,7 +1998,7 @@ if FAR:   # patch area before the base: file = text + ro + data (padded to 16K)
          os.execve(sys.executable, [sys.executable] + sys.argv, dict(os.environ, DM_PATCH_FRONT=hex(need)))
      assert len(patch) <= FRONT - 0x4000, f'patch area of {len(patch):#x} bytes does not fit in the {FRONT:#x} before the base'
      if TWO:
@@ -3197,7 +3197,7 @@ index 9ff762d..aa67442 100644
          IMAGE_SIZE = BACK_OFF + BACK_LEN
          patch = patch + bytearray(-len(patch) & 0x3FFF) + patch_back + bytearray(BACK_LEN - len(patch_back))
      open(P('patched.bin'), 'wb').write(IMG + bytearray(FILE_IMAGE_LEN - len(IMG)) + patch)
-@@ -1952,13 +2027,15 @@ def movie_native_color_keys():
+@@ -1955,13 +2030,15 @@ def movie_native_color_keys():
      return RO_OFF <= target < DATA_OFF and IMG[target:target + len(key)] == key
  
  with open(os.path.join(outdir, 'build_src.sha256'), 'w') as f:   # the same for every module: the rewriter and every patch file, by path from dm/tools
@@ -3213,7 +3213,7 @@ index 9ff762d..aa67442 100644
 +    if CHEAT_STATE_OFF: f.write(f'# CHEAT_STATE_OFF\t{CHEAT_STATE_OFF:#x}\n')   # 16 KB writable cheat state page (4 KB slot bytes + 12 KB Code Cave mirror)
      if UE_CALLS: f.write(f'# UE_MALLOC_VT\t{UE_VT:#x}\n# UE_MALLOC_SLOT\t{UE_SLOT:#x}\n')   # Unreal's FMallocBinned3 (ue_malloc.py): its vtable and the slot of its name getter, which names the slot layout
      if FPS_TARGET_PTR is not None: f.write(f'# FPS_TARGET_PTR\t{FPS_TARGET_PTR:#x}\n# FPS_TARGET_FIELD\t{FPS_TARGET_FIELD:#x}\n')   # a target frame rate the game steps by (fps_target.py)
-     if MONOLITH_INTERVAL is not None: f.write(f'# MONOLITH_INTERVAL\t{MONOLITH_INTERVAL:#x}\n')   # native wait and simulation interval (monolith_fps.py)
+     if FPS_TARGET_F32: f.write('# FPS_TARGET_F32\t0x1\n')
 diff --git a/dm/tools/tests/test_cheat_bake.py b/dm/tools/tests/test_cheat_bake.py
 new file mode 100644
 index 0000000..e5e6fee
@@ -3808,12 +3808,12 @@ index 0000000..e5e6fee
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/dm/tools/tests/test_ipa_tables.py b/dm/tools/tests/test_ipa_tables.py
-index ac8eea9..6bb70c7 100644
+index fb1793b..be20504 100644
 --- a/dm/tools/tests/test_ipa_tables.py
 +++ b/dm/tools/tests/test_ipa_tables.py
-@@ -67,5 +67,15 @@ class IpaTables(unittest.TestCase):
-         self.assertNotEqual(result.returncode, 0)
-         self.assertIn('FAIL:', result.stdout)
+@@ -79,5 +79,15 @@ class IpaTables(unittest.TestCase):
+         self.assertNotEqual(check('# chain b-0123456789ab inputs aaaaaaaaaaaa0\n'), 0)
+         self.assertNotEqual(check('# chain b-0123456789ab inputs bbbbbbbbbbbb\n'), 0)
  
 +    def test_cheat_trampolines_tsv_is_optional_and_copied_when_present(self):
 +        result = self.stage('nvn')
@@ -3828,10 +3828,10 @@ index ac8eea9..6bb70c7 100644
  
  if __name__ == '__main__': unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 430ac65..23bb33b 100755
+index ba997e1..6b90897 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -1958,12 +1958,13 @@ def provisional_modules(g, exe_dir, nros):
+@@ -2040,12 +2040,13 @@ def provisional_modules(g, exe_dir, nros):
      return set_keys(g, {'modules': (' '.join(mods), f'the NROs the game loads at run time import from {why}, which main does not')} if add else {}, 'After the NRO collection', edit=row)
  
  
@@ -3846,7 +3846,7 @@ index 430ac65..23bb33b 100755
      try: workers = int(env['DM_REWRITE_J']) if env.get('DM_REWRITE_J') else None
      except ValueError: raise BuildError('DM_REWRITE_J must be a positive integer') from None
      if workers is not None and workers < 1: raise BuildError('DM_REWRITE_J must be a positive integer')
-@@ -1976,14 +1977,18 @@ def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
+@@ -2058,14 +2059,18 @@ def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
      src = {m: exe_dir / m for m in mods} | nros
      names = list(src)
      kf = out.with_name(out.name + '.key')
@@ -3869,20 +3869,20 @@ index 430ac65..23bb33b 100755
      tmp = out.with_name(out.name + '.partial'); rmtree(tmp); tmp.mkdir(parents=True); logs.mkdir(parents=True, exist_ok=True)
      if manifest.is_file(): shutil.copyfile(manifest, tmp / 'nro.tsv')   # refused-only manifests preserve the game's offline registration path too
      PROG.set(step=', '.join(mods) + (f' and {len(nros)} NROs' if nros else ''), done=0, total=len(names), unit='modules')
-@@ -1994,7 +1999,10 @@ def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
-         while todo or procs:
-             while todo and len(procs) < cores:
-                 m = todo.pop(0); logf[m] = open(logs / f'rewrite_{m}.log', 'w')
--                procs[m] = subprocess.Popen([str(py), str(repo / 'dm/tools/patch_nso.py'), str(src[m]), str(tmp), m], env=rewrite_env, stdout=logf[m], stderr=subprocess.STDOUT)
-+                cmd = [str(py), str(repo / 'dm/tools/patch_nso.py'), str(src[m]), str(tmp), m]
-+                if m == 'main' and resolved_cheat is not None:
-+                    cmd += ['--cheat-file', str(resolved_cheat)]
-+                procs[m] = subprocess.Popen(cmd, env=rewrite_env, stdout=logf[m], stderr=subprocess.STDOUT)
-             for m in [m for m in procs if procs[m].poll() is not None]:
-                 p = procs.pop(m); logf[m].close(); PROG.set(done=len(names) - len(todo) - len(procs))
-                 if p.returncode:
-@@ -2009,13 +2017,13 @@ def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
-         for f in logf.values(): f.close()
+@@ -2082,7 +2087,10 @@ def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
+             while todo and len(groups) < cores:
+                 m = todo.pop(0); f = open(logs / f'rewrite_{m}.log', 'w')
+                 try:
+-                    grp = proc_group.Group([str(py), str(repo / 'dm/tools/patch_nso.py'), str(src[m]), str(tmp), m], env=rewrite_env, stdout=f, stderr=subprocess.STDOUT)
++                    cmd = [str(py), str(repo / 'dm/tools/patch_nso.py'), str(src[m]), str(tmp), m]
++                    if m == 'main' and resolved_cheat is not None:
++                        cmd += ['--cheat-file', str(resolved_cheat)]
++                    grp = proc_group.Group(cmd, env=rewrite_env, stdout=f, stderr=subprocess.STDOUT)
+                 except BaseException:
+                     f.close(); raise
+                 groups[m] = (grp, f)
+@@ -2121,13 +2129,13 @@ def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
+         stop_remaining()
      rmtree(kf); swap_in(tmp, out); kf.write_text(f'{key}\n')
      PROG.end(', '.join(mods) + (f' and {len(nros)} NROs' if nros else ''))
 -    return capture_nro(py, repo, exe_dir, out, nro_dir, env, logs, g, provisional)
@@ -3897,7 +3897,7 @@ index 430ac65..23bb33b 100755
      """An NRO its NRR registers and no file holds (nro_collect.py's missing.tsv): the game decodes it at run time, so boot the rewritten modules with DM_NRO_CAPTURE (dm/host/hle_ro.c), which writes the image
      of the first LoadModule the host has no rewritten copy of, by its SHA-256, and ends the run. That image joins the collected NROs, kept for the next build as they are, and the rewrite runs again with it.
      Mario Tennis Fever: main is a boot stub, and the game's code is one NRO in main's data segment. Returns the profile"""
-@@ -2047,7 +2055,8 @@ def capture_nro(py, repo, exe_dir, out, nro_dir, env, logs, g, provisional):
+@@ -2159,7 +2167,8 @@ def capture_nro(py, repo, exe_dir, out, nro_dir, env, logs, g, provisional):
      missing.write_text(''.join(f'{h}\t{n}\n' for h, n in want.items()))
      rmtree(cap); rmtree(rd)
      PROG.end(f'{name}, {(nro_dir / f"{name}.nro").stat().st_size / 2**20:.1f} MB')
@@ -3907,7 +3907,7 @@ index 430ac65..23bb33b 100755
  
  
  def captured_nros(patched):   # the folder of the NROs of a build that captured some (capture_nro): the shader split reads them, as it reads main, and the file table of Camelot's archive is in one
-@@ -3752,6 +3761,8 @@ def parse_args(argv):
+@@ -3901,6 +3910,8 @@ def parse_args(argv):
      ap.add_argument('--from-seed', nargs='?', const='auto', default=None, metavar='SEED_DIR',
                      help='fast refresh from a persistent build seed without NSPs or prod.keys (uses --title-id in --seed-cache-dir, or pass a seed folder directly)')
      ap.add_argument('--seed-cache-dir', help='folder holding persistent build seeds (default: app support build-seeds)')
@@ -3916,7 +3916,7 @@ index 430ac65..23bb33b 100755
      ap.add_argument('--prefill-msl', action='append', default=[], metavar='PATH',
                      help='existing .app, .img with a DMMSLTR1 shader trailer, msl folder, or b-<chain>[.img] used for DMSH_PREFILL on shader chain changes (may be given more than once)')
      ap.add_argument('--keep-extracted', action=argparse.BooleanOptionalAction, help='keep the extracted game files after the IPA is built, for the next build (default: the KEEP_EXTRACTED setting, on)')
-@@ -4725,7 +4736,8 @@ def main(args=None):
+@@ -4934,7 +4945,8 @@ def _main(args, cleanup):
          + (f'; the game\'s languages: {" ".join(have_langs)}' if have_langs else '; the control data lists no languages (not checked)') + (' (DM_LANG=<code> in the run command changes it)' if mac else ' (DM_LANG=<code> in the app\'s Documents/env.txt changes it)'))
  
      patched = work / f'patched_{pkg_ver}'

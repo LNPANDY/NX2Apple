@@ -19,7 +19,7 @@ Issue: none
  2 files changed, 132 insertions(+), 7 deletions(-)
 
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index 5557c89a..85d971de 100644
+index cfd411a..a3f98dd 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
 @@ -653,6 +653,52 @@ static uint64_t single_joy_fold(uint32_t style, uint64_t buttons, int32_t a[4])
@@ -97,7 +97,7 @@ index 5557c89a..85d971de 100644
  // The game's choice of how the Joy-Cons of a pad are used (npad_resolve): single, left or right staying on the npad, or dual. NpadJoyDeviceType: Left 0, Right 1; NpadJoyAssignmentMode: Dual 0, Single 1
  static void joy_assign(uint32_t id, int single, int keep) {
      if (id >= DM_PLAYERS) return;
-@@ -1792,7 +1834,7 @@ HLE_FORCE("_ZN2nn3hid12GetNpadStateEPNS0_16NpadJoyLeftStateERKj", "left Joy-Con
+@@ -1788,7 +1830,7 @@ HLE_FORCE("_ZN2nn3hid12GetNpadStateEPNS0_16NpadJoyLeftStateERKj", "left Joy-Con
  HLE_FORCE("_ZN2nn3hid12GetNpadStateEPNS0_17NpadJoyRightStateERKj", "right Joy-Con current state (not connected on the host)", void, h_hid_StateJoyRight, NpadState *s, const uint32_t *id) { fill(s, *id, STYLE_JOYRIGHT); }
  
  static uint32_t g_comm_mode, g_hh_mode;
@@ -106,7 +106,7 @@ index 5557c89a..85d971de 100644
  HLE_FORCE("_ZN2nn3hid24GetSupportedNpadStyleSetEv", "supported controller styles: all", uint32_t, h_hid_GetStyles, void) { return atomic_load(&g_styles_supported); }
  HLE_FORCE("_ZN2nn3hid24GetNpadCommunicationModeEv", "wireless communication mode: returns the value that was set", int, h_hid_GetComm, void) { return (int)g_comm_mode; }
  HLE_FORCE("_ZN2nn3hid24SetNpadCommunicationModeENS0_21NpadCommunicationModeE", "wireless communication mode; the host only records it", void, h_hid_SetComm, int m) { g_comm_mode = (uint32_t)m; }
-@@ -1873,6 +1915,8 @@ static int touch_read(void *s, int N, int want) {
+@@ -1869,6 +1911,8 @@ static int touch_read(void *s, int N, int want) {
      return cnt;
  }
  void dm_hid_touch_teardown(void) {
@@ -116,10 +116,10 @@ index 5557c89a..85d971de 100644
      memset(g_touch_hist, 0, sizeof g_touch_hist);
      g_touch_kept = g_touch_newest = g_touch_points = 0;
 diff --git a/dm/host/tests/t_hid.c b/dm/host/tests/t_hid.c
-index 6748e352..022c5868 100644
+index b59786e..5961bd9 100644
 --- a/dm/host/tests/t_hid.c
 +++ b/dm/host/tests/t_hid.c
-@@ -1973,6 +1973,86 @@ static void t_bind_gap(void) {
+@@ -2005,6 +2005,86 @@ static void t_bind_gap(void) {
      dm_pad_players(0x1); g_signals = 0; g_signalled = NULL;
  }
  
@@ -206,7 +206,7 @@ index 6748e352..022c5868 100644
  int main(void) {
      CHECK(setenv("DM_RUMBLE_LOG", "1", 1) == 0, "enable rumble diagnostics");
      setenv("DM_IMU_DELAY", "0", 1);   // the tests of the live history read it at the present; t_live_delay checks the playout delay
-@@ -2105,6 +2185,7 @@ int main(void) {
+@@ -2137,6 +2217,7 @@ int main(void) {
      }
      t_bind_gap();
      t_applet_input();
