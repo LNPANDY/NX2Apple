@@ -25,32 +25,77 @@ package enum Typography {
         }
     }
 
-    private static func ctFont(_ face: CTFontDescriptor?, size: CGFloat, weight: Font.Weight) -> CTFont? {
+    /// The same weight as a Core Text weight trait (NSFont.Weight's values), for the faces after Manrope.
+    private static func weightTrait(_ weight: Font.Weight) -> CGFloat {
+        switch weight {
+        case .ultraLight: return -0.8
+        case .thin: return -0.6
+        case .light: return -0.4
+        case .medium: return 0.23
+        case .semibold: return 0.3
+        case .bold: return 0.4
+        case .heavy: return 0.56
+        case .black: return 0.62
+        default: return 0
+        }
+    }
+
+    /// The face for the Chinese, Japanese or Korean characters Manrope does not have, by the launcher's language (#1514).
+    ///
+    /// Without it Core Text falls back character by character by the Mac's languages. On a Mac with Japanese first, a Chinese title
+    /// then takes the characters Japanese shares from a Japanese face and the Simplified-only ones from a Chinese face of another
+    /// weight, so one title shows two weights. Other languages keep the system's fallback.
+    package static func cjkFamily(_ lang: Lang) -> String? {
+        switch lang.code {
+        case "zh": return "PingFang SC"
+        case "ja": return "Hiragino Sans"
+        case "ko": return "Apple SD Gothic Neo"
+        default: return nil
+        }
+    }
+
+    /// The installed face of `family` nearest to `weight`, named exactly, so the cascade list does not pick its own weight.
+    private static func cascadeFace(_ family: String, weight: Font.Weight) -> CTFontDescriptor? {
+        let wanted = CTFontDescriptorCreateWithAttributes([kCTFontFamilyNameAttribute: family,
+                                                           kCTFontTraitsAttribute: [kCTFontWeightTrait: weightTrait(weight)]] as CFDictionary)
+        let mandatory: Set<String> = [kCTFontFamilyNameAttribute as String]
+        guard let match = CTFontDescriptorCreateMatchingFontDescriptor(wanted, mandatory as CFSet),
+              let name = CTFontDescriptorCopyAttribute(match, kCTFontNameAttribute) as? String else { return nil }
+        return CTFontDescriptorCreateWithNameAndSize(name as CFString, 0)
+    }
+
+    private static func ctFont(_ face: CTFontDescriptor?, size: CGFloat, weight: Font.Weight, cjk: String?) -> CTFont? {
         LauncherWork.count(.font)   // before the guard, so the count is the same where Manrope cannot be read
         guard let face else { return nil }
-        let variation = CTFontDescriptorCreateCopyWithAttributes(face, [kCTFontVariationAttribute: [0x7767_6874: axis(weight)]] as CFDictionary)
+        var attributes: [CFString: Any] = [kCTFontVariationAttribute: [0x7767_6874: axis(weight)]]
+        if let cjk, let fallback = cascadeFace(cjk, weight: weight) { attributes[kCTFontCascadeListAttribute] = [fallback] }
+        let variation = CTFontDescriptorCreateCopyWithAttributes(face, attributes as CFDictionary)
         return CTFontCreateWithFontDescriptor(variation, size, nil)
     }
 
-    /// Manrope as a CTFont, to measure how wide a label is set (nil when the face cannot be read).
-    package static func manropeFont(size: CGFloat, weight: Font.Weight) -> CTFont? { manropeFace(size: size, weight: weight).ctFont }
+    /// Manrope as a CTFont, to measure how wide a label is set (nil when the face cannot be read). `lang` is the launcher's language
+    /// (`Lang.interface`) unless a test names one.
+    package static func manropeFont(size: CGFloat, weight: Font.Weight, lang: Lang? = nil) -> CTFont? {
+        manropeFace(size: size, weight: weight, lang: lang).ctFont
+    }
 
-    package static func text(_ size: CGFloat, _ weight: Font.Weight) -> Font { manropeFace(size: size, weight: weight).font }
+    package static func text(_ size: CGFloat, _ weight: Font.Weight) -> Font { manropeFace(size: size, weight: weight, lang: nil).font }
 
     /// Every label asks for its font each time a page is drawn, and a page has hundreds of labels. Each size and
     /// weight is made once: one CTFont and one Font, so Core Text and SwiftUI see the same font again and reuse
     /// what they measured.
     private struct Face { let ctFont: CTFont?; let font: Font }
-    private struct FaceKey: Hashable { let size: CGFloat; let weight: Font.Weight }
+    /// The CJK face is part of the key: languages without one share their fonts, and a language change makes the new ones.
+    private struct FaceKey: Hashable { let size: CGFloat; let weight: Font.Weight; let cjk: String? }
     private static let facesLock = NSLock()
     private static var faces: [FaceKey: Face] = [:]
-
-    private static func manropeFace(size: CGFloat, weight: Font.Weight) -> Face {
-        let key = FaceKey(size: size, weight: weight)
+    private static func manropeFace(size: CGFloat, weight: Font.Weight, lang: Lang?) -> Face {
         facesLock.lock()
         defer { facesLock.unlock() }
+        let cjk = cjkFamily(lang ?? Lang.interface)
+        let key = FaceKey(size: size, weight: weight, cjk: cjk)
         if let face = faces[key] { return face }
-        let ct = ctFont(manrope, size: size, weight: weight)
+        let ct = ctFont(manrope, size: size, weight: weight, cjk: cjk)
         let face = Face(ctFont: ct, font: ct.map { Font($0) } ?? .system(size: size, weight: weight))
         faces[key] = face
         return face

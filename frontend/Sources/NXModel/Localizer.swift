@@ -24,7 +24,7 @@ import NXCore
     private let box: Box
     nonisolated package let objectWillChange = ObservableObjectPublisher()
 
-    nonisolated package init(_ lang: Lang = Lang.initial()) { box = Box(lang) }
+    nonisolated package init(_ lang: Lang = Lang.initial()) { box = Box(lang); Lang.interface = lang }
 
     /// The interface language: the one picked in Settings, else the system's.
     nonisolated package var lang: Lang {
@@ -33,6 +33,7 @@ import NXCore
             guard newValue != box.value else { return }
             objectWillChange.send()
             box.value = newValue
+            Lang.interface = newValue
         }
     }
 
