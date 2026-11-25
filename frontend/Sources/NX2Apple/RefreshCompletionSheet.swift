@@ -27,29 +27,42 @@ struct RefreshCompletionSheet: View {
         return String(format: loc.t("refreshDone.sheetTitlePartial"), succeeded, failed)
     }
 
-    private var maxSheetHeight: CGFloat {
-        min(640, (NSScreen.main?.visibleFrame.height ?? 800) - 80)
-    }
+    static let sheetWidth: CGFloat = 560
 
     var body: some View {
         DSSheet(
+            width: Self.sheetWidth,
             title: titleText,
             message: loc.t("refreshDone.sheetSubtitle")
         ) {
             VStack(alignment: .leading, spacing: DS.Space.m) {
-                DSCard {
-                    VStack(spacing: 0) {
-                        ForEach(Array(summary.items.enumerated()), id: \.element.id) { index, item in
-                            if index > 0 { CardDivider() }
-                            itemRow(item)
+                VStack(spacing: 0) {
+                    ForEach(Array(summary.items.enumerated()), id: \.element.id) { index, item in
+                        if index > 0 {
+                            DS.Color.separator.frame(height: 1).padding(.horizontal, DS.Space.m)
                         }
+                        itemRow(item)
                     }
                 }
+                .background(DS.Color.surfaceRaised, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+                .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(DS.Color.separator))
+
                 if !summary.manualReplaceItems.isEmpty {
-                    Text(loc.t("refreshDone.manualActionHint"))
-                        .font(DS.Font.callout)
-                        .foregroundStyle(DS.Color.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(alignment: .top, spacing: DS.Space.s) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(LauncherPalette.building)
+                            .padding(.top, 1)
+                            .accessibilityHidden(true)
+                        Text(loc.t("refreshDone.manualActionHint"))
+                            .font(DS.Font.callout)
+                            .foregroundStyle(DS.Color.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(DS.Space.m)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(DS.Color.surfaceRaised, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+                    .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(DS.Color.separator))
                 }
             }
         } buttons: {
@@ -59,10 +72,8 @@ struct RefreshCompletionSheet: View {
                     .padTarget("refreshDone.queue", scope: "refreshDone") { onViewQueue() }
             }
             DSSheetPrimaryButton(loc.t("refreshDone.close"), action: close)
-                .padTarget("refreshDone.close", scope: "refreshDone") { close() }
+                .padTarget("refreshDone.close", scope: "refreshDone", focusColor: DS.Color.accentOn) { close() }
         }
-        .frame(width: 600)
-        .frame(maxHeight: maxSheetHeight)
         .background(PadKeyboardInput(focus: pad, scope: "refreshDone", back: close))
         .padScope("refreshDone", pad)
         .onAppear {
@@ -84,15 +95,18 @@ struct RefreshCompletionSheet: View {
             return nil
         }()
         HStack(alignment: .center, spacing: DS.Space.m) {
-            Circle()
-                .fill(dotColor(for: item))
-                .frame(width: 8, height: 8)
+            Image(systemName: statusIconName(for: item))
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(statusColor(for: item))
+                .frame(width: 20, height: 20)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: DS.Space.xxs) {
                 HStack(spacing: DS.Space.xs) {
                     Text(item.name)
                         .font(DS.Font.bodyStrong)
                         .foregroundStyle(DS.Color.textPrimary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                     DSTag(platformLabel)
                 }
                 Text(statusLine)
@@ -110,15 +124,25 @@ struct RefreshCompletionSheet: View {
                     }
             }
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
+        .padding(.horizontal, DS.Space.m)
+        .padding(.vertical, DS.Space.s + 2)
     }
 
-    private func dotColor(for item: RefreshNoticeItem) -> Color {
+    private func statusIconName(for item: RefreshNoticeItem) -> String {
+        guard item.succeeded else { return "xmark.circle.fill" }
+        switch item.imgStatus {
+        case .unchanged, .transferred:
+            return "checkmark.circle.fill"
+        case .manualReplace:
+            return "exclamationmark.triangle.fill"
+        }
+    }
+
+    private func statusColor(for item: RefreshNoticeItem) -> Color {
         guard item.succeeded else { return DS.Color.statusError }
         switch item.imgStatus {
         case .unchanged, .transferred:
-            return LauncherPalette.ready
+            return DS.Color.statusSuccess
         case .manualReplace:
             return LauncherPalette.building
         }
