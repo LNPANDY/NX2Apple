@@ -161,7 +161,7 @@ extension LauncherView {
                             heroActions(game, compact: width < 760)
                             if let generic = nxkitGenericBuild(game) {
                                 // built without a game profile (v0lumehi/nxkit#54): it may not start or render wrong, said every time
-                                NxkitGenericBuildRow(profile: generic.profile, reportURL: generic.report)
+                                NxkitGenericBuildRow(profile: generic.profile, makeReportURL: generic.makeReport)
                                     .frame(maxWidth: 620, alignment: .leading)
                             }
                             if let prompt = nxkitLaunchPrompt(game) {
@@ -212,14 +212,26 @@ extension LauncherView {
               !m.nxkitFeedbackAsked(record.buildID + "." + NxkitFeedbackPrompt.Moment.firstLaunch.rawValue),
               let app = game.playableMacBundle, app.upstream == .nxkit else { return nil }
         return NxkitFeedbackPrompt(buildID: record.buildID, moment: .firstLaunch, titleID: game.titleID, gameName: game.displayName(loc.lang),
-                                   gameVersion: app.version ?? "", nxkitVersion: record.version, engineBuild: record.hostBuild)
+                                   gameVersion: app.version ?? "", nxkitVersion: record.version, engineBuild: record.hostBuild,
+                                   appPath: game.appPath, since: record.date)
     }
 
     /// An app nxkit built without a game profile (NxkitBuildProfile), and its prefilled report: only what this launcher knows.
-    func nxkitGenericBuild(_ game: LibraryGame) -> (profile: NxkitBuildProfile, report: URL)? {
+    /// Runtime logs are collected lazily when the player clicks Report.
+    func nxkitGenericBuild(_ game: LibraryGame) -> (profile: NxkitBuildProfile, makeReport: () -> URL)? {
         guard let app = game.playableMacBundle, app.upstream == .nxkit, let profile = NxkitBuildProfile.read(app: game.appPath) else { return nil }
-        return (profile, NxkitFeedback.genericBuildReportURL(gameName: game.displayName(loc.lang), titleID: game.titleID, gameVersion: app.version ?? "",
-                                                             nxkitVersion: profile.nxkitVersion ?? m.nxkitRecord(game.titleID)?.version ?? ""))
+        let title = game.displayName(loc.lang)
+        let titleID = game.titleID
+        let gameVersion = app.version ?? ""
+        let record = m.nxkitRecord(game.titleID)
+        let nxkitVersion = profile.nxkitVersion ?? record?.version ?? ""
+        let appPath = game.appPath
+        let since = record?.date
+        return (profile, {
+            let runtimeLog = NxkitRuntimeLog.collect(titleID: titleID, appPath: appPath, since: since)
+            return NxkitFeedback.genericBuildReportURL(gameName: title, titleID: titleID, gameVersion: gameVersion,
+                                                       nxkitVersion: nxkitVersion, log: runtimeLog)
+        })
     }
 
     private func heroBadges(_ game: LibraryGame) -> some View {

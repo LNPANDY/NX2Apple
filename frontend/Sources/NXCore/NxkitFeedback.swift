@@ -132,6 +132,7 @@ package enum NxkitFeedback {
     package static func genericBuildReportURL(gameName: String, titleID: String, gameVersion: String, nxkitVersion: String,
                                               macModel: String = NxkitFeedback.macModel,
                                               macOSVersion: String = NxkitFeedback.macOSVersion,
+                                              log: String = "",
                                               home: String = NSHomeDirectory(), user: String = NSUserName()) -> URL {
         let name = scrub(gameName, home: home, user: user)
         let fields: [(String, String)] = [
@@ -143,8 +144,7 @@ package enum NxkitFeedback {
             (Field.macModel, macModel),
             (Field.macOSVersion, macOSVersion),
         ].filter { !$0.1.isEmpty }
-        let url = newIssueURL + "?" + fields.map { $0.0 + "=" + encode($0.1) }.joined(separator: "&")
-        return URL(string: url) ?? URL(string: newIssueURL)!
+        return buildURL(fields: fields, log: log, home: home, user: user)
     }
 
     /// The new-issue URL. The log is cut from the top until the whole URL is under `maxURLLength`.
@@ -162,14 +162,29 @@ package enum NxkitFeedback {
             (Field.macOSVersion, r.macOSVersion),
         ]
         if let code = r.exitCode { fields.append((Field.exitCode, String(code))) }
+        return buildURL(fields: fields, log: r.log, home: home, user: user)
+    }
+
+    private static func buildURL(fields: [(String, String)], log: String, home: String, user: String) -> URL {
         let base = newIssueURL + "?" + fields.map { $0.0 + "=" + encode($0.1) }.joined(separator: "&")
-        var lines = logLines(r.log, home: home, user: user)
+        var lines = logLines(log, home: home, user: user)
         var url = base
         while true {
             url = lines.isEmpty ? base : base + "&" + Field.log + "=" + encode(lines.joined(separator: "\n"))
             if url.count <= maxURLLength || lines.isEmpty { break }
-            // drop as many lines from the top as the excess needs, at least one
             let excess = url.count - maxURLLength
+            if lines.count == 1 {
+                let single = lines[0]
+                let encodedCount = max(1, encode(single).count)
+                let dropCount = min(single.count, max(1, (single.count * excess + encodedCount - 1) / encodedCount))
+                if dropCount >= single.count {
+                    lines.removeAll()
+                } else {
+                    lines[0] = String(single.dropLast(dropCount))
+                }
+                continue
+            }
+            // drop as many lines from the top as the excess needs, at least one
             var dropped = 0, removed = 0
             while removed < excess, dropped < lines.count { removed += encode(lines[dropped] + "\n").count; dropped += 1 }
             lines.removeFirst(max(1, dropped))

@@ -10,10 +10,17 @@ import NXModel
 package struct NxkitGenericBuildRow: View {
     package init(profile: NxkitBuildProfile, reportURL: URL, scope: String = "main",
                  open: @escaping (URL) -> Void = { NSWorkspace.shared.open($0) }) {
-        self.profile = profile; self.reportURL = reportURL; self.scope = scope; self.open = open
+        self.init(profile: profile, scope: scope, open: open) { reportURL }
     }
+
+    package init(profile: NxkitBuildProfile, scope: String = "main",
+                 open: @escaping (URL) -> Void = { NSWorkspace.shared.open($0) },
+                 makeReportURL: @escaping () -> URL) {
+        self.profile = profile; self.makeReportURL = makeReportURL; self.scope = scope; self.open = open
+    }
+
     let profile: NxkitBuildProfile
-    let reportURL: URL
+    let makeReportURL: () -> URL
     let scope: String
     let open: (URL) -> Void
     @EnvironmentObject private var loc: Localizer
@@ -25,7 +32,7 @@ package struct NxkitGenericBuildRow: View {
             .compactMap { $0 }.joined(separator: " \u{00b7} ")
     }
 
-    private func report() { open(reportURL) }
+    private func report() { open(makeReportURL()) }
 
     package var body: some View {
         let detected = Self.detected(profile, loc.t)

@@ -121,4 +121,25 @@ final class NxkitFeedbackTests: XCTestCase {
         XCTAssertNil(bare["nxkit_version"], "an empty field is left out")
         XCTAssertNil(bare["engine_build"])
     }
+
+    func testGenericBuildReportAttachesRuntimeLogAndCapsURL() {
+        let url = NxkitFeedback.genericBuildReportURL(
+            gameName: "Game",
+            titleID: "0100ABCD00010000",
+            gameVersion: "1.0.0",
+            nxkitVersion: "0.16.6",
+            macModel: "Mac15,8",
+            macOSVersion: "26.1.0",
+            log: "--- last-error.log ---\nnxkit-host: fatal: missing metal device",
+            home: home,
+            user: user
+        )
+        XCTAssertLessThanOrEqual(url.absoluteString.count, NxkitFeedback.maxURLLength)
+        XCTAssertEqual(query(url)["log"], "--- last-error.log ---\nnxkit-host: fatal: missing metal device")
+
+        let hugeSingleLine = "nxkit-host: fatal: " + String(repeating: "a", count: 10000)
+        let capped = NxkitFeedback.issueURL(report(.doesNotStart, log: hugeSingleLine), home: home, user: user)
+        XCTAssertLessThanOrEqual(capped.absoluteString.count, NxkitFeedback.maxURLLength)
+        XCTAssertTrue((query(capped)["log"] ?? "").hasPrefix("nxkit-host: fatal:"), "a single long line is truncated instead of dropped")
+    }
 }

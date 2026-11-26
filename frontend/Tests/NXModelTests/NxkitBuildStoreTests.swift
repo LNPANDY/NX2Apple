@@ -525,4 +525,61 @@ import XCTest
         makeStore().endNxkitProcess(0)
         makeStore().endNxkitProcess(1)
     }
+
+    func testFeedbackPromptAttachesRuntimeLogWhenBuildLogIsEmptyOrRuntimeFails() {
+        let since = Date(timeIntervalSince1970: 1_700_000_000)
+        let firstLaunch = NxkitFeedbackPrompt(
+            buildID: "b1",
+            moment: .firstLaunch,
+            titleID: "01004D300C5AE000",
+            gameName: "Kirby",
+            gameVersion: "1.1.0",
+            nxkitVersion: "0.16.6",
+            engineBuild: "24dfe3b6",
+            appPath: "/tmp/Kirby.app",
+            since: since
+        )
+        let works = firstLaunch.report(.works) { _, _, _ in
+            XCTFail("Works should not attach crash or fatal error logs")
+            return ""
+        }
+        XCTAssertEqual(works.log, "")
+
+        let doesNotStart = firstLaunch.report(.doesNotStart) { tid, app, date in
+            XCTAssertEqual(tid, "01004D300C5AE000")
+            XCTAssertEqual(app, "/tmp/Kirby.app")
+            XCTAssertEqual(date, since)
+            return "--- last-error.log ---\nnxkit-host: fatal: boom"
+        }
+        XCTAssertEqual(doesNotStart.log, "--- last-error.log ---\nnxkit-host: fatal: boom")
+
+        let built = NxkitFeedbackPrompt(
+            buildID: "b2",
+            moment: .built,
+            titleID: "01004D300C5AE000",
+            gameName: "Kirby",
+            gameVersion: "1.1.0",
+            nxkitVersion: "0.16.6",
+            engineBuild: "24dfe3b6",
+            exitCode: 0,
+            log: "build succeeded",
+            appPath: "/tmp/Kirby.app",
+            since: since
+        )
+        let builtCrash = built.report(.doesNotStart) { _, _, _ in "--- crash report ---\nexception: SIGABRT" }
+        XCTAssertEqual(builtCrash.log, "build succeeded\n--- crash report ---\nexception: SIGABRT")
+
+        let failedWithLog = NxkitFeedbackPrompt(
+            buildID: "b3",
+            moment: .failed,
+            titleID: "01004D300C5AE000",
+            gameName: "Kirby",
+            gameVersion: "",
+            nxkitVersion: "0.16.6",
+            engineBuild: "24dfe3b6",
+            exitCode: 1,
+            log: "nxb failed"
+        )
+        XCTAssertEqual(failedWithLog.report(.doesNotStart) { _, _, _ in XCTFail("non-empty failed build log stays"); return "" }.log, "nxb failed")
+    }
 }
