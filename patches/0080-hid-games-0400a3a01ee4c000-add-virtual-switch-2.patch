@@ -200,7 +200,7 @@ index bd17f67..02d1ab3 100644
  
  def rows():
 diff --git a/dm/host/dm.h b/dm/host/dm.h
-index 0bdb107..ed53641 100644
+index c25774a..e6454f2 100644
 --- a/dm/host/dm.h
 +++ b/dm/host/dm.h
 @@ -111,6 +111,7 @@ typedef struct {
@@ -906,10 +906,10 @@ index 3e9520a..9ef8e03 100644
  static s2_pad *s2_pad_for(uint16_t pid) {   // a Joy-Con joins a pad that has the other one alone; anything else starts a pad
      if (pid != S2_PID_PRO)
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 6f29eb8..e535455 100644
+index 5896cb8..7a0cb6f 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
-@@ -84,6 +84,7 @@ run: $(B)/t_mii $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_siz
+@@ -85,6 +85,7 @@ run: $(B)/t_mii $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_siz
  	$(B)/t_motion_pro_mac
  	$(B)/t_jc1
  	TMPDIR="$(abspath $(B))" $(B)/t_hid
@@ -917,7 +917,7 @@ index 6f29eb8..e535455 100644
  	$(B)/t_pad_hid
  	$(B)/t_pad_gip
  	$(B)/t_pad_hid_mac
-@@ -368,6 +369,12 @@ $(B)/t_launcher_contract: t_launcher_contract.c ../input_map.h ../dm_input.h | $
+@@ -371,6 +372,12 @@ $(B)/t_launcher_contract: t_launcher_contract.c ../input_map.h ../dm_input.h | $
  	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -I.. -o $@ t_launcher_contract.c
  $(B)/t_hid: t_hid.c ../hle_hid.c ../motion_fusion.h ../hle_haptics.c ../hle_haptics.h ../pad_slots.h ../dm_input.h ../hle_bigstack.c ../hle.h ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_hid.c ../hle_haptics.c ../hle_bigstack.c
@@ -1107,11 +1107,11 @@ index 0000000..5d1121f
 +    return fails != 0;
 +}
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 143828e..5780612 100644
+index fe50af2..9bcec87 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
-@@ -185,6 +185,8 @@ @implementation DmGamepad {
-     DmPadGeo _geo; CGRect _geoBounds; UIEdgeInsets _geoInsets; BOOL _geoFull, _geoValid;   // where the controls are, and what it was computed for
+@@ -196,6 +196,8 @@ @implementation DmGamepad {
+     DmPadGeo _geo; CGRect _geoBounds; UIEdgeInsets _geoInsets; BOOL _geoFull, _geoPortraitOpts, _geoValid;   // where the controls are, and what it was computed for
      unsigned _loggedDropped;                       // the moved controls that kept their place, as last logged
      UITouch *_game[16];                           // touches on the game's touch screen by finger slot
 +    CGPoint _nmLast; BOOL _nmActive;              // virtual Switch 2 Nmouse state for unclaimed touches / pointer hover
@@ -1119,7 +1119,7 @@ index 143828e..5780612 100644
  }
  
  static UIColor *k_idle, *k_on, *k_line, *k_ringFill, *k_text, *k_textOn;
-@@ -218,6 +220,10 @@ - (instancetype)initWithFrame:(CGRect)f {
+@@ -236,6 +238,10 @@ - (instancetype)initWithFrame:(CGRect)f {
              [(UIView *)environment setNeedsLayout];
          }];
          self.multipleTouchEnabled = YES; self.opaque = NO; self.backgroundColor = UIColor.clearColor;
@@ -1130,7 +1130,7 @@ index 143828e..5780612 100644
          const char *feedback = getenv("DM_TOUCH_HAPTICS");
          if (!feedback || atoi(feedback)) {
              _touchFeedback = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
-@@ -406,16 +412,50 @@ - (void)recompute {
+@@ -446,16 +452,50 @@ - (void)recompute {
      if (changed || stick || _stickShown) [self refresh];   // also refresh on the stick release so the knob returns to the centre
      _stickShown = stick;
  }
@@ -1181,8 +1181,8 @@ index 143828e..5780612 100644
 +    }
  }
  - (BOOL)gameBegin:(UITouch *)t {
-     if (CGRectIsEmpty(_layout.game) || (_layout.separated && !CGRectContainsPoint(_layout.game, [t locationInView:self]))) return NO;
-@@ -487,7 +527,7 @@ - (void)endTouches:(NSSet<UITouch *> *)ts tapped:(BOOL)ended {
+     if (CGRectIsEmpty(_layout.game) || (_layout.separated && !CGRectContainsPoint(_layout.gameClip, [t locationInView:self]))) return NO;
+@@ -527,7 +567,7 @@ - (void)endTouches:(NSSet<UITouch *> *)ts tapped:(BOOL)ended {
  }
  - (void)touchesEnded:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e { [self endTouches:ts tapped:YES]; }
  - (void)touchesCancelled:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e { [self endTouches:ts tapped:NO]; }

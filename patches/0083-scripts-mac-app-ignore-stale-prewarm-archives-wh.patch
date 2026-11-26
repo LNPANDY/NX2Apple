@@ -7,7 +7,6 @@ Subject: [PATCH] scripts/mac-app: ignore stale prewarm archives when no base
 Upstream-Status: forwarded seedds/nxnative#3401
 Reason: Ignore stale prewarm archives in mac_pso and mac_app when no base archive exists
 Issue: none
-
 ---
  dm/tools/tests/test_nsp_mac_app.py | 73 +++++++++++++++++++++++++++++-
  scripts/build_ipa_from_nsp.py      | 21 +++++++--

@@ -20,11 +20,29 @@ extension TouchLayoutEditorView {
     }
 
     func drawBackdrop(_ g: PadGeo, in context: inout GraphicsContext) {
-        // The picture: the whole screen over which the controls float, or its own area above the controls on a split screen.
-        let picture = g.region.separated ? g.region.game : g.region.game.intersection(CGRect(origin: .zero, size: screen.size))
-        context.fill(Path(roundedRect: picture, cornerRadius: 10), with: .color(.white.opacity(g.region.separated ? 0.07 : 0.03)))
+        // In portrait split, render both the fixed 4:3 picture slot (gameClip) and the fitted 16:9 game picture inside it
+        // so editor spacing matches the runtime 4:3 frame and fixed lower control area.
         if g.region.separated {
-            context.fill(Path(g.region.controls), with: .color(.black.opacity(0.18)))
+            let slot = g.region.gameClip
+            let picture = g.region.game
+            if !slot.isEmpty {
+                context.fill(Path(roundedRect: slot, cornerRadius: 10), with: .color(.white.opacity(0.045)))
+                context.stroke(Path(roundedRect: slot, cornerRadius: 10),
+                               with: .color(ShellPalette.cream.opacity(0.22)),
+                               style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
+            }
+            if !picture.isEmpty {
+                context.fill(Path(roundedRect: picture, cornerRadius: 8), with: .color(.white.opacity(0.08)))
+            }
+            context.fill(Path(g.region.controls), with: .color(.black.opacity(0.20)))
+            let y = g.region.controls.minY
+            var divider = Path()
+            divider.move(to: CGPoint(x: 0, y: y))
+            divider.addLine(to: CGPoint(x: screen.size.width, y: y))
+            context.stroke(divider, with: .color(.white.opacity(0.16)), lineWidth: 1)
+        } else {
+            let picture = g.region.game.intersection(CGRect(origin: .zero, size: screen.size))
+            context.fill(Path(roundedRect: picture, cornerRadius: 10), with: .color(.white.opacity(0.03)))
         }
     }
 

@@ -36,10 +36,12 @@ DM_NO_BC_ASTC_KEEP_TABLE	path	`=<path>` overrides the path to `bc3_keep_rgba8.ts
 DM_NS_TAG	switch	`=<tag>` overrides the per-framework Objective-C class and Swift module namespace tag (`DmFw_<tag>_*` and `DmGame_<tag>`) passed to `gen_objc_namespace.py` and `xcodebuild` in `build_ipa.sh`
 DM_NVN_TEX_MIP_SKIP	player	`0` (Original, default), `1` (Recommended) or `2` (Smooth): skips the finest 1 or 2 mip levels of large block-compressed static 2D and 2D-array textures at upload time to reduce GPU memory and heat, while hardening any texture used in GPU copies or clears back to full size
 DM_OBSOLETE	path	Directory where the Mac host moves unused pipeline archive files (<DM_OBSOLETE>/<date time> <archive folder>/), and when unset the host deletes them
+DM_PAD_LAYOUT_PORTRAIT	player	iOS portrait touch layout preset: 2d, 3d or tap. Unset inherits the landscape layout preset
 DM_PAD_MAP	player	Mac controllers: `<name>=<name>,…` makes the button that sends the first by default send the second (or `none` / `Shake`), e.g. `A=B,B=A` swaps them (`input_map.h`); a Mac app also keeps it as the saved choice `launcher.DM_PAD_MAP`, used when the host takes the whole value
 DM_PAD_QUIT_HINT	player	Localized words for the iOS controller quit hint below the menu button, with {-} and {+} keycap placeholders, shown once per launch while the menu button is up before fading with it. Empty disables the hint
 DM_PARTIAL_SHADERS	switch	1 tells build_ipa.sh that MSL_IOS holds a partial iOS shader library built with --seen-shaders, skipping the full inputs.tsv and c1_full.tsv checks and omitting c1_full.tsv and cb_extent.tsv from the packed tables
 DM_PREFLIGHT	switch	Set: a Mac app exits at once with status 0, before it reads its Info.plist, rolls its log or touches the saves, so a front end can open a new build through LaunchServices and macOS runs its first-start check of the bundle then (`launcher.c`, docs/frontends.md)
+DM_PROF_PAD_LAYOUT	player	iOS landscape touch layout preset override: 2d, 3d, 0 or 1, read by DmGamepad on launch when no saved per-game layout overrides it
 DM_PROFILE	path	`=<file>`: the runtime game profile (layout, switches, tables) the host reads at start, which is how one host binary serves every game (the launcher architecture); the compiled `game_profile.h` stays the fallback, and `DM_PROF_<key>` overrides sit on top of it (`hle_profile.h`)
 DM_ROMFS_IDENTITY	switch	`=<hex>` passes a cached `DMROMFSID1` identity hex string so `dm/ios/tools/build_ipa.sh` writes the `DMGame` manifest under `--from-seed` without reading a local `romfs.img`
 DM_SCREEN	player	`=<number>` opens the Mac window on the connected screen with that `NSScreenNumber` (`CGDirectDisplayID`), centred, before any `DM_FULLSCREEN` request; an unknown number is logged and ignored. The NX2Apple launcher sets it to its own window's screen
@@ -53,6 +55,8 @@ DM_TEST_NO_BC	test	`=1` forces the no-hardware-BC texture path (GPU BC1-3 -> AST
 DM_TOUCH_HINT	player	Localized words for the iOS right-stick hint, shown once per launch when the 3D layout has room and no controller is connected. Empty disables the hint
 DM_TOUCH_LAYOUT	player	The player's per-layout touch-control arrangement, encoded by the shell's touch layout editor. Invalid values keep the built-in positions
 DM_TOUCH_SIZE	player	iOS touch-control size: small, medium (default) or large. Controls move toward medium when the requested size does not fit
+DM_TOUCH_SIZE_PORTRAIT	player	iOS portrait touch-control size: small, medium or large. Unset inherits DM_TOUCH_SIZE
 DM_TOUCH_STICK	player	iOS left touch-stick position: corner (default), higher or inward
+DM_TOUCH_STICK_PORTRAIT	player	iOS portrait left touch-stick position: corner, higher or inward. Unset inherits DM_TOUCH_STICK
 DM_UI_HOLD	test	When set, keeps the controller mapping test window open for 60 seconds after its UI screenshot for manual inspection
 DM_VIRTUAL_NMOUSE	player	0 disables virtual Switch 2 Nmouse emulation from Mac mouse or iOS touch and pointer input (enabled by default while the game requests Nmouse and no physical Joy-Con 2 mouse is connected)

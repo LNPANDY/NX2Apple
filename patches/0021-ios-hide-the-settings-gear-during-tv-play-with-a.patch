@@ -10,15 +10,15 @@ Reason: Hide the in-game menu gear only while a controller is in use and the gam
 Issue: LNPANDY/NX2Apple#809
 ---
  dm/ios/Sources/DmGamepad.m                 | 14 +++++++---
- dm/ios/Sources/DmLayout.h                  |  6 ++---
+ dm/ios/Sources/DmLayout.h                  |  4 +--
  dm/ios/tests/duo/Sources/DuoRuntimeStubs.m |  7 +++++
  dm/ios/tests/duo/Tests/DuoHarnessTests.m   | 30 ++++++++++++++++++++++
  docs/reference/rendering.md                |  2 +-
  docs/settings.md                           |  4 +--
- 6 files changed, 53 insertions(+), 10 deletions(-)
+ 6 files changed, 52 insertions(+), 9 deletions(-)
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 77dacdf..985140a 100644
+index 4c4d495..d2ac6e8 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -1,6 +1,6 @@
@@ -38,20 +38,25 @@ index 77dacdf..985140a 100644
  //   Each physical controller is a player of its own (local co-op), as on the Mac: the first one connected is player 1, together with the touch gamepad, the next player 2, and so on up to 8; see "Physical controllers" below.
  //   Shaking the phone shakes the controller (DM_BTN_SHAKE: its six-axis sensor, hle_hid.c), whichever controls are in use; see "Shaking the phone" below.
  #import <UIKit/UIKit.h>
-@@ -277,9 +277,11 @@ - (void)setTouchFeedback:(BOOL)on {
- // ---- Layout (points; computed inside the safe area) ----
+@@ -311,7 +311,8 @@ - (void)setTouchFeedback:(BOOL)on {
  - (void)arrange:(DmLayout)layout {
-     if (CGRectEqualToRect(_layout.controls, layout.controls) && CGRectEqualToRect(_layout.game, layout.game) && _layout.separated == layout.separated
+     if (CGRectEqualToRect(_layout.controls, layout.controls) && CGRectEqualToRect(_layout.game, layout.game)
+         && CGRectEqualToRect(_layout.gameClip, layout.gameClip) && _layout.separated == layout.separated
 -        && _layout.topSafeOnly == layout.topSafeOnly && _layout.customControlsFullBounds == layout.customControlsFullBounds) return;
 +        && _layout.topSafeOnly == layout.topSafeOnly && _layout.customControlsFullBounds == layout.customControlsFullBounds
 +        && _layout.onTV == layout.onTV) return;
      [self reset];   // A finger held across a pose change must not leave a key or game touch stuck.
+     BOOL splitChanged = _layout.separated != layout.separated;
      _layout = layout; _geoValid = NO;
+@@ -319,6 +320,7 @@ - (void)arrange:(DmLayout)layout {
+         [self loadLayoutMode];
+         [self applyLayout];
+     }
 +    [self updateControlVisibility];
      [self setNeedsLayout];
  }
  - (const DmPadGeo *)geo {   // DmPadGeometry.h, computed again whenever the bounds, the safe area, the split or the layout changed
-@@ -723,6 +725,10 @@ static BOOL pads_slotted(GCController *gone) {
+@@ -763,6 +765,10 @@ static BOOL pads_slotted(GCController *gone) {
      dispatch_async(dispatch_get_main_queue(), ^{ cp_poll(); });   // a controller came or went while the controller applet's prompt is up
      return waiting || pad_slot_mask(&g_slots) != 0;   // a controller waiting for its first press hides the touch gamepad too
  }
@@ -62,7 +67,7 @@ index 77dacdf..985140a 100644
  - (void)padsChanged:(NSNotification *)note {
      GCController *c = note.object, *gone = [note.name isEqual:GCControllerDidDisconnectNotification] ? c : nil;
      if (gone) pad_unlisten(gone);   // even a controller still waiting for its first press can have a handler
-@@ -731,7 +737,7 @@ - (void)padsChanged:(NSNotification *)note {
+@@ -771,7 +777,7 @@ - (void)padsChanged:(NSNotification *)note {
          if (!usable || g_merge) LOG("controller %s: %s%s", gone ? "disconnected" : "connected", pad_name(c), usable ? "" : " (no supported gamepad profile: not used)");
      }
      BOOL any = g_merge ? pads_merged(gone) : pads_slotted(gone);
@@ -72,36 +77,27 @@ index 77dacdf..985140a 100644
  @end
  
 diff --git a/dm/ios/Sources/DmLayout.h b/dm/ios/Sources/DmLayout.h
-index 906b5ca..4045566 100644
+index 08ef2d6..8e50463 100644
 --- a/dm/ios/Sources/DmLayout.h
 +++ b/dm/ios/Sources/DmLayout.h
-@@ -5,7 +5,7 @@
- 
- NS_ASSUME_NONNULL_BEGIN
- 
--typedef struct { CGRect game, controls; BOOL separated, topSafeOnly, customControlsFullBounds; } DmLayout;
-+typedef struct { CGRect game, controls; BOOL separated, topSafeOnly, customControlsFullBounds, onTV; } DmLayout;
- 
- static inline BOOL dm_layout_custom_controls_full_bounds(CGRect bounds, BOOL hingeClosed) {
-     return hingeClosed && bounds.size.width > bounds.size.height;
-@@ -59,7 +59,7 @@ static inline CGRect dm_horizontal_division(CGRect b, CGRect division) {
- }
+@@ -68,7 +68,7 @@ static inline CGRect dm_portrait_picture_slot(CGRect upper) {
  
  static inline DmLayout dm_layout(CGRect b, UIEdgeInsets insets, BOOL partiallyOpen, CGRect division, CGFloat aspect) {
--    DmLayout l = { dm_aspect_fit(b, aspect), b, NO, NO, NO };
-+    DmLayout l = { dm_aspect_fit(b, aspect), b, NO, NO, NO, NO };
+     CGRect fit = dm_aspect_fit(b, aspect);
+-    DmLayout l = { fit, fit, b, b, NO, NO, NO };
++    DmLayout l = { fit, fit, b, b, NO, NO, NO, NO };
      if (CGRectIsEmpty(b)) return l;
      division = dm_horizontal_division(b, division);
      BOOL portrait = b.size.height > b.size.width;
-@@ -76,7 +76,7 @@ static inline DmLayout dm_layout(CGRect b, UIEdgeInsets insets, BOOL partiallyOp
+@@ -89,7 +89,7 @@ static inline DmLayout dm_layout(CGRect b, UIEdgeInsets insets, BOOL partiallyOp
  }
  
  // The picture is on a TV (front_ios.m DmTVSceneDelegate): the controls take the whole view and no touch goes to the game's touch screen (the game is docked there).
--static inline DmLayout dm_layout_pad_only(CGRect b) { return (DmLayout){ CGRectZero, b, NO, NO, NO }; }
-+static inline DmLayout dm_layout_pad_only(CGRect b) { return (DmLayout){ CGRectZero, b, NO, NO, NO, YES }; }
+-static inline DmLayout dm_layout_pad_only(CGRect b) { return (DmLayout){ CGRectZero, CGRectZero, CGRectZero, b, NO, NO, NO }; }
++static inline DmLayout dm_layout_pad_only(CGRect b) { return (DmLayout){ CGRectZero, CGRectZero, CGRectZero, b, NO, NO, NO, YES }; }
  
- // Fill covers the full view only in the overlay layout (landscape). A portrait or tabletop split keeps the picture fitted in its
- // area above the controls, where cropping a small picture would cost more than the bars.
+ // Fill covers the full view in landscape overlay and fills the fixed 4:3 portrait slot above the controls while clipping overflow.
+ // A tabletop half-open split keeps the picture fitted in its half where cropping a wide half leaves too little height.
 diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 index c6260b8..49a9c9a 100644
 --- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
@@ -121,10 +117,10 @@ index c6260b8..49a9c9a 100644
  void front_ios_boot(void) {}
  bool dm_show_launcher(void *viewController, void (*done)(void)) { (void)viewController; (void)done; return false; }
 diff --git a/dm/ios/tests/duo/Tests/DuoHarnessTests.m b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
-index e136ecd..81b0dd0 100644
+index 77c96a1..77163f8 100644
 --- a/dm/ios/tests/duo/Tests/DuoHarnessTests.m
 +++ b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
-@@ -1312,6 +1312,36 @@ - (void)testPoseChangeReleasesHeldButtonAndGameTouch {
+@@ -1338,6 +1338,36 @@ - (void)testPoseChangeReleasesHeldButtonAndGameTouch {
      [self endTouches:@[video, button] onPad:pad cancelled:NO];
  }
  

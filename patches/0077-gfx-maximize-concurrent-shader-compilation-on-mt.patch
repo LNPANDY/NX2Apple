@@ -44,7 +44,7 @@ index b9f6f68..f3339ab 100644
          c.dev = dev;
          c.queue = [dev newCommandQueue];
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index eec5fbd..0e70006 100644
+index 6066bec..9d1fdeb 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
 @@ -1289,6 +1289,14 @@ static void mtl_init_once(void) {
@@ -63,10 +63,10 @@ index eec5fbd..0e70006 100644
      g_bc_gpu = [g_dev supportsBCTextureCompression];
      g_bc_cpu = !g_bc_gpu && dm_prof()->tex_bc_cpu;
 diff --git a/dm/gfx/tests/Makefile b/dm/gfx/tests/Makefile
-index 8f2e8c8..80d7674 100644
+index ae09681..aa3e271 100644
 --- a/dm/gfx/tests/Makefile
 +++ b/dm/gfx/tests/Makefile
-@@ -92,6 +92,14 @@ t_mtl_init: t_mtl_init.m $(MTL_T_DEP)
+@@ -97,6 +97,14 @@ t_mtl_init: t_mtl_init.m $(MTL_T_DEP)
  check_t_mtl_init: t_mtl_init
  	./t_mtl_init
  	DM_TEST_NO_METAL4=1 ./t_mtl_init

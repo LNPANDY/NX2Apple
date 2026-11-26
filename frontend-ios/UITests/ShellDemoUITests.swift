@@ -399,34 +399,23 @@ import XCTest
         XCTAssertTrue(app.buttons["controllers.open"].isHittable)
     }
 
-    func testEditorMenuKeepsExitAndSaveVisibleWhileScrolling() {
+    func testEditorBarsKeepExitSaveAndOrientationVisible() {
         XCUIDevice.shared.orientation = .landscapeLeft
         launch("shell-settings")
         let arrange = app.buttons["shellSettings.arrange"]
         reveal(arrange)
         arrange.tap()
-        let options = app.buttons["touchLayout.options"]
-        XCTAssertTrue(options.waitForExistence(timeout: 5))
-        Thread.sleep(forTimeInterval: 2.25)
-        capture("touch-editor-idle-glow")
-        XCTAssertTrue(app.descendants(matching: .any)["touchLayout.tip"].firstMatch.waitForExistence(timeout: 5))
-        options.tap()
         let save = app.buttons["touchLayout.done"]
         let exit = app.buttons["touchLayout.back"]
+        let landSeg = app.buttons["touchLayout.orientation.landscape"]
+        let portSeg = app.buttons["touchLayout.orientation.portrait"]
         XCTAssertTrue(save.waitForExistence(timeout: 5))
-        XCTAssertEqual(app.staticTexts["touchLayout.orientation"].label, "Landscape")
-        XCTAssertFalse(app.staticTexts["Stick placement presets"].exists)
-        let y = save.frame.midY
-        let scroll = app.scrollViews["touchLayout.options.scroll"].firstMatch
-        XCTAssertTrue(scroll.waitForExistence(timeout: 5))
-        let lower = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
-        let upper = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
-        lower.press(forDuration: 0.05, thenDragTo: upper)
-        XCTAssertTrue(save.isHittable)
         XCTAssertTrue(exit.isHittable)
-        XCTAssertEqual(save.frame.midY, y, accuracy: 1)
-        upper.press(forDuration: 0.05, thenDragTo: lower)
-        XCTAssertEqual(save.frame.midY, y, accuracy: 1)
+        XCTAssertTrue(landSeg.isHittable && portSeg.isHittable)
+        XCTAssertTrue(landSeg.isSelected)
+        XCTAssertTrue(app.descendants(matching: .any)["touchLayout.bottomDock"].exists)
+        XCTAssertFalse(app.buttons["touchLayout.options"].exists)
+        capture("touch-editor-landscape")
     }
 
     func testNativeSettingsSwitchUpdatesAndTouchControlsStillOpens() {
@@ -444,9 +433,11 @@ import XCTest
         let arrange = app.buttons["shellSettings.arrange"]
         reveal(arrange)
         XCTAssertTrue(arrange.isHittable)
+        XCTAssertTrue(app.buttons["shellSettings.touchCard.landscape"].exists)
+        XCTAssertTrue(app.buttons["shellSettings.touchCard.portrait"].exists)
         capture("native-grouped-settings")
         arrange.tap()
-        XCTAssertTrue(app.buttons["touchLayout.options"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["touchLayout.done"].waitForExistence(timeout: 5))
     }
 
     func testAudioMixSwitchTogglesAndPersistsInSettings() {
@@ -501,13 +492,14 @@ import XCTest
 
     // Run on a standard iPhone: editing follows the live orientation, switches landscape/portrait in options, and restores browsing.
     func testPhoneEditorOpensPortraitRotatesAndSwitchesPose() {
+        extraArguments = ["-AppleLanguages", "(en)"]
         XCUIDevice.shared.orientation = .portrait
         launch("shell-settings")
         let arrange = app.buttons["shellSettings.arrange"]
         reveal(arrange)
         arrange.tap()
-        let options = app.buttons["touchLayout.options"]
-        XCTAssertTrue(options.waitForExistence(timeout: 5))
+        let done = app.buttons["touchLayout.done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 5))
         let editor = app.otherElements["touchLayout.editor"].firstMatch
         let isPortrait = NSPredicate { _, _ in
             let frame = editor.frame
@@ -524,35 +516,26 @@ import XCTest
         XCTAssertTrue(stick.exists)
         XCTAssertGreaterThan(stick.frame.midY, app.windows.firstMatch.frame.midY)
 
-        options.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)).tap()
-        let pose = app.segmentedControls["setting.lay.pose"]
-        XCTAssertTrue(pose.waitForExistence(timeout: 5))
-        XCTAssertEqual(app.staticTexts["touchLayout.orientation"].label, "Portrait")
-        XCTAssertTrue(pose.buttons["Portrait"].isSelected)
+        let landSeg = app.buttons["touchLayout.orientation.landscape"]
+        let portSeg = app.buttons["touchLayout.orientation.portrait"]
+        XCTAssertTrue(portSeg.waitForExistence(timeout: 5) && portSeg.isSelected)
 
-        pose.buttons["Landscape"].tap()
-        expectation(for: NSPredicate { _, _ in
-            self.app.staticTexts["touchLayout.orientation"].label == "Landscape"
-        }, evaluatedWith: nil)
-        waitForExpectations(timeout: 5)
-        XCTAssertTrue(pose.buttons["Landscape"].isSelected)
+        landSeg.tap()
+        XCTAssertTrue(app.otherElements["touchLayout.crossBanner"].waitForExistence(timeout: 5))
+        XCTAssertTrue(landSeg.isSelected)
 
-        pose.buttons["Portrait"].tap()
-        expectation(for: NSPredicate { _, _ in
-            self.app.staticTexts["touchLayout.orientation"].label == "Portrait"
-        }, evaluatedWith: nil)
-        waitForExpectations(timeout: 5)
+        portSeg.tap()
+        XCTAssertTrue(app.otherElements["touchLayout.crossBanner"].waitForNonExistence(timeout: 5))
+        XCTAssertTrue(portSeg.isSelected)
 
-        let done = app.buttons["touchLayout.done"]
-        XCTAssertTrue(done.waitForExistence(timeout: 5))
         done.tap()
         XCTAssertTrue(app.buttons["shellSettings.close"].waitForExistence(timeout: 5))
-        XCTAssertFalse(options.exists)
+        XCTAssertFalse(done.exists)
 
         // Reopen and verify physical rotation rotates both sideways and upright freely.
         reveal(arrange)
         arrange.tap()
-        XCTAssertTrue(options.waitForExistence(timeout: 5))
+        XCTAssertTrue(done.waitForExistence(timeout: 5))
         XCUIDevice.shared.orientation = .landscapeLeft
         expectation(for: isLandscape, evaluatedWith: nil)
         waitForExpectations(timeout: 5)
@@ -560,12 +543,11 @@ import XCTest
         expectation(for: isPortrait, evaluatedWith: nil)
         waitForExpectations(timeout: 5)
 
-        options.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)).tap()
         let exit = app.buttons["touchLayout.back"]
         XCTAssertTrue(exit.waitForExistence(timeout: 5))
         exit.tap()
         XCTAssertTrue(app.buttons["shellSettings.close"].waitForExistence(timeout: 5))
-        XCTAssertFalse(options.exists)
+        XCTAssertFalse(done.exists)
         let appPortrait = NSPredicate { _, _ in self.app.frame.height > self.app.frame.width }
         expectation(for: appPortrait, evaluatedWith: nil)
         waitForExpectations(timeout: 5)
@@ -578,7 +560,7 @@ import XCTest
         let arrange = app.buttons["shellSettings.arrange"]
         reveal(arrange)
         arrange.tap()
-        XCTAssertTrue(app.buttons["touchLayout.options"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["touchLayout.done"].waitForExistence(timeout: 5))
         for pose in [UIDeviceOrientation.portrait, .landscapeLeft, .portrait] {
             XCUIDevice.shared.orientation = pose
             let matches = NSPredicate { _, _ in
@@ -593,41 +575,35 @@ import XCTest
             XCTAssertTrue(stick.exists)
             XCTAssertGreaterThan(stick.frame.midY, app.windows.firstMatch.frame.midY)
         }
-        let options = app.buttons["touchLayout.options"]
-        options.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)).tap()
-        XCTAssertTrue(app.buttons["touchLayout.done"].waitForExistence(timeout: 5))
         app.buttons["touchLayout.done"].tap()
         XCTAssertTrue(app.buttons["shellSettings.close"].waitForExistence(timeout: 5))
-        XCTAssertFalse(options.exists)
+        XCTAssertFalse(app.buttons["touchLayout.done"].exists)
         reveal(arrange)
         arrange.tap()
-        XCTAssertTrue(options.waitForExistence(timeout: 5))
-        options.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)).tap()
+        XCTAssertTrue(app.buttons["touchLayout.back"].waitForExistence(timeout: 5))
         app.buttons["touchLayout.back"].tap()
         XCTAssertTrue(app.buttons["shellSettings.close"].waitForExistence(timeout: 5))
-        XCTAssertFalse(options.exists)
+        XCTAssertFalse(app.buttons["touchLayout.back"].exists)
     }
 
     func testSavedTouchModeReopensSelected() {
         launch("shell-settings")
-        func openOptions() {
+        func openEditor() {
             let arrange = app.buttons["shellSettings.arrange"]
             reveal(arrange)
             arrange.tap()
-            let options = app.buttons["touchLayout.options"]
-            XCTAssertTrue(options.waitForExistence(timeout: 5))
-            options.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)).tap()
             XCTAssertTrue(app.buttons["touchLayout.done"].waitForExistence(timeout: 5))
         }
-        openOptions()
-        let modes = app.segmentedControls["setting.lay.layout"]
-        let original = modes.buttons.allElementsBoundByIndex.first { $0.isSelected }!.label
-        modes.buttons["2D"].tap()
+        openEditor()
+        let mode2D = app.buttons["touchLayout.mode.2d"]
+        let mode3D = app.buttons["touchLayout.mode.3d"]
+        let was3D = mode3D.isSelected
+        (was3D ? mode2D : mode3D).tap()
         app.buttons["touchLayout.done"].tap()
         XCTAssertTrue(app.buttons["shellSettings.close"].waitForExistence(timeout: 5))
-        openOptions()
-        XCTAssertTrue(modes.buttons["2D"].isSelected)
-        modes.buttons[original].tap()
+        openEditor()
+        XCTAssertTrue((was3D ? mode2D : mode3D).isSelected)
+        (was3D ? mode3D : mode2D).tap()
         app.buttons["touchLayout.done"].tap()
         XCTAssertTrue(app.buttons["shellSettings.close"].waitForExistence(timeout: 5))
     }
@@ -671,33 +647,31 @@ import XCTest
 
     func testEditedTouchControlsSaveAndDiscardBothCloseTheEditor() {
         launch("shell-settings")
-        func openOptions() {
+        func openEditor() {
             let arrange = app.buttons["shellSettings.arrange"]
             reveal(arrange)
             arrange.tap()
-            let options = app.buttons["touchLayout.options"]
-            XCTAssertTrue(options.waitForExistence(timeout: 5))
-            options.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)).tap()
             XCTAssertTrue(app.buttons["touchLayout.done"].waitForExistence(timeout: 5))
         }
-        openOptions()
-        let sizes = app.segmentedControls["setting.shell.touchSize"]
-        let original = sizes.buttons.allElementsBoundByIndex.first { $0.isSelected }!.label
-        let changed = original == "Large" ? "Small" : "Large"
-        sizes.buttons[changed].tap()
+        openEditor()
+        let smallBtn = app.buttons["touchLayout.size.small"]
+        let largeBtn = app.buttons["touchLayout.size.large"]
+        let medBtn = app.buttons["touchLayout.size.medium"]
+        let wasLarge = largeBtn.isSelected
+        (wasLarge ? smallBtn : largeBtn).tap()
         app.buttons["touchLayout.done"].tap()
         XCTAssertTrue(app.buttons["shellSettings.close"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["touchLayout.options"].exists)
-        openOptions()
-        sizes.buttons[original].tap()
+        XCTAssertFalse(app.buttons["touchLayout.done"].exists)
+        openEditor()
+        (wasLarge ? largeBtn : medBtn).tap()
         app.buttons["touchLayout.back"].tap()
         let discard = app.buttons["touchLayout.discard"].firstMatch
         XCTAssertTrue(discard.waitForExistence(timeout: 5))
         discard.tap()
         XCTAssertTrue(app.buttons["shellSettings.close"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["touchLayout.options"].exists)
-        openOptions()
-        sizes.buttons[original].tap()
+        XCTAssertFalse(app.buttons["touchLayout.back"].exists)
+        openEditor()
+        medBtn.tap()
         app.buttons["touchLayout.done"].tap()
         XCTAssertTrue(app.buttons["shellSettings.close"].waitForExistence(timeout: 5))
     }
@@ -707,8 +681,6 @@ import XCTest
         let arrange = app.buttons["shellSettings.arrange"]
         reveal(arrange)
         arrange.tap()
-        XCTAssertTrue(app.buttons["touchLayout.options"].waitForExistence(timeout: 5))
-        app.buttons["touchLayout.options"].tap()
         XCTAssertTrue(app.buttons["touchLayout.back"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["touchLayout.done"].isHittable)
         XCTAssertTrue(app.otherElements["touchLayout.editor"].firstMatch.exists)
@@ -717,8 +689,6 @@ import XCTest
         XCTAssertTrue(app.buttons["shellSettings.close"].waitForExistence(timeout: 5))
         reveal(arrange)
         arrange.tap()
-        XCTAssertTrue(app.buttons["touchLayout.options"].waitForExistence(timeout: 5))
-        app.buttons["touchLayout.options"].tap()
         XCTAssertTrue(app.buttons["touchLayout.done"].waitForExistence(timeout: 5))
         app.buttons["touchLayout.done"].tap()
         XCTAssertTrue(app.buttons["shellSettings.close"].waitForExistence(timeout: 5))
@@ -730,8 +700,6 @@ import XCTest
         let arrange = app.buttons["shellSettings.arrange"]
         reveal(arrange)
         arrange.tap()
-        XCTAssertTrue(app.buttons["touchLayout.options"].waitForExistence(timeout: 5))
-        app.buttons["touchLayout.options"].tap()
         XCTAssertTrue(app.buttons["touchLayout.back"].waitForExistence(timeout: 5))
         let editor = app.otherElements["touchLayout.editor"]
         XCTAssertTrue(editor.waitForExistence(timeout: 5))
@@ -783,6 +751,7 @@ import XCTest
     }
 
     func testNativeMenuReturnsFromExistingTouchEditor() {
+        extraArguments = ["-AppleLanguages", "(en)"]
         launch("shell-settings")
         let arrange = app.buttons["shellSettings.arrange"]
         for _ in 0..<6 {
@@ -791,8 +760,6 @@ import XCTest
         }
         XCTAssertTrue(arrange.isHittable)
         arrange.tap()
-        XCTAssertTrue(app.buttons["touchLayout.options"].waitForExistence(timeout: 5))
-        app.buttons["touchLayout.options"].tap()
         let done = app.buttons["touchLayout.done"]
         XCTAssertTrue(done.waitForExistence(timeout: 5))
         XCTAssertEqual(done.label, "Save")
@@ -1587,20 +1554,12 @@ import XCTest
         openSettings.tap()
         XCTAssertTrue(app.buttons["shellSettings.close"].waitForExistence(timeout: 5))
 
-        // Verify touch layout editor options popover exposes Reset all controls.
+        // Verify persistent bottom dock exposes Reset Portrait / Reset Landscape.
         let arrange = app.buttons["shellSettings.arrange"]
         reveal(arrange)
         arrange.tap()
-        let options = app.buttons["touchLayout.options"]
-        XCTAssertTrue(options.waitForExistence(timeout: 5))
-        options.tap()
-        let optionsScroll = app.scrollViews["touchLayout.options.scroll"].firstMatch
-        XCTAssertTrue(optionsScroll.waitForExistence(timeout: 5))
         let resetAll = app.buttons["touchLayout.resetAll"]
-        for _ in 0..<4 where !resetAll.exists {
-            optionsScroll.swipeUp()
-        }
-        XCTAssertTrue(resetAll.exists)
+        XCTAssertTrue(resetAll.waitForExistence(timeout: 5))
         app.buttons["touchLayout.back"].tap()
 
         // Verify secondary game settings route supports iOS left-edge swipe back.
@@ -1668,5 +1627,104 @@ import XCTest
         XCTAssertTrue(sheet.staticTexts["setting.DM_SHOW_FPS.envOverride"].exists)
         XCTAssertTrue(sheet.staticTexts["setting.DM_RENDER_SCALE.envOverride"].exists)
         capture("env-override-zh")
+    }
+
+    func testDualOrientationTouchOverviewAndEditorsEN() {
+        runDualOrientationTouchFlow(language: "en")
+    }
+
+    func testDualOrientationTouchOverviewAndEditorsZH() {
+        runDualOrientationTouchFlow(language: "zh-Hans")
+    }
+
+    private func runDualOrientationTouchFlow(language: String) {
+        let suffix = language == "zh-Hans" ? "zh" : "en"
+        extraArguments = ["-AppleLanguages", "(\(language))"]
+        XCUIDevice.shared.orientation = .portrait
+        launch("shell-settings")
+
+        let arrange = app.buttons["shellSettings.arrange"]
+        reveal(arrange)
+        let landCard = app.buttons["shellSettings.touchCard.landscape"]
+        let portCard = app.buttons["shellSettings.touchCard.portrait"]
+        XCTAssertTrue(landCard.waitForExistence(timeout: 5))
+        XCTAssertTrue(portCard.exists)
+
+        // Open editor upright -> portrait 4:3 preview + independent dock
+        arrange.tap()
+        let done = app.buttons["touchLayout.done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 5))
+        let portSeg = app.buttons["touchLayout.orientation.portrait"]
+        let landSeg = app.buttons["touchLayout.orientation.landscape"]
+        XCTAssertTrue(portSeg.waitForExistence(timeout: 5) && portSeg.isSelected)
+
+        let reset = app.buttons["touchLayout.resetAll"]
+        let confirm = app.buttons["touchLayout.resetAll.confirm"].firstMatch
+        func resetIfDirty() {
+            if reset.isEnabled {
+                reset.tap()
+                XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+                confirm.tap()
+            }
+        }
+        resetIfDirty()
+        landSeg.tap()
+        resetIfDirty()
+        portSeg.tap()
+
+        // Customize portrait only: small + higher + 2D
+        app.buttons["touchLayout.size.small"].tap()
+        app.buttons["touchLayout.stick.higher"].tap()
+        app.buttons["touchLayout.mode.2d"].tap()
+        capture("dual-touch-portrait-editor-\(suffix)")
+
+        // Switch to landscape while physically upright -> cross-orientation locked preview
+        landSeg.tap()
+        XCTAssertTrue(app.otherElements["touchLayout.crossBanner"].waitForExistence(timeout: 5))
+        XCTAssertTrue(landSeg.isSelected)
+        XCTAssertTrue(app.buttons["touchLayout.mode.3d"].isSelected, "Landscape must remain 3D independently of portrait 2D")
+        app.buttons["touchLayout.size.large"].tap()
+        capture("dual-touch-cross-landscape-\(suffix)")
+
+        // Save and verify overview cards in Settings
+        done.tap()
+        XCTAssertTrue(app.buttons["shellSettings.close"].waitForExistence(timeout: 5))
+        reveal(arrange)
+        capture("dual-touch-settings-\(suffix)")
+
+        // Reopen and rotate physically to landscape -> compact bottom glass bar
+        XCUIDevice.shared.orientation = .landscapeLeft
+        reveal(arrange)
+        arrange.tap()
+        XCTAssertTrue(done.waitForExistence(timeout: 5))
+        let isLandscape = NSPredicate { _, _ in
+            let f = self.app.otherElements["touchLayout.editor"].firstMatch.frame
+            return f.width > f.height
+        }
+        expectation(for: isLandscape, evaluatedWith: nil)
+        waitForExpectations(timeout: 5)
+        XCTAssertTrue(landSeg.isSelected)
+        XCTAssertTrue(app.buttons["touchLayout.size.large"].isSelected)
+        capture("dual-touch-landscape-editor-\(suffix)")
+
+        // Reset ONLY landscape and verify portrait stays customized
+        XCTAssertTrue(reset.isEnabled)
+        reset.tap()
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        confirm.tap()
+        let medium = app.buttons["touchLayout.size.medium"]
+        expectation(for: NSPredicate(format: "isSelected == true"), evaluatedWith: medium)
+        waitForExpectations(timeout: 3)
+        portSeg.tap()
+        XCTAssertTrue(app.buttons["touchLayout.size.small"].isSelected, "Resetting landscape must preserve portrait size")
+        XCTAssertTrue(app.buttons["touchLayout.mode.2d"].isSelected, "Resetting landscape must preserve portrait 2D mode")
+
+        // Reset portrait too so simulator defaults remain clean
+        reset.tap()
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        confirm.tap()
+        done.tap()
+        XCTAssertTrue(app.buttons["shellSettings.close"].waitForExistence(timeout: 5))
+        XCUIDevice.shared.orientation = .portrait
     }
 }

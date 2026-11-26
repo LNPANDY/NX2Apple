@@ -28,7 +28,7 @@ Issue: none
  create mode 100644 dm/tools/tests/test_cheat_bake.py
 
 diff --git a/dm/host/dm.h b/dm/host/dm.h
-index 4e6b7a6..0bdb107 100644
+index 5132d84..c25774a 100644
 --- a/dm/host/dm.h
 +++ b/dm/host/dm.h
 @@ -109,6 +109,7 @@ typedef struct {
@@ -39,7 +39,7 @@ index 4e6b7a6..0bdb107 100644
      uint32_t step_max;         // the largest step the frame step stubs give the game (the fixups table's STEP_MAX, patch_nso.py ctx.step_max); 0 = FSTEP_MAX
      uint32_t render_scale_max; // a render-scale stub's largest scale (the fixups table's RENDER_SCALE, patch_nso.py): DM_RENDER_SCALE is held to it; 0 = no such stub
      int fstep_t120;            // the frame step stub takes its step in ticks of 1/120 s (the FRAME_STEP_120 capability: state +0x38 120, and 40 fps)
-@@ -290,6 +291,33 @@ const char *dm_cheats_skipped_name(int i);
+@@ -293,6 +294,33 @@ const char *dm_cheats_skipped_name(int i);
  const char *dm_cheats_skipped_why(int i);
  int dm_cheats_nsources(void);         // anchored sources (*.cheats.toml) in the cheats folder
  const char *dm_cheats_source(int i);

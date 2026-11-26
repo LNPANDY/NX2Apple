@@ -217,7 +217,6 @@ extension LibraryView {
 
     func editorPage(_ model: TouchLayoutEditorModel) -> some View {
         TouchLayoutEditorView(model: model, close: confirmTouchLayout, cancel: closeTouchLayout)
-            .ignoresSafeArea(.container)
             #if os(iOS)
             .statusBarHidden(true)
             .persistentSystemOverlays(.hidden)

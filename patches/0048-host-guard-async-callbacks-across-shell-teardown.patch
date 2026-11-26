@@ -22,7 +22,7 @@ Issue: LNPANDY/NX2Apple (v1.5.0 local)
  11 files changed, 240 insertions(+), 23 deletions(-)
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index eae61c0..a53fc54 100644
+index d9db5f0..66f77a5 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
 @@ -126,6 +126,7 @@ static inline uint64_t tex_slot_h(const uint64_t *tex, const uint64_t *img, unsi
@@ -55,7 +55,7 @@ index eae61c0..a53fc54 100644
      } });
  }
  // What a drain takes out of the residency set leaves it, and is released, at the set's next commit, which the next submission makes. With none open none may come: the drain is
-@@ -23669,6 +23675,7 @@ static void cpu_pool_free_cb(void *v) {
+@@ -23712,6 +23718,7 @@ static void cpu_pool_free_cb(void *v) {
  
  void dm_gfx_teardown(void) { @autoreleasepool {
      atomic_store(&g_gfx_teardown, 1);
@@ -63,7 +63,7 @@ index eae61c0..a53fc54 100644
      mtl_present_discard(1);
      nvn_hle_wait_suspend();
      if (g_mp_src) {
-@@ -24131,6 +24138,7 @@ void dm_gfx_teardown(void) { @autoreleasepool {
+@@ -24189,6 +24196,7 @@ void dm_gfx_teardown(void) { @autoreleasepool {
      g_pre_out = nil;
      g_q4 = nil; g_q = nil; g_dev = nil;
      g_feedback_q = nil;
@@ -331,10 +331,10 @@ index 9b57466..d8c2a69 100644
 +    pthread_mutex_unlock(&g_spt_mu);
 +}
 diff --git a/dm/host/hle_lifecycle.c b/dm/host/hle_lifecycle.c
-index da9b01b..b6421b9 100644
+index 2b71ebc..560b194 100644
 --- a/dm/host/hle_lifecycle.c
 +++ b/dm/host/hle_lifecycle.c
-@@ -58,7 +58,12 @@ __attribute__((weak)) void dm_audren_teardown_post(void) {}
+@@ -64,7 +64,12 @@ __attribute__((weak)) void dm_audren_teardown_post(void) {}
  __attribute__((weak)) void dm_movie_stop_all(void) {}
  __attribute__((weak)) void dm_movie_teardown_post(void) {}
  __attribute__((weak)) void dm_save_sync_stop(void) {}
@@ -347,7 +347,7 @@ index da9b01b..b6421b9 100644
  __attribute__((weak)) void dm_gfx_quit_begin(void) {}
  __attribute__((weak)) void dm_gfx_teardown(void) {}
  __attribute__((weak)) void dm_fs_teardown(void) {}
-@@ -82,16 +87,21 @@ void dm_host_teardown_for_shell(void) {
+@@ -91,16 +96,21 @@ void dm_host_teardown_for_shell(void) {
      dm_audren_stop_all();
      dm_audio_stop_all();
      dm_movie_stop_all();
@@ -589,10 +589,10 @@ index 47a660b..a6a365d 100644
      puts("Apple haptics: channels, pulses, idle release, startup handlers, engine replacement, backoff, stale callbacks, plain players, Joy-Con recovery and lifetime, the DualSense's handles, level cutoff, DualShock 4, Pro Controller and 8BitDo report routes passed");
  } }
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index a631ea8..1c6e931 100644
+index 70426ff..78f4666 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
-@@ -922,7 +922,9 @@ void dm_gamepad_reset(void) {   // On resign active: release everything (a key h
+@@ -962,7 +962,9 @@ void dm_gamepad_reset(void) {   // On resign active: release everything (a key h
      if (g_merge) dm_pad_set(0, 0, 0, 0, 0);
      else for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p]) dm_pad_set_player(p, 0, 0, 0, 0, 0);
  }

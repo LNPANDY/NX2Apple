@@ -39,11 +39,11 @@ import ShellUI
         #expect(store.touchSize == "medium" && store.gameDefaults["DM_TOUCH_SIZE"] == nil)
         store.storeTouchSize("large")
         #expect(ShellSettingsStore(defaults: store.defaults).touchSize == "large")
-        #expect(store.gameDefaults == ["DM_TOUCH_SIZE": "large"])
+        #expect(store.gameDefaults == ["DM_TOUCH_SIZE": "large", "DM_TOUCH_SIZE_PORTRAIT": "medium"])
         store.storeTouchSize("huge")
         #expect(store.touchSize == "large", "a size the engine does not know is not stored")
         store.storeTouchSize("small")
-        #expect(store.gameDefaults["DM_TOUCH_SIZE"] == "small")
+        #expect(store.gameDefaults["DM_TOUCH_SIZE"] == "small" && store.gameDefaults["DM_TOUCH_SIZE_PORTRAIT"] == "medium")
         store.storeTouchSize("medium")
         #expect(store.defaults.object(forKey: ShellSettingsStore.touchSizeKey) == nil && store.gameDefaults.isEmpty)
         store.defaults.set("giant", forKey: ShellSettingsStore.touchSizeKey)
@@ -55,11 +55,12 @@ import ShellUI
         #expect(store.touchStick == "corner" && store.gameDefaults["DM_TOUCH_STICK"] == nil)
         store.storeTouchStick("inward")
         store.storeTouchSize("small")
-        #expect(store.gameDefaults == ["DM_TOUCH_STICK": "inward", "DM_TOUCH_SIZE": "small"])
+        #expect(store.gameDefaults == ["DM_TOUCH_STICK": "inward", "DM_TOUCH_STICK_PORTRAIT": "corner",
+                                       "DM_TOUCH_SIZE": "small", "DM_TOUCH_SIZE_PORTRAIT": "medium"])
         store.storeTouchStick("left")
         #expect(store.touchStick == "inward", "a place the engine does not know is not stored")
         store.storeTouchStick("corner")
-        #expect(store.defaults.object(forKey: ShellSettingsStore.touchStickKey) == nil && store.gameDefaults == ["DM_TOUCH_SIZE": "small"])
+        #expect(store.defaults.object(forKey: ShellSettingsStore.touchStickKey) == nil && store.gameDefaults == ["DM_TOUCH_SIZE": "small", "DM_TOUCH_SIZE_PORTRAIT": "medium"])
     }
 
     /// The arrangement (#414) is stored as the engine's value and goes to every game as DM_TOUCH_LAYOUT. Reset removes it per layout.
@@ -157,5 +158,23 @@ import ShellUI
         #expect(store.gameDefaults["DM_TOUCH_TOGGLE"] == nil)
         #expect(store.gameDefaults["DM_TOUCH_SIZE"] == "large")
         #expect(store.gameDefaults["DM_TOUCH_STICK"] == "inward")
+    }
+
+    @Test func portraitDefaultsPreventLandscapeOverridesFromLeakingWhenPortraitIsBuiltIn() {
+        let store = shell()
+        store.storeTouchSize("large", for: .landscape)
+        store.storeTouchStick("inward", for: .landscape)
+        store.storeTouchMode("2d", for: .landscape)
+
+        #expect(store.gameDefaults["DM_TOUCH_SIZE"] == "large")
+        #expect(store.gameDefaults["DM_TOUCH_SIZE_PORTRAIT"] == "medium")
+        #expect(store.gameDefaults["DM_TOUCH_STICK"] == "inward")
+        #expect(store.gameDefaults["DM_TOUCH_STICK_PORTRAIT"] == "corner")
+        #expect(store.gameDefaults["DM_PROF_PAD_LAYOUT"] == "0")
+        #expect(store.gameDefaults["DM_PAD_LAYOUT_PORTRAIT"] == "1")
+
+        store.resetTouchConfiguration(for: .landscape)
+        #expect(store.gameDefaults["DM_TOUCH_SIZE"] == nil)
+        #expect(store.gameDefaults["DM_TOUCH_SIZE_PORTRAIT"] == nil)
     }
 }

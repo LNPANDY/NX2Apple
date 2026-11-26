@@ -2221,9 +2221,25 @@ public struct ShellHostConfig: Sendable {
     /// A game's values for the engine: its own choices, then the shell's defaults. A game whose settings list has no
     /// performance overlay row still gets the shell's choice.
     func launchEnvironment(profile: LauncherProfile, id: String) -> [String: String] {
+        let shellDefaults = shellSettings.gameDefaults
         let envOverrides = gameEnvOverrides(for: id)
-        var env = GameSettingsStore(profile: profile, defaults: config.defaults(id), shell: shellSettings.gameDefaults, envFile: envOverrides).values()
-        for (key, value) in shellSettings.gameDefaults where env[key] == nil { env[key] = value }
+        let store = GameSettingsStore(profile: profile, defaults: config.defaults(id), shell: shellDefaults, envFile: envOverrides)
+        var env = store.values()
+        for (key, value) in shellDefaults where env[key] == nil {
+            if key == "DM_TOUCH_SIZE_PORTRAIT",
+               let touchSize = profile.settings.first(where: { $0.env == "DM_TOUCH_SIZE" }),
+               !store.isFromShell(touchSize),
+               envOverrides["DM_TOUCH_SIZE_PORTRAIT"] == nil {
+                continue
+            }
+            if key == "DM_TOUCH_STICK_PORTRAIT",
+               let touchStick = profile.settings.first(where: { $0.env == "DM_TOUCH_STICK" }),
+               !store.isFromShell(touchStick),
+               envOverrides["DM_TOUCH_STICK_PORTRAIT"] == nil {
+                continue
+            }
+            env[key] = value
+        }
         // The words the engine shows once per launch where the 3D layout's undrawn right stick is (patch 0067), in the player's language.
         env["DM_TOUCH_HINT"] = Self.touchHint
         // Shown once below the gear button while a physical controller is connected, in the player's language.

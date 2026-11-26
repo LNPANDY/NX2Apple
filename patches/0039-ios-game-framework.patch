@@ -134,11 +134,11 @@ index 0000000..663ebe8
 +}
 +#endif
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index e763931..e862fb2 100644
+index 3ed3666..9d7f828 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
-@@ -190,7 +190,10 @@ - (void)startGame {
-     [self.view addSubview:self.game];
+@@ -201,7 +201,10 @@ - (void)startGame {
+     [self.gameClip addSubview:self.game];
      g_layer = (CAMetalLayer *)self.game.layer;
      if (getenv("DM_METAL_HUD") && atoi(getenv("DM_METAL_HUD"))) { g_layer.developerHUDProperties = @{@"mode": @"default"}; LOG("front end: Metal performance HUD on (DM_METAL_HUD)"); }   // Apple's HUD over the game: frame rate, frame and GPU time, memory
 -    else if (front_ios_hud_enabled_from_saved_choice()) g_layer.developerHUDProperties = @{@"mode": @"disabled"};   // the launcher switched off a HUD enabled by the saved choice

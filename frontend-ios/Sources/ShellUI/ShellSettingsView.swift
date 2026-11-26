@@ -165,8 +165,14 @@ struct ShellSettingsView: View {
                 }
 
                 Section {
-                    TouchArrangeRow(arranged: !store.touchLayout.isEmpty)
+                    TouchOrientationOverviewCards(store: store)
+                        .listRowInsets(EdgeInsets(top: 10, leading: 12, bottom: 6, trailing: 12))
+                    TouchArrangeRow(arranged: store.isTouchCustomized(for: .landscape) || store.isTouchCustomized(for: .portrait))
                         .id("shs.arrange")
+                } header: {
+                    Text(ShellStrings.text("Touch controls"))
+                } footer: {
+                    Text(ShellStrings.text("Landscape and portrait layouts are configured and saved independently."))
                 }
 
                 if actions.supportsSideloadCertificate || sideloadCertificate != nil {
