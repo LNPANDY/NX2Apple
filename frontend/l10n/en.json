@@ -1,11 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "en"
-    ],
-    "name": "English",
-    "order": 1
-  },
+  "_language": {"locales": ["en"], "name": "English", "order": 1},
   "activity.averageSession": "Average %@",
   "activity.button": "Activity Log",
   "activity.dayCount": "%lld days",
@@ -1564,7 +1558,6 @@
   "ios.ui.noData": "No data selected",
   "ios.ui.noFolder": "No folder chosen",
   "ios.ui.off": "Off",
-  "ios.ui.ok": "OK",
   "ios.ui.on": "On",
   "ios.ui.onController": "On a controller",
   "ios.ui.openControllerSettings": "Open Game Controller Settings",

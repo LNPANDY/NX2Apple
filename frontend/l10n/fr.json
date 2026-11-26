@@ -1,12 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "fr",
-      "french"
-    ],
-    "name": "Français",
-    "order": 4
-  },
+  "_language": {"locales": ["fr", "french"], "name": "Français", "order": 4},
   "activity.averageSession": "Moyenne %@",
   "activity.button": "Journal d’activité",
   "activity.dayCount": "%lld jours",
@@ -1565,7 +1558,6 @@
   "ios.ui.noData": "Aucune donnée choisie",
   "ios.ui.noFolder": "Aucun dossier choisi",
   "ios.ui.off": "Désactivé",
-  "ios.ui.ok": "OK",
   "ios.ui.on": "Activé",
   "ios.ui.onController": "Sur une manette",
   "ios.ui.openControllerSettings": "Ouvrir les réglages de la manette",

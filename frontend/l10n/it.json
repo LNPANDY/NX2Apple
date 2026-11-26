@@ -1,12 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "it",
-      "italian",
-      "italiano"
-    ],
-    "name": "Italiano"
-  },
+  "_language": {"locales": ["it", "italian", "italiano"], "name": "Italiano"},
   "activity.averageSession": "Media %@",
   "activity.button": "Diario attività",
   "activity.dayCount": "%lld giorni",
@@ -1565,7 +1558,6 @@
   "ios.ui.noData": "Nessun dato selezionato",
   "ios.ui.noFolder": "Nessuna cartella scelta",
   "ios.ui.off": "Disattivato",
-  "ios.ui.ok": "OK",
   "ios.ui.on": "Attivato",
   "ios.ui.onController": "Su un controller",
   "ios.ui.openControllerSettings": "Apri impostazioni controller",

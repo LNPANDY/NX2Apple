@@ -1,12 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "ko",
-      "korean",
-      "한국어"
-    ],
-    "name": "한국어"
-  },
+  "_language": {"locales": ["ko", "korean", "한국어"], "name": "한국어"},
   "activity.averageSession": "평균 %@",
   "activity.button": "플레이 기록",
   "activity.dayCount": "%lld일",
@@ -1565,7 +1558,6 @@
   "ios.ui.noData": "선택된 데이터 없음",
   "ios.ui.noFolder": "선택된 폴더 없음",
   "ios.ui.off": "끔",
-  "ios.ui.ok": "확인",
   "ios.ui.on": "켬",
   "ios.ui.onController": "컨트롤러에서",
   "ios.ui.openControllerSettings": "게임 컨트롤러 설정 열기",

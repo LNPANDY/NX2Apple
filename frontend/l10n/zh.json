@@ -1,12 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "zh",
-      "chinese"
-    ],
-    "name": "中文",
-    "order": 0
-  },
+  "_language": {"locales": ["zh", "chinese"], "name": "中文", "order": 0},
   "activity.averageSession": "平均 %@",
   "activity.button": "游玩记录",
   "activity.dayCount": "%lld 天",
@@ -1565,7 +1558,6 @@
   "ios.ui.noData": "未选择数据",
   "ios.ui.noFolder": "未选择文件夹",
   "ios.ui.off": "关",
-  "ios.ui.ok": "好",
   "ios.ui.on": "开",
   "ios.ui.onController": "在手柄上",
   "ios.ui.openControllerSettings": "打开手柄控制器设置",

@@ -1,13 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "de",
-      "german",
-      "deutsch"
-    ],
-    "name": "Deutsch",
-    "order": 3
-  },
+  "_language": {"locales": ["de", "german", "deutsch"], "name": "Deutsch", "order": 3},
   "activity.averageSession": "Schnitt %@",
   "activity.button": "Aktivitätslog",
   "activity.dayCount": "%lld Tage",
@@ -1566,7 +1558,6 @@
   "ios.ui.noData": "Keine Daten gewählt",
   "ios.ui.noFolder": "Kein Ordner gewählt",
   "ios.ui.off": "Aus",
-  "ios.ui.ok": "OK",
   "ios.ui.on": "An",
   "ios.ui.onController": "Auf einem Controller",
   "ios.ui.openControllerSettings": "Gamecontroller-Einstellungen öffnen",

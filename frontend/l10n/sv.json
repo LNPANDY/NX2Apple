@@ -1,12 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "sv",
-      "swedish"
-    ],
-    "name": "Svenska",
-    "order": 2
-  },
+  "_language": {"locales": ["sv", "swedish"], "name": "Svenska", "order": 2},
   "activity.averageSession": "Snitt %@",
   "activity.button": "Aktivitetslogg",
   "activity.dayCount": "%lld dagar",
@@ -1565,7 +1558,6 @@
   "ios.ui.noData": "Ingen data vald",
   "ios.ui.noFolder": "Ingen mapp vald",
   "ios.ui.off": "Av",
-  "ios.ui.ok": "OK",
   "ios.ui.on": "På",
   "ios.ui.onController": "På en handkontroll",
   "ios.ui.openControllerSettings": "Öppna spelkontrollinställningar",

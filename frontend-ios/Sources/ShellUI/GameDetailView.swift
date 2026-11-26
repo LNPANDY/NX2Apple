@@ -62,7 +62,7 @@ public struct GameDetailView: View {
                 set: { if !$0 { localSaveFeedback = nil } }
             )
         ) {
-            Button(ShellStrings.text("OK")) { localSaveFeedback = nil }
+            Button(ShellStrings.text("Done")) { localSaveFeedback = nil }
         } message: {
             Text(localSaveFeedback ?? "")
         }

@@ -1,11 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "ja",
-      "japanese"
-    ],
-    "name": "日本語"
-  },
+  "_language": {"locales": ["ja", "japanese"], "name": "日本語"},
   "activity.averageSession": "平均 %@",
   "activity.button": "プレイ記録",
   "activity.dayCount": "%lld日間",
@@ -1564,7 +1558,6 @@
   "ios.ui.noData": "データが選択されていません",
   "ios.ui.noFolder": "フォルダが選択されていません",
   "ios.ui.off": "オフ",
-  "ios.ui.ok": "OK",
   "ios.ui.on": "オン",
   "ios.ui.onController": "コントローラーで",
   "ios.ui.openControllerSettings": "ゲームコントローラ設定を開く",

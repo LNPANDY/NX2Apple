@@ -1,12 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "pt-br",
-      "pt",
-      "portuguese"
-    ],
-    "name": "Português (Brasil)"
-  },
+  "_language": {"locales": ["pt-br", "pt", "portuguese"], "name": "Português (Brasil)"},
   "activity.averageSession": "Média %@",
   "activity.button": "Registro de atividade",
   "activity.dayCount": "%lld dias",
@@ -1565,7 +1558,6 @@
   "ios.ui.noData": "Nenhum dado selecionado",
   "ios.ui.noFolder": "Nenhuma pasta escolhida",
   "ios.ui.off": "Desligado",
-  "ios.ui.ok": "OK",
   "ios.ui.on": "Ligado",
   "ios.ui.onController": "Em um controle",
   "ios.ui.openControllerSettings": "Abrir Ajustes do Controle",
