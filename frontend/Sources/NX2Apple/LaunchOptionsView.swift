@@ -24,11 +24,12 @@ struct LaunchOptionsView: View {
     @State private var askingTested = false   // Use tested values asks first (#453)
     /// Build this game…: the launcher closes the sheet and opens the Builds page with this game's form (nil in a test).
     var onBuild: (LibraryGame) -> Void = { _ in }
-    /// The cheats and the saves have sheets of their own: the launcher closes this one and opens them (nil: the row does nothing).
+    /// The cheats have a sheet of their own: the launcher closes this one and opens them (nil: the row does nothing).
     var openCheats: ((UUID) -> Void)? = nil
-    var openSaves: ((UUID) -> Void)? = nil
     var initialCategory: LaunchCategory = .game
     var initialAdvancedOpen = false
+    var savesDevicectl: DeviceControl? = nil
+    var savesListDevices: (() -> [AppleDevice])? = nil
     @State private var initializedSelection = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var choicesRevision = 0   // bumped by a change: the values are read from the store again
@@ -220,15 +221,12 @@ struct LaunchOptionsView: View {
         }
     }
 
-    /// Saves: the cloud state of a Mac game and the sheet that imports, exports and shows the backups.
+    /// Saves: unified Mac save location/import/export, cloud saves, and Mac <-> iPhone/iPad transfer.
     @ViewBuilder private func saves(_ game: LibraryGame, destination: LaunchDestination) -> some View {
-        GameSavesSection(game: game, settings: saveSettings, players: players)   // first: the save files, import and export
-        if destination == .mac { CloudSavesCard(game: game, overrides: saveSettings, players: players) }
-        VStack(alignment: .leading, spacing: 10) {
-            heading(loc.t("saves.menu"))
-            card {
-                actionRow(title: loc.t("saves.menu"), detail: loc.t("launch.savesNote"), button: loc.t("launch.open"), id: "opt.saves") { openSaves?(game.id) }
-            }
+        GameSavesSection(game: game, settings: saveSettings, players: players, padScope: "launch")
+        if destination == .mac { CloudSavesCard(game: game, overrides: saveSettings, players: players, padScope: "launch") }
+        if SaveEngines.forApp(game.appPath, titleID: game.titleID).managesSavesInLauncher {
+            LaunchOptionsDeviceSavesCard(m: m, game: game, saveSettings: saveSettings, devicectl: savesDevicectl, listDevices: savesListDevices)
         }
     }
 

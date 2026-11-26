@@ -93,7 +93,7 @@ enum GallerySheet: String, CaseIterable {
         case .freeSpace, .freeSpaceMeasuring: return CGSize(width: 560, height: 690)
         case .buildSelected, .buildSelectedEmpty: return CGSize(width: 680, height: 720)
         case .supportedGames, .supportedGamesExpanded, .batchRefresh: return CGSize(width: 680, height: 720)
-        case .saves: return CGSize(width: 600, height: 560)
+        case .saves: return CGSize(width: 640, height: 700)
         case .buildSteps: return CGSize(width: 600, height: 440)
         case .cheats: return CGSize(width: 600, height: 700)
         case .activityLog: return CGSize(width: ActivityLogSheet.width, height: 780)
@@ -255,11 +255,23 @@ extension GalleryFixtures {
             )
             return AnyView(RefreshCompletionSheet(summary: summary, revealItem: { _ in }, onViewQueue: {}, close: {}))
         case .saves:   // no device is asked: a devicectl stand-in that answers nothing and the devices the launcher knows (none)
-            return AnyView(SavesView(m: stores.build, library: library, gameID: game.id, devicectl: DeviceControl { _ in (false, "") },
+            return AnyView(SavesView(m: stores.build, library: library, gameID: game.id,
+                                     saveSettings: stores.saveSettings, players: stores.players,
+                                     devicectl: DeviceControl { _ in (false, "") },
                                      support: directory.appendingPathComponent("support", isDirectory: true), listDevices: { [] }))
         case .saveImport:
-            return AnyView(SaveImportSheet(gameName: name, source: "/Users/Shared/Exports/\(game.name) save.zip",
-                                           target: "/Volumes/Games/\(game.name)/save/\(game.titleID)", cancel: {}, confirm: {}))
+            let plan = SaveImportPlan.galleryPlaceholder(
+                sourceSummary: "/Users/Shared/Exports/Thien_335352527",
+                kind: .slotFolder(name: "Thien_335352527"),
+                entries: [
+                    SaveImportEntry(targetFolder: "save", relativePath: "Thien_335352527/Thien_335352527", byteCount: 1_842_000),
+                    SaveImportEntry(targetFolder: "save", relativePath: "Thien_335352527/SaveGameInfo", byteCount: 14_200),
+                ],
+                hasExistingTargetSave: true,
+                recommendedMode: .merge
+            )
+            return AnyView(SaveImportSheet(gameName: name, plan: plan,
+                                           target: "/Volumes/Games/\(game.name)/save/\(game.titleID)", cancel: {}, confirm: { _ in }))
         case .activityLog, .activityLogEmpty:
             return AnyView(activityLogSheet(empty: sheet == .activityLogEmpty, library: library))
         case .skippedItems:

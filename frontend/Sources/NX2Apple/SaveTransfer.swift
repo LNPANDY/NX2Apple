@@ -53,12 +53,30 @@ struct SaveTransfer {
     static func macSave(titleID: String, appPath: String,
                         support: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0],
                         engine: (any SaveEngine)? = nil) -> (save: URL, legacy: URL?) {
-        let engine = engine ?? SaveEngines.forApp(appPath)
+        let engine = engine ?? SaveEngines.forApp(appPath, titleID: titleID)
         let legacy = engine.defaultSave(titleID: titleID, support: support)
         guard !appPath.isEmpty, engine.savesInLibraryFolder else { return (legacy, nil) }
         let folder = URL(fileURLWithPath: appPath).deletingLastPathComponent()
         guard FileManager.default.fileExists(atPath: folder.appendingPathComponent(GameLog.marker).path) else { return (legacy, nil) }
         return (folder.appendingPathComponent("save").appendingPathComponent(titleID), legacy)
+    }
+
+    /// Resolves the effective Mac save folder respecting global and per-game overrides from `SaveSettingsStore`.
+    static func macSave(titleID: String, appPath: String,
+                        global: SaveGlobalSettings, game: SaveGameOverride,
+                        support: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0],
+                        engine: (any SaveEngine)? = nil) -> (save: URL, legacy: URL?) {
+        let resolvedEngine = engine ?? SaveEngines.forApp(appPath, titleID: titleID)
+        let effective = SaveLocations.effectiveSave(
+            titleID: titleID,
+            appPath: appPath,
+            global: global,
+            game: game,
+            support: support,
+            engine: resolvedEngine
+        )
+        let legacy = effective.source == .libraryFolder ? resolvedEngine.defaultSave(titleID: titleID, support: support) : nil
+        return (effective.path, legacy)
     }
 
     /// A save folder on the Mac: `save` is DM_SAVE itself, `save_device` sits beside it as DM_SAVE + "_device".
@@ -342,33 +360,46 @@ struct SaveTransfer {
     }
 }
 
-/// The Saves sheet: the game's save on this Mac and on the device it was installed on, which is newer, and a copy either way.
-/// A copy asks first, in the sheet itself (a controller reaches it), and says where the save it replaced went.
+/// The unified Saves sheet: Mac <-> iPhone/iPad transfer, Mac save folder location/import/export/backups, and cloud save status.
 struct SavesView: View {
     @ObservedObject var m: BuildStore
     @EnvironmentObject var loc: Localizer
     @ObservedObject var library: GameLibrary
     let gameID: UUID
     var support: URL? = nil               // the Application Support folder; tests use a temporary one
+    @ObservedObject private var saveSettings: SaveSettingsStore
+    @ObservedObject private var players: PlayerProfileStore
     @StateObject private var model: SavesModel
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var focus: PadFocus
 
     @State private var asking: SaveTransfer.Side?   // the side whose save a copy would replace
     @State private var busy = false
-    @State private var result: (text: String, ok: Bool)?
     /// The state gallery's device state: shown as it is, nothing is asked (DesignGallery).
     private let galleryState: SavesModel.DeviceState?
+    private let galleryCloudPreview: (check: CloudSaveSync.FolderCheck?, last: (state: CloudSaveSync.LogState?, date: Date?)?)?
 
     /// `devicectl` and `listDevices` are what tests and the visual QA hand in as stand-ins: with a stand-in devicectl and no
     /// device list, the devices are the ones the launcher already knows, so nothing asks the system for them.
-    init(m: BuildStore, library: GameLibrary, gameID: UUID, devicectl: DeviceControl? = nil, support: URL? = nil,
-         listDevices: (() -> [AppleDevice])? = nil, timeout: TimeInterval = 30, galleryState: SavesModel.DeviceState? = nil) {
+    init(m: BuildStore, library: GameLibrary, gameID: UUID,
+         saveSettings: SaveSettingsStore? = nil, players: PlayerProfileStore? = nil,
+         devicectl: DeviceControl? = nil, support: URL? = nil,
+         listDevices: (() -> [AppleDevice])? = nil, timeout: TimeInterval = 30,
+         galleryState: SavesModel.DeviceState? = nil,
+         galleryCloudPreview: (check: CloudSaveSync.FolderCheck?, last: (state: CloudSaveSync.LogState?, date: Date?)?)? = nil) {
         self.galleryState = galleryState
+        self.galleryCloudPreview = galleryCloudPreview
         self.m = m; self.library = library; self.gameID = gameID; self.support = support
+        let resolvedSettings = saveSettings ?? SaveSettingsStore()
+        let resolvedPlayers = players ?? PlayerProfileStore()
+        self._saveSettings = ObservedObject(wrappedValue: resolvedSettings)
+        self._players = ObservedObject(wrappedValue: resolvedPlayers)
         let game = library.games.first { $0.id == gameID } ?? LibraryGame(titleID: "", name: "")
-        let mac = support.map { SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath, support: $0) }
-            ?? SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath)
+        let override = resolvedSettings.game(game.titleID)
+        let appEngine = SaveEngines.forApp(game.appPath, titleID: game.titleID)
+        let mac = support.map {
+            SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath, global: resolvedSettings.global, game: override, support: $0, engine: appEngine)
+        } ?? SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath, global: resolvedSettings.global, game: override, engine: appEngine)
         let control = devicectl ?? .xcrun(m.devices.xcrun, runner: m.runner)
         let template = SaveTransfer(titleID: game.titleID, macSave: mac.save, legacySave: mac.legacy, device: "", bundle: "", devicectl: control)
         let known = m.devices.devices, xcrun = m.devices.xcrun, runner = m.runner
@@ -384,54 +415,38 @@ struct SavesView: View {
     }
 
     private var game: LibraryGame? { library.games.first { $0.id == gameID } }
-    private var engine: (any SaveEngine)? { game.map { SaveEngines.forApp($0.appPath, titleID: $0.titleID) } }
-    private var engineManaged: Bool { engine?.managesSavesInLauncher ?? true }
-    private var isExternalMacNativeGames: Bool { engine is MacNativeGamesSaveEngine }
-    private var isSharedMacNativeGames: Bool { engine is MngSharedDmSaveEngine }
-    private var macSave: SaveTransfer.Contents { model.macSave }
-    private var deviceSave: SaveTransfer.Contents? { model.deviceSave }
-    /// Which folder the Mac save is read from, so "No save yet" says where it looked.
-    private var macLocationText: String {
-        func shown(_ url: URL) -> String { (url.path as NSString).abbreviatingWithTildeInPath }
-        switch model.macLocation {
-        case .library(let url): return String(format: loc.t("saves.macLibrary"), shown(url))
-        case .standard(let url): return String(format: loc.t("saves.macStandard"), shown(url))
-        case .pending(let url): return String(format: loc.t("saves.macPending"), shown(url))
-        }
-    }
-    /// The device the sheet asks: its name, or what the launcher recorded when the list has not come yet.
     private var deviceName: String { model.selectedDevice?.name ?? game.map { m.devices.deviceName($0.installedDevice) } ?? "iPhone" }
-    private var transfer: SaveTransfer { model.found ?? model.template }
 
     var body: some View {
-        DSScrollingSheet(width: 600, height: 560, title: loc.t("saves.title"), message: game?.displayName(loc.lang) ?? "") {
-            if model.showsSelector {
-                HStack(spacing: DS.Space.s) {
-                    Text(loc.t("saves.device")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
-                    LauncherDropdown(options: model.devices.map { d in
-                        (value: d.id, label: d.name + (d.reachable ? "" : " (" + loc.t("dev.notConnected") + ")"))
-                    }, selection: model.selected, label: loc.t("saves.device")) { model.select($0) }
-                    .padTarget("saves.device", scope: "saves") {}
-                }
-            }
-            DSSection("") {
-                sideRow(.mac)
-                DSRowDivider()
-                sideRow(.device)
-            }
-            if let asking { confirmation(asking) } else { actions }
-            if busy {
-                HStack(spacing: DS.Space.s) {
-                    ProgressView().controlSize(.small)
-                    Text(loc.t("saves.copying")).font(DS.Font.body).foregroundStyle(DS.Color.textSecondary)
-                }
-            } else if let result {
-                HStack(alignment: .firstTextBaseline, spacing: DS.Space.xs) {
-                    Image(systemName: result.ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                        .foregroundStyle(result.ok ? DS.Color.statusSuccess : DS.Color.statusWarning).accessibilityHidden(true)
-                    Text(result.text).font(DS.Font.body).foregroundStyle(DS.Color.textPrimary).fixedSize(horizontal: false, vertical: true)
-                }
-                .accessibilityElement(children: .combine)
+        DSScrollingSheet(width: 640, height: 700, title: loc.t("saves.title"), message: game?.displayName(loc.lang) ?? "") {
+            SaveDeviceTransferSection(
+                game: game,
+                model: model,
+                saveSettings: saveSettings,
+                asking: $asking,
+                busy: $busy,
+                support: support,
+                padScope: "saves",
+                showSectionHeader: true,
+                shortPath: m.shortPath,
+                onMacSaveChanged: { model.refreshMacOnly() }
+            )
+            if let game {
+                GameSavesSection(
+                    game: game,
+                    settings: saveSettings,
+                    players: players,
+                    support: support,
+                    padScope: "saves"
+                )
+                CloudSavesCard(
+                    game: game,
+                    overrides: saveSettings,
+                    players: players,
+                    preview: galleryCloudPreview,
+                    support: support,
+                    padScope: "saves"
+                )
             }
         } leading: {
             Text(String(format: loc.t("saves.note"), deviceName)).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
@@ -443,136 +458,5 @@ struct SavesView: View {
         }
         .padScope("saves", focus)
         .onAppear { if let galleryState { model.showForGallery(galleryState) } else { model.begin() } }
-    }
-
-    private func sideRow(_ side: SaveTransfer.Side) -> some View {
-        let newer = SaveTransfer.newer(mac: macSave.newest, device: deviceSave?.newest)
-        let detail: String
-        switch side {
-        case .mac: detail = macSave.newest.map { String(format: loc.t("saves.saved"), dateText($0)) } ?? loc.t("saves.none")
-        case .device:
-            switch model.deviceState {
-            case .noDevices: detail = loc.t("saves.noDevices")
-            case .notConnected: detail = String(format: loc.t("saves.notConnected"), deviceName)
-            case .notInstalled: detail = String(format: loc.t("saves.notInstalled"), deviceName)
-            case .reading: detail = String(format: loc.t("saves.reading"), deviceName)
-            case .failed(let why): detail = String(format: loc.t("saves.unreachable"), why)
-            case .timedOut: detail = String(format: loc.t("saves.timeout"), deviceName)
-            case .ready(let c): detail = c.newest.map { String(format: loc.t("saves.saved"), dateText($0)) } ?? loc.t("saves.none")
-            }
-        }
-        return HStack(spacing: DS.Space.s) {
-            Image(systemName: side == .mac ? "desktopcomputer" : (model.selectedDevice?.model.lowercased().contains("ipad") == true ? "ipad" : "iphone")).font(.system(size: 16, weight: .light))
-                .foregroundStyle(DS.Color.symbolDefault).frame(width: DS.Control.leadingSlot).accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: DS.Space.xxs) {
-                Text(side == .mac ? loc.t("saves.mac") : deviceName).font(DS.Font.body).foregroundStyle(DS.Color.textPrimary)
-                Text(detail).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
-                if side == .mac {
-                    Text(macLocationText).font(DS.Font.footnote).foregroundStyle(DS.Color.textTertiary).lineLimit(2).truncationMode(.middle)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            Spacer(minLength: DS.Space.s)
-            if newer == side && (side == .mac || deviceSave != nil) {   // a quiet tag: newer is a property, not a selection
-                DSTag(loc.t("saves.newer"))
-            }
-        }
-        .padding(.leading, DS.Space.xs).padding(.trailing, DS.Space.m).padding(.vertical, DS.Space.s)
-        .frame(minHeight: 60)
-    }
-
-    /// The two copies, Refresh and the backups folder. A copy needs both sides readable and a save on the side it copies from.
-    private var actions: some View {
-        let toDevice = engineManaged && !busy && deviceSave != nil && !macSave.folders.isEmpty
-        let toMac = engineManaged && !busy && !(deviceSave?.folders.isEmpty ?? true)
-        return VStack(alignment: .leading, spacing: DS.Space.xs) {
-            DSFlowRow(spacing: DS.Space.xs) {
-                Button(String(format: loc.t("saves.toDevice"), deviceName)) { ask(.device) }.disabled(!toDevice)
-                    .padTarget("saves.toDevice", scope: "saves", enabled: toDevice) { if toDevice { ask(.device) } }
-                Button(String(format: loc.t("saves.toMac"), deviceName)) { ask(.mac) }.disabled(!toMac)
-                    .padTarget("saves.toMac", scope: "saves", enabled: toMac) { if toMac { ask(.mac) } }
-                Button(loc.t("dev.refresh")) { model.refresh() }.disabled(busy || !model.canRefresh)
-                    .padTarget("saves.refresh", scope: "saves", enabled: !busy && model.canRefresh) { if !busy { model.refresh() } }
-                if FileManager.default.fileExists(atPath: transfer.backups.path) {
-                    Button(loc.t("saves.backups")) { NSWorkspace.shared.open(transfer.backups) }
-                        .padTarget("saves.backups", scope: "saves") { NSWorkspace.shared.open(transfer.backups) }
-                }
-            }
-            .buttonStyle(DSRowButtonStyle())
-            if !engineManaged, isExternalMacNativeGames {
-                Text(loc.t("mng.saves.externalNote"))
-                    .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
-            } else if isSharedMacNativeGames {
-                Text(loc.t("mng.saves.sharedNote"))
-                    .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    /// Asking before a copy replaces a save: which one, where its backup goes, and that the game must be closed on the device.
-    /// Replace removes a save, so it is the destructive button and never the Return key's (DSSheetKeys): Return and Escape cancel.
-    private func confirmation(_ replacing: SaveTransfer.Side) -> some View {
-        DSCard {
-            VStack(alignment: .leading, spacing: DS.Space.s) {
-                Text(replacing == .device ? String(format: loc.t("saves.askToDevice"), deviceName) : String(format: loc.t("saves.askToMac"), deviceName))
-                    .font(DS.Font.headline).foregroundStyle(DS.Color.textPrimary).fixedSize(horizontal: false, vertical: true)
-                Text(String(format: loc.t("saves.askNote"), deviceName, m.shortPath(transfer.backups.path)))
-                    .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
-                DSSheetButtonRow {
-                    DSSheetConfirmButtons(cancelTitle: loc.t("saves.cancel"), confirmTitle: loc.t("saves.replace"), role: .destructive,
-                                          scope: "saves", cancel: { asking = nil }, confirm: { copy(replacing) })
-                }
-            }
-        }
-    }
-
-    private func dateText(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.locale = loc.lang == .zh ? Locale(identifier: "zh_Hans") : (Locale.current.identifier.hasPrefix("zh") ? Locale(identifier: "en_US") : .current)
-        f.dateStyle = .medium; f.timeStyle = .short
-        return f.string(from: date)
-    }
-
-    private func ask(_ replacing: SaveTransfer.Side) {
-        result = nil
-        guard let game, !SaveTransfer.runningOnMac(titleID: game.titleID) else {
-            result = (String(format: loc.t("saves.running"), game?.displayName(loc.lang) ?? ""), false)
-            return
-        }
-        asking = replacing
-        focus.focused = "saves.cancel"   // the controller's focus moves to the question it has to answer
-    }
-
-    private func copy(_ replacing: SaveTransfer.Side) {
-        asking = nil
-        guard let game, let transfer = model.found else { return }
-        if SaveTransfer.runningOnMac(titleID: game.titleID) {   // started while the question was open
-            result = (String(format: loc.t("saves.running"), game.displayName(loc.lang)), false)
-            return
-        }
-        busy = true
-        DispatchQueue.global(qos: .userInitiated).async {
-            let outcome: (String, Bool)
-            do {
-                let backup = try replacing == .device ? transfer.macToDevice() : transfer.deviceToMac()
-                outcome = (backup.map { String(format: loc.t("saves.copiedBackup"), m.shortPath($0.path)) } ?? loc.t("saves.copied"), true)
-            } catch { outcome = (String(format: loc.t("saves.failed"), message(error)), false) }
-            DispatchQueue.main.async {
-                busy = false
-                result = outcome
-                model.refresh()
-                focus.focused = "saves.done"
-            }
-        }
-    }
-
-    private func message(_ error: Error) -> String {
-        switch error as? SaveTransfer.Failure {
-        case .noMacSave: return loc.t("saves.noMacSave")
-        case .noDeviceSave: return String(format: loc.t("saves.noDeviceSave"), deviceName)
-        case .device(let line): return line
-        case .timeout: return String(format: loc.t("saves.timeout"), deviceName)
-        case nil: return error.localizedDescription
-        }
     }
 }

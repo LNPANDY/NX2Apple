@@ -34,6 +34,7 @@ final class FrenchLocalizationTests: IsolatedDefaultsTestCase {
         "batchRefresh.versionBadge", "batchRefresh.platformIOS", "batchRefresh.platformMac",
         "library.section.mac", "library.section.mobile",
         "engine.platform.macOnly", "engine.platform.macIOS", "engine.scope.kws", "engine.scope.noLagKart",
+        "savesloc.kind.jksv", "savesloc.kind.jksvTid",
     ]
 
     func testNothingIsLeftInEnglishButTheListedNames() {

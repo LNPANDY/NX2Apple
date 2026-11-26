@@ -425,8 +425,7 @@ struct LauncherView: View {
         .sheet(isPresented: Binding(get: { optionsFor != nil }, set: { if !$0 { optionsFor = nil } })) {
             if let id = optionsFor { LaunchOptionsView(m: m, library: library, gameID: id, globalControls: controls, controllerMappingPresentation: $controllerMappingOpen,
                               onBuild: { game in DispatchQueue.main.async { configureBuild(game) } },
-                              openCheats: { id in optionsFor = nil; DispatchQueue.main.async { cheatsFor = id } },
-                              openSaves: { id in optionsFor = nil; DispatchQueue.main.async { savesFor = id } }).environmentObject(padFocus).environmentObject(stores.saveSettings).environmentObject(stores.players).launcherDropdownHost(dropdowns, pad: padFocus) }
+                              openCheats: { id in optionsFor = nil; DispatchQueue.main.async { cheatsFor = id } }).environmentObject(padFocus).environmentObject(stores.saveSettings).environmentObject(stores.players).launcherDropdownHost(dropdowns, pad: padFocus) }
         }
         .sheet(isPresented: $controlsOpen) { ControlsView(layout: controls, cancelRequest: controlsCancelRequest).environmentObject(padFocus).launcherDropdownHost() }
         .sheet(isPresented: Binding(get: { freeSpaceFor != nil }, set: { if !$0 { freeSpaceFor = nil } })) {
@@ -484,7 +483,7 @@ struct LauncherView: View {
         }
         .onChange(of: updates.uninstallPlan == nil) { _ in padFocus.scope = currentPadScope }
         .sheet(isPresented: Binding(get: { savesFor != nil }, set: { if !$0 { savesFor = nil } })) {
-            if let id = savesFor { SavesView(m: m, library: library, gameID: id).environmentObject(padFocus).launcherDropdownHost(dropdowns, pad: padFocus) }
+            if let id = savesFor { SavesView(m: m, library: library, gameID: id, saveSettings: stores.saveSettings, players: stores.players).environmentObject(padFocus).launcherDropdownHost(dropdowns, pad: padFocus) }
         }
         .onChange(of: savesFor) { id in padFocus.scope = id != nil ? "saves" : currentPadScope }
         .cheatsSheet(for: $cheatsFor, m: m, library: library, pad: padFocus, restoreScope: { currentPadScope }) {
