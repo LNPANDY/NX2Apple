@@ -25,8 +25,14 @@ final class SaveSyncCaptureTests: IsolatedDefaultsTestCase {
         stores.localizer.lang = lang
 
         let appDir = temp.appendingPathComponent("Game.app")
-        try FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
+        let macOSDir = appDir.appendingPathComponent("Contents/MacOS")
+        try FileManager.default.createDirectory(at: macOSDir, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: macOSDir.appendingPathComponent("nxnative"), withDestinationURL: URL(fileURLWithPath: "/usr/bin/true"))
+        try FileManager.default.createSymbolicLink(at: macOSDir.appendingPathComponent("dmhost"), withDestinationURL: URL(fileURLWithPath: "/usr/bin/true"))
         let titleID = "0100535012974000"
+        let info: [String: Any] = ["DMTitleID": titleID, "CFBundleExecutable": "nxnative", "CFBundleDisplayName": "Hades"]
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+            .write(to: appDir.appendingPathComponent("Contents/Info.plist"))
         let game = LibraryGame(titleID: titleID, name: "Hades", appPath: appDir.path)
 
         var saves = GameCloudSaves(titleID: titleID, appPath: appDir.path)
@@ -91,5 +97,40 @@ final class SaveSyncCaptureTests: IsolatedDefaultsTestCase {
         try render("cloud-sync-conflict-sheet", width: 520, CloudSyncConflictSheet(prompt: prompt, picked: .cloud, cancel: {}, choose: { _ in }))
 
         try render("game-saves-jksv", GameSavesSection(game: game, settings: stores.saveSettings, players: stores.players))
+
+        let libFile = temp.appendingPathComponent("library.json")
+        struct Snapshot: Codable { let games: [LibraryGame]; let folder: String }
+        try JSONEncoder().encode(Snapshot(games: [game], folder: temp.path)).write(to: libFile)
+        let library = GameLibrary(file: libFile, defaults: testDefaults)
+        let optionsView = LaunchOptionsView(
+            m: stores.build,
+            library: library,
+            gameID: game.id,
+            initialCategory: .saves,
+            savesDevicectl: DeviceControl { _ in (false, "") },
+            savesListDevices: { [] }
+        )
+            .environmentObject(stores.saveSettings)
+            .environmentObject(stores.players)
+            .environment(\.dsSheetMaxHeight, 760)
+            .launcherDropdownHost()
+        let host = NSHostingView(
+            rootView: optionsView
+                .environmentObject(stores.localizer)
+                .environmentObject(PadFocus())
+                .preferredColorScheme(.dark)
+        )
+        host.frame = NSRect(origin: .zero, size: NSSize(width: LauncherSheet.width, height: 760))
+        let win = OffscreenWindow(size: host.frame.size)
+        win.contentView = host
+        win.orderFront(nil)
+        defer { win.orderOut(nil); win.contentView = nil; win.close() }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.45))
+        host.layoutSubtreeIfNeeded()
+        let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(
+            to: output.appendingPathComponent("launch-options-saves-\(lang.code).png")
+        )
     }
 }

@@ -5,22 +5,25 @@ import NXCore
 import NXModel
 import NXLauncher
 
-/// The Saves part of a game's options: where its save is (and whether that is the usual place, the setting for all games, or this game's own),
-/// Show in Finder / Change / Reset, Import and Export (folders or JKSV `.zip` archives), and the backups.
+/// The Saves section shared between `LaunchOptionsView` (Saves tab) and `SavesView`:
+/// shows save location (Show in Finder / Change / Reset), unified import (folders, `.zip`, JKSV `.zip`, slot dirs, single/multi files),
+/// clear exports (folder or JKSV `.zip`), and backups.
 struct GameSavesSection: View {
     let game: LibraryGame
     @ObservedObject var settings: SaveSettingsStore
     @ObservedObject var players: PlayerProfileStore
+    var support: URL? = nil
+    var padScope: String = "launch"
     var chooseFolder: (URL?) -> URL? = CloudSavesCard.openPanel
-    var chooseImport: (URL?) -> URL? = GameSavesSection.openImportPanel
-    var chooseZipImport: (URL?) -> URL? = GameSavesSection.openZipPanel
+    var chooseImportURLs: (URL?) -> [URL] = GameSavesSection.openImportPanelURLs
+    var chooseImport: ((URL?) -> URL?)? = nil
     var chooseSaveZip: (String) -> URL? = GameSavesSection.saveZipPanel
     var running: @Sendable (String) -> Bool = { SaveTransfer.runningOnMac(titleID: $0) }
     var revealMNGTarget: (MacNativeGamesSaveEngine.SaveTarget) -> Void = MacNativeGamesSaveFinder.reveal
     @EnvironmentObject var loc: Localizer
     @EnvironmentObject private var pad: PadFocus
     @State private var result: (text: String, ok: Bool)?
-    @State private var importing: PendingImport?
+    @State private var importing: SaveImportPlan?
     @State private var busy = false
     @State private var generation: UInt64 = 0
 
@@ -29,7 +32,10 @@ struct GameSavesSection: View {
     private var isExternalMNG: Bool { engine is MacNativeGamesSaveEngine }
     private var isSharedMNG: Bool { engine is MngSharedDmSaveEngine }
     private var effective: SaveLocations.EffectiveSave {
-        SaveLocations.effectiveSave(titleID: game.titleID, appPath: game.appPath, global: settings.global, game: override, engine: engine)
+        if let support {
+            return SaveLocations.effectiveSave(titleID: game.titleID, appPath: game.appPath, global: settings.global, game: override, support: support, engine: engine)
+        }
+        return SaveLocations.effectiveSave(titleID: game.titleID, appPath: game.appPath, global: settings.global, game: override, engine: engine)
     }
 
     var body: some View {
@@ -39,24 +45,24 @@ struct GameSavesSection: View {
         let mngTarget = isExternalMNG ? MacNativeGamesSaveEngine.resolveSaveTarget(titleID: game.titleID) : nil
         let shownURL = mngTarget?.displaySaveURL ?? save.path
         VStack(alignment: .leading, spacing: 10) {
-            Text(loc.t("saves.title")).font(DS.Font.headline).foregroundStyle(DS.Color.textSecondary).padding(.leading, 2)
+            Text(loc.t("savesloc.localTitle")).font(DS.Font.headline).foregroundStyle(DS.Color.textSecondary).padding(.leading, 2)
             VStack(spacing: 0) {
                 CardRow(loc.t("savesloc.folder"), detail: SaveLocationText.shown(shownURL.path), detail2: "", help: shownURL.path) {
                     Button(loc.t("savesloc.show")) {
                         if let mngTarget { revealMNGTarget(mngTarget) } else { reveal(save.path) }
                     }
-                    .padTarget("saves.show", scope: "launch") {
+                    .padTarget("saves.show", scope: padScope) {
                         if let mngTarget { revealMNGTarget(mngTarget) } else { reveal(save.path) }
                     }
                     if managed {
                         Button(loc.t("savesloc.change")) { change() }
                             .disabled(busy)
-                            .padTarget("saves.change", scope: "launch", enabled: !busy) { if !busy { change() } }
+                            .padTarget("saves.change", scope: padScope, enabled: !busy) { if !busy { change() } }
                         if override.saveFolder != nil {
                             Button(loc.t("savesloc.reset")) { resetFolder() }
                                 .disabled(busy)
                                 .accessibilityLabel(String(format: loc.t("savesloc.resetFor"), game.name))
-                                .padTarget("saves.reset", scope: "launch", enabled: !busy) { if !busy { resetFolder() } }
+                                .padTarget("saves.reset", scope: padScope, enabled: !busy) { if !busy { resetFolder() } }
                         }
                     }
                 }
@@ -64,28 +70,25 @@ struct GameSavesSection: View {
                     CardDivider()
                     originRow(save)
                     CardDivider()
-                    CardRow(loc.t("savesloc.transfer"), detail: loc.t("savesloc.importNote")) {
-                        Button(loc.t("savesloc.import")) { pickImport() }
+                    CardRow(loc.t("savesloc.importGroup"), detail: loc.t("savesloc.importUnifiedNote")) {
+                        Button(loc.t("savesloc.importButtonLong")) { pickImport(into: save.path) }
                             .disabled(busy)
-                            .padTarget("saves.import", scope: "launch", enabled: !busy) { if !busy { pickImport() } }
-                        Button(loc.t("savesloc.export")) { export(save.path) }
-                            .disabled(busy)
-                            .padTarget("saves.export", scope: "launch", enabled: !busy) { if !busy { export(save.path) } }
+                            .padTarget("saves.import", scope: padScope, enabled: !busy) { if !busy { pickImport(into: save.path) } }
                     }
                     CardDivider()
-                    CardRow(loc.t("savesloc.jksv"), detail: loc.t("savesloc.jksvNote")) {
-                        Button(loc.t("savesloc.importZip")) { pickJKSVImport() }
+                    CardRow(loc.t("savesloc.exportGroup"), detail: loc.t("savesloc.exportUnifiedNote")) {
+                        Button(loc.t("savesloc.exportFolder")) { export(save.path) }
                             .disabled(busy)
-                            .padTarget("saves.importZip", scope: "launch", enabled: !busy) { if !busy { pickJKSVImport() } }
+                            .padTarget("saves.export", scope: padScope, enabled: !busy) { if !busy { export(save.path) } }
                         Button(loc.t("savesloc.exportZip")) { exportJKSV(save.path) }
                             .disabled(busy)
-                            .padTarget("saves.exportZip", scope: "launch", enabled: !busy) { if !busy { exportJKSV(save.path) } }
+                            .padTarget("saves.exportZip", scope: padScope, enabled: !busy) { if !busy { exportJKSV(save.path) } }
                     }
                     if let backups = backupsFolder(save.path) {
                         CardDivider()
                         CardRow(loc.t("saves.backups"), detail: SaveLocationText.shown(backups.path), help: backups.path) {
                             Button(loc.t("saves.backups")) { reveal(backups) }
-                                .padTarget("saves.backups", scope: "launch") { reveal(backups) }
+                                .padTarget("saves.backups", scope: padScope) { reveal(backups) }
                         }
                     }
                     if let secondary = secondaryPlayer {
@@ -100,21 +103,21 @@ struct GameSavesSection: View {
             if !managed {
                 if isExternalMNG {
                     Text(loc.t("mng.saves.externalNote"))
-                        .font(DS.Font.callout).foregroundStyle(Color.secondary)
+                        .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                         .padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
                 }
             } else if busy {
                 HStack(spacing: DS.Space.xs) {
                     ProgressView().controlSize(.small)
-                    Text(loc.t("cloud.sync.syncing")).font(DS.Font.callout).foregroundStyle(Color.secondary)
+                    Text(loc.t("cloud.sync.syncing")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                 }
                 .padding(.leading, 2)
             } else if let result {
-                Text(result.text).font(DS.Font.callout).foregroundStyle(result.ok ? Color.secondary : CloudSavesCard.attention)
+                Text(result.text).font(DS.Font.callout).foregroundStyle(result.ok ? DS.Color.textSecondary : CloudSavesCard.attention)
                     .padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
             } else if isSharedMNG {
                 Text(loc.t("mng.saves.sharedNote"))
-                    .font(DS.Font.callout).foregroundStyle(Color.secondary)
+                    .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                     .padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -124,43 +127,19 @@ struct GameSavesSection: View {
             importing = nil
             result = nil
         }
-        .sheet(item: $importing) { pending in
+        .onChange(of: importing != nil) { open in
+            pad.scope = open ? "saveimport" : padScope
+        }
+        .sheet(item: $importing) { plan in
             SaveImportSheet(
                 gameName: game.displayName(loc.lang),
-                source: pending.sourcePath,
+                plan: plan,
                 target: save.path.path,
-                detail: pending.detail(loc.t),
                 cancel: { importing = nil },
-                confirm: { performImport(pending, into: save.path) }
+                confirm: { mode in performImport(plan, mode: mode, into: save.path) }
             )
             .environmentObject(loc)
             .environmentObject(pad)
-        }
-    }
-
-    private enum PendingImport: Identifiable {
-        case folder(SaveArchive.Preview)
-        case jksv(JKSVArchive.Preview)
-
-        var sourcePath: String {
-            switch self {
-            case .folder(let p): return p.source.path
-            case .jksv(let p): return p.source.path
-            }
-        }
-
-        var id: String { sourcePath }
-
-        func detail(_ t: (String) -> String) -> String? {
-            switch self {
-            case .folder(let p):
-                return String(format: t("savesloc.importCount"), p.fileCount)
-            case .jksv(let p):
-                if let tid = p.meta?.formattedTitleID {
-                    return String(format: t("savesloc.jksvPreviewMeta"), p.fileCount, tid)
-                }
-                return String(format: t("savesloc.importCount"), p.fileCount)
-            }
         }
     }
 
@@ -254,28 +233,22 @@ struct GameSavesSection: View {
         }
     }
 
-    // ---- import and export ----
+    // ---- unified import & export ----
 
-    private func pickImport() {
+    private func pickImport(into save: URL) {
         guard !busy else { return }
         guard !running(game.titleID) else { result = (String(format: loc.t("saves.running"), game.name), false); return }
-        guard let url = chooseImport(nil) else { return }
-        if url.pathExtension.lowercased() == "zip" {
-            previewJKSV(url)
-            return
+        let urls: [URL]
+        if let chooseImport {
+            urls = chooseImport(nil).map { [$0] } ?? []
+        } else {
+            urls = chooseImportURLs(nil)
         }
-        guard let preview = SaveArchive.preview(url) else { result = (loc.t("savesloc.nothingToImport"), false); return }
-        importing = .folder(preview)
+        guard !urls.isEmpty else { return }
+        previewImport(urls, into: save)
     }
 
-    private func pickJKSVImport() {
-        guard !busy else { return }
-        guard !running(game.titleID) else { result = (String(format: loc.t("saves.running"), game.name), false); return }
-        guard let url = chooseZipImport(nil) else { return }
-        previewJKSV(url)
-    }
-
-    private func previewJKSV(_ url: URL) {
+    private func previewImport(_ urls: [URL], into save: URL) {
         let titleID = game.titleID
         let gameName = game.displayName(loc.lang)
         generation &+= 1
@@ -284,9 +257,9 @@ struct GameSavesSection: View {
         result = nil
 
         Task {
-            let outcome: Result<JKSVArchive.Preview, Error> = await Task.detached(priority: .userInitiated) {
+            let outcome: Result<SaveImportPlan, Error> = await Task.detached(priority: .userInitiated) {
                 do {
-                    return .success(try JKSVArchive.preview(url, expectedTitleID: titleID))
+                    return .success(try SaveImport.preview(urls, expectedTitleID: titleID, into: save))
                 } catch {
                     return .failure(error)
                 }
@@ -294,17 +267,17 @@ struct GameSavesSection: View {
             guard generation == reqGen, game.titleID == titleID else { return }
             busy = false
             switch outcome {
-            case .success(let preview):
-                importing = .jksv(preview)
-            case .failure(let failure as JKSVArchive.Failure):
-                result = (jksvFailureMessage(failure, gameName: gameName), false)
+            case .success(let plan):
+                importing = plan
+            case .failure(let failure as SaveImportFailure):
+                result = (importFailureMessage(failure, gameName: gameName), false)
             case .failure(let error):
                 result = (String(format: loc.t("saves.failed"), error.localizedDescription), false)
             }
         }
     }
 
-    private func performImport(_ pending: PendingImport, into save: URL) {
+    private func performImport(_ plan: SaveImportPlan, mode: SaveImportMode, into save: URL) {
         guard !busy else { return }
         importing = nil
         let titleID = game.titleID
@@ -319,17 +292,11 @@ struct GameSavesSection: View {
         result = nil
 
         Task {
-            let outcome: Result<(backup: URL?, isJKSV: Bool), Error> = await Task.detached(priority: .userInitiated) {
+            let outcome: Result<URL?, Error> = await Task.detached(priority: .userInitiated) {
                 do {
                     let isRunningNow = runningCheck(titleID)
-                    switch pending {
-                    case .folder(let preview):
-                        let backup = try SaveArchive.import(preview, into: save, gameRunning: isRunningNow)
-                        return .success((backup, false))
-                    case .jksv(let preview):
-                        let backup = try JKSVArchive.import(preview, into: save, gameRunning: isRunningNow)
-                        return .success((backup, true))
-                    }
+                    let backup = try SaveImport.execute(plan, into: save, mode: mode, gameRunning: isRunningNow)
+                    return .success(backup)
                 } catch {
                     return .failure(error)
                 }
@@ -337,11 +304,9 @@ struct GameSavesSection: View {
             guard generation == reqGen, game.titleID == titleID else { return }
             busy = false
             switch outcome {
-            case .success(let done):
-                if done.isJKSV {
-                    settings.notifySaveChanged()
-                }
-                let text = done.backup.map { String(format: loc.t("savesloc.imported"), SaveLocationText.shown($0.path)) }
+            case .success(let backup):
+                settings.notifySaveChanged()
+                let text = backup.map { String(format: loc.t("savesloc.imported"), SaveLocationText.shown($0.path)) }
                     ?? loc.t("savesloc.importedFresh")
                 let cloudOn = SaveLocations.effectiveCloud(
                     global: globalSettings,
@@ -349,12 +314,8 @@ struct GameSavesSection: View {
                     own: GameCloudSaves(titleID: titleID, appPath: appPath).setting
                 ).isOn
                 result = (cloudOn ? text + " " + loc.t("savesloc.importedCloud") : text, true)
-            case .failure(SaveArchive.Failure.gameRunning):
-                result = (String(format: loc.t("saves.running"), gameName), false)
-            case .failure(SaveArchive.Failure.volumeCannotHoldSaves):
-                result = (loc.t("savesloc.volume"), false)
-            case .failure(let failure as JKSVArchive.Failure):
-                result = (jksvFailureMessage(failure, gameName: gameName), false)
+            case .failure(let failure as SaveImportFailure):
+                result = (importFailureMessage(failure, gameName: gameName), false)
             case .failure(let error):
                 result = (String(format: loc.t("saves.failed"), error.localizedDescription), false)
             }
@@ -427,6 +388,29 @@ struct GameSavesSection: View {
         }
     }
 
+    private func importFailureMessage(_ failure: SaveImportFailure, gameName: String) -> String {
+        switch failure {
+        case .gameRunning:
+            return String(format: loc.t("saves.running"), gameName)
+        case .pendingPullJournal:
+            return loc.t("cloud.sync.pendingPull")
+        case .volumeCannotHoldSaves:
+            return loc.t("savesloc.volume")
+        case .titleIDMismatch(let expected, let found):
+            return String(format: loc.t("savesloc.jksvWrongGame"), found, expected)
+        case .quotaExceeded:
+            return loc.t("savesloc.jksvQuota")
+        case .unsafePath, .symlinkNotAllowed:
+            return loc.t("savesloc.jksvUnsafe")
+        case .invalidArchive:
+            return loc.t("savesloc.jksvInvalid")
+        case .multipleArchivesNotAllowed:
+            return loc.t("savesloc.multipleZips")
+        case .nothingToImport:
+            return loc.t("savesloc.nothingToImport")
+        }
+    }
+
     private func jksvFailureMessage(_ failure: JKSVArchive.Failure, gameName: String) -> String {
         switch failure {
         case .gameRunning:
@@ -452,24 +436,21 @@ struct GameSavesSection: View {
         }
     }
 
-    static func openImportPanel(_ start: URL?) -> URL? {
+    /// Unified import panel: allows folders, `.zip` archives, and any regular files (including extensionless files like Stardew Valley saves).
+    static func openImportPanelURLs(_ start: URL?) -> [URL] {
+        let panel = openImportPanelConfigured(start)
+        return panel.runModal() == .OK ? panel.urls : []
+    }
+
+    /// Builds the configured `NSOpenPanel` for unified save selection (exposed for regression testing).
+    static func openImportPanelConfigured(_ start: URL?) -> NSOpenPanel {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = true
-        panel.allowedContentTypes = [.zip]
-        panel.allowsMultipleSelection = false
+        panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = []
         panel.directoryURL = start
-        return panel.runModal() == .OK ? panel.url : nil
-    }
-
-    static func openZipPanel(_ start: URL?) -> URL? {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowedContentTypes = [.zip]
-        panel.allowsMultipleSelection = false
-        panel.directoryURL = start
-        return panel.runModal() == .OK ? panel.url : nil
+        return panel
     }
 
     static func saveZipPanel(_ suggestedName: String) -> URL? {
@@ -485,30 +466,126 @@ enum SaveLocationText {
     static func shown(_ path: String) -> String { (path as NSString).abbreviatingWithTildeInPath }
 }
 
-/// The confirmation of an import, on the sheet layout: where the files come from, where they go, and that the
-/// current save is backed up. Import replaces the save, so it is the destructive button: Return and Escape cancel.
+/// Preview and confirmation sheet for a save import: shows source summary, format tag, target folder, file list preview,
+/// and replace/merge strategy when a local save already exists.
 struct SaveImportSheet: View {
     let gameName: String
-    let source: String
+    let plan: SaveImportPlan
     let target: String
-    var detail: String? = nil
     let cancel: () -> Void
-    let confirm: () -> Void
+    let confirm: (SaveImportMode) -> Void
+
     @EnvironmentObject var loc: Localizer
+    @EnvironmentObject private var pad: PadFocus
+    @State private var mode: SaveImportMode
+
+    init(gameName: String, plan: SaveImportPlan, target: String, cancel: @escaping () -> Void, confirm: @escaping (SaveImportMode) -> Void) {
+        self.gameName = gameName
+        self.plan = plan
+        self.target = target
+        self.cancel = cancel
+        self.confirm = confirm
+        self._mode = State(initialValue: plan.recommendedMode)
+    }
+
+    private static let maxPreviewRows = 6
+
+    private var kindBadge: String {
+        switch plan.kind {
+        case .jksvZip(let tid):
+            if let tid { return String(format: loc.t("savesloc.kind.jksvTid"), tid) }
+            return loc.t("savesloc.kind.jksv")
+        case .zip:
+            return loc.t("savesloc.kind.zip")
+        case .slotFolder:
+            return loc.t("savesloc.kind.slot")
+        case .archiveFolders, .folder:
+            return loc.t("savesloc.kind.folder")
+        case .files(let slot):
+            return slot != nil ? loc.t("savesloc.kind.slot") : loc.t("savesloc.kind.files")
+        }
+    }
+
+    private var contentsSummary: String {
+        let formattedSize = ByteCountFormatter.string(fromByteCount: Int64(min(plan.totalBytes, UInt64(Int64.max))), countStyle: .file)
+        return String(format: loc.t("savesloc.importStats"), plan.fileCount, formattedSize)
+    }
+
+    private var noteText: String {
+        if !plan.hasExistingTargetSave {
+            return loc.t("savesloc.importFreshNote")
+        }
+        return mode == .merge ? loc.t("savesloc.importMergeNote") : loc.t("savesloc.importReplaceNote")
+    }
 
     var body: some View {
-        LauncherConfirmSheet(title: loc.t("savesloc.importTitle"), subtitle: gameName, note: loc.t("savesloc.importNote"),
-                             cancelTitle: loc.t("saves.cancel"), confirmTitle: loc.t("savesloc.importButton"), destructive: true,
-                             scope: "saveimport", cancel: cancel, confirm: confirm) {
+        let destructive = plan.hasExistingTargetSave && mode == .replace
+        DSSheet(width: 540, title: loc.t("savesloc.importTitle"), message: gameName) {
             DSSection("") {
-                DSRow(loc.t("savesloc.source"), detail: SaveLocationText.shown(source), help: source) {}
+                DSRow(loc.t("savesloc.source"), detail: SaveLocationText.shown(plan.sourceSummary), help: plan.sourceSummary) {
+                    DSTag(kindBadge)
+                }
                 DSRowDivider()
                 DSRow(loc.t("savesloc.target"), detail: SaveLocationText.shown(target), help: target) {}
-                if let detail {
-                    DSRowDivider()
-                    DSRow(loc.t("savesloc.contents"), detail: detail) {}
+                DSRowDivider()
+                VStack(alignment: .leading, spacing: DS.Space.xs) {
+                    DSRow(loc.t("savesloc.contents"), detail: contentsSummary) {}
+                    if !plan.entries.isEmpty {
+                        VStack(alignment: .leading, spacing: 3) {
+                            ForEach(plan.entries.prefix(Self.maxPreviewRows)) { entry in
+                                Text(entry.displayPath)
+                                    .font(DS.Font.mono)
+                                    .foregroundStyle(DS.Color.textTertiary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                            if plan.entries.count > Self.maxPreviewRows {
+                                Text(String(format: loc.t("savesloc.moreFiles"), plan.entries.count - Self.maxPreviewRows))
+                                    .font(DS.Font.footnote)
+                                    .foregroundStyle(DS.Color.textTertiary)
+                            }
+                        }
+                        .padding(.horizontal, DS.Space.m)
+                        .padding(.bottom, DS.Space.s)
+                    }
                 }
             }
+            if plan.hasExistingTargetSave {
+                DSSection("") {
+                    DSRow(loc.t("savesloc.modeTitle")) {
+                        LauncherSegmented(
+                            options: [
+                                (SaveImportMode.replace.rawValue, loc.t("savesloc.mode.replace")),
+                                (SaveImportMode.merge.rawValue, loc.t("savesloc.mode.merge")),
+                            ],
+                            selection: mode.rawValue,
+                            size: 12.5,
+                            semibold: true
+                        ) { raw in
+                            mode = SaveImportMode(rawValue: raw) ?? .replace
+                        }
+                        .fixedSize()
+                        .padTarget("saveimport.mode", scope: "saveimport", activate: {
+                            mode = (mode == .replace) ? .merge : .replace
+                        })
+                    }
+                }
+            }
+            Text(noteText)
+                .font(DS.Font.callout)
+                .foregroundStyle(DS.Color.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        } buttons: {
+            DSSheetConfirmButtons(
+                cancelTitle: loc.t("saves.cancel"),
+                confirmTitle: loc.t(plan.hasExistingTargetSave && mode == .merge ? "savesloc.mergeButton" : "savesloc.importButton"),
+                role: destructive ? .destructive : .primary,
+                confirmTakesReturn: false,
+                scope: "saveimport",
+                cancel: cancel,
+                confirm: { confirm(plan.hasExistingTargetSave ? mode : .replace) }
+            )
         }
+        .padScope("saveimport", pad)
     }
 }

@@ -17,6 +17,8 @@ struct CloudSavesCard: View {
     var running: (String) -> Bool = { SaveTransfer.runningOnMac(titleID: $0) }
     var preview: (check: CloudSaveSync.FolderCheck?, last: (state: CloudSaveSync.LogState?, date: Date?)?)?
     var previewSync: CloudSaveNow.SyncStatus? = nil
+    var support: URL? = nil
+    var padScope: String = "launch"
     var chooseFolder: (URL?) -> URL? = CloudSavesCard.openPanel
     var home = NSHomeDirectory()
     @EnvironmentObject var loc: Localizer
@@ -96,7 +98,7 @@ struct CloudSavesCard: View {
             .onChange(of: revision) { _ in inspectSync(plan: plan) }
             .onChange(of: overrides?.revision ?? 0) { _ in inspectSync(plan: plan) }
             .onChange(of: players?.active.id ?? "") { _ in inspectSync(plan: plan) }
-            .onChange(of: syncStore.conflict != nil) { open in pad.scope = open ? "cloudsync" : "launch" }
+            .onChange(of: syncStore.conflict != nil) { open in pad.scope = open ? "cloudsync" : padScope }
             .sheet(item: $syncStore.conflict) { prompt in
                 CloudSyncConflictSheet(
                     prompt: prompt,
@@ -128,14 +130,14 @@ struct CloudSavesCard: View {
             Spacer(minLength: 12)
             if setting.isOn {
                 Button(loc.t("cloud.turnOff")) { change { try turnOff() } }
-                    .padTarget("cloud.off", scope: "launch") { change { try turnOff() } }
+                    .padTarget("cloud.off", scope: padScope) { change { try turnOff() } }
             }
             if let overrides, overrides.game(game.titleID).cloud != nil {   // back to the setup for every game
                 Button(loc.t("savesloc.useGlobal")) { change { try useGlobal() } }
-                    .padTarget("cloud.global", scope: "launch") { change { try useGlobal() } }
+                    .padTarget("cloud.global", scope: padScope) { change { try useGlobal() } }
             }
             Button(loc.t("cloud.choose")) { choose(from: setting.folder) }
-                .padTarget("cloud.choose", scope: "launch") { choose(from: setting.folder) }
+                .padTarget("cloud.choose", scope: padScope) { choose(from: setting.folder) }
         }
         .buttonStyle(LauncherSecondaryButtonStyle())
         .padding(.horizontal, 18).padding(.vertical, 13).frame(minHeight: 56)
@@ -194,6 +196,7 @@ struct CloudSavesCard: View {
             appPath: game.appPath,
             global: overrides?.global ?? SaveGlobalSettings(),
             game: overrides?.game(game.titleID) ?? SaveGameOverride(),
+            support: support ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0],
             engine: engine
         )
         let legacy = effective.source == .libraryFolder ? mac.legacy : nil
@@ -245,7 +248,7 @@ struct CloudSavesCard: View {
             }
             .buttonStyle(LauncherSecondaryButtonStyle())
             .disabled(!canSync)
-            .padTarget("cloud.syncNow", scope: "launch", enabled: canSync) {
+            .padTarget("cloud.syncNow", scope: padScope, enabled: canSync) {
                 if canSync { triggerSync(plan: plan, status: shownStatus) }
             }
         }
@@ -369,7 +372,7 @@ struct CloudSavesCard: View {
             if let backups = backupsFolder {   // the save a sync or a choice replaced (#957): <DM_SAVE>-backups
                 Button(loc.t("cloud.showBackups")) { NSWorkspace.shared.activateFileViewerSelecting([backups]) }
                     .buttonStyle(LauncherSecondaryButtonStyle())
-                    .padTarget("cloud.backups", scope: "launch") { NSWorkspace.shared.activateFileViewerSelecting([backups]) }
+                    .padTarget("cloud.backups", scope: padScope) { NSWorkspace.shared.activateFileViewerSelecting([backups]) }
             }
         }
         .padding(.horizontal, 18).padding(.vertical, 12)
@@ -386,6 +389,7 @@ struct CloudSavesCard: View {
                 appPath: game.appPath,
                 global: overrides.global,
                 game: overrides.game(game.titleID),
+                support: support ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0],
                 engine: engine
             ).path
         } else {

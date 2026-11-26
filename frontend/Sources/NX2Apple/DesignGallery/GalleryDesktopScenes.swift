@@ -183,7 +183,7 @@ enum GalleryDesktopScene: String, CaseIterable {
     var isSheet: Bool { group == .sheets }
     var sheetSize: CGSize? {
         switch self {
-        case .savesNoDevices, .savesNotConnected, .savesNotInstalled, .savesReading, .savesReady, .savesFailed, .savesTimedOut: return CGSize(width: 600, height: 560)
+        case .savesNoDevices, .savesNotConnected, .savesNotInstalled, .savesReading, .savesReady, .savesFailed, .savesTimedOut: return CGSize(width: 640, height: 700)
         case .freeSpaceRunning, .freeSpaceFailed: return CGSize(width: 560, height: 690)
         case .sendSelectedDrive, .controllerMapping: return CGSize(width: 680, height: 720)
         case .frameTimes: return CGSize(width: 720, height: 300)
@@ -265,7 +265,9 @@ extension GalleryFixtures {
         }
         func saves(_ state: SavesModel.DeviceState) -> AnyView {
             onDevice(0)
-            return AnyView(SavesView(m: build, library: library, gameID: game.id, devicectl: DeviceControl { _ in (false, "") },
+            return AnyView(SavesView(m: build, library: library, gameID: game.id,
+                                     saveSettings: stores.saveSettings, players: stores.players,
+                                     devicectl: DeviceControl { _ in (false, "") },
                                      support: directory.appendingPathComponent("support", isDirectory: true), listDevices: { [] }, galleryState: state))
         }
         func queueEntry(_ index: Int, _ status: QueueEntry.Status, reason: String? = nil) -> QueueEntry {

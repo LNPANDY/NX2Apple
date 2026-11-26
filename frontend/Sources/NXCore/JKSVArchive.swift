@@ -4,14 +4,14 @@ import Foundation
 /// Safe pure-Swift JKSV `.zip` import/export for Switch and emulator saves,
 /// with Central Directory preflight via `ZipCodec`, shared `(entries, bytes)` quota ledger,
 /// `.nx_save_meta.bin` TitleID guard, `.dm-case-N` case-collision xattr mapping,
-/// and atomic local save replacement with backup & rollback.
+/// and atomic local save replacement or merge with backup & rollback.
 package enum JKSVArchive {
     package static let maxEntries = ZipCodec.maxEntries
     package static let maxTotalBytes = ZipCodec.maxTotalBytes
     package static let metaFileName = ".nx_save_meta.bin"
     package static let metaByteCount = 86
 
-    private static let guestAttr = "org.d2rmobile.guest-name"
+    static let guestAttr = "org.d2rmobile.guest-name"
     private static let maxMetaBytes = 64 * 1024
 
     package enum Failure: Error, Equatable, Sendable {
@@ -204,13 +204,14 @@ package enum JKSVArchive {
 
     // MARK: - Import & Export
 
-    /// Atomically imports a preflighted JKSV `.zip` into `save`, backing up any existing save first,
+    /// Atomically imports a preflighted `.zip` into `save` (replacing or merging), backing up any existing save first,
     /// stripping `.nx_save_meta.bin`, resolving APFS case collisions with `.dm-case-N` + xattr,
     /// and clearing `<save>.sync` on success so the next cloud sync detects the new save.
     @discardableResult
     package static func `import`(
         _ preview: Preview,
         into save: URL,
+        mode: SaveImportMode = .replace,
         gameRunning: Bool,
         now: Date = Date(),
         volumeHolds: (String) -> Bool? = { VolumeSaves.holdsSaves(at: $0) },
@@ -233,10 +234,19 @@ package enum JKSVArchive {
         defer { try? fm.removeItem(at: staging) }
         try fm.createDirectory(at: staging, withIntermediateDirectories: true)
 
+        if mode == .merge {
+            for folder in SaveMigration.folders {
+                let existing = CloudSaveArchive.targetFolder(folder, save: save)
+                if CloudSaveCheck.hasEntries(existing.path) {
+                    try fm.copyItem(at: existing, to: staging.appendingPathComponent(folder, isDirectory: true))
+                }
+            }
+        }
+
         var remainingBudget = maxTotalBytes
         var trackers: [String: CaseDirectoryTracker] = [
-            "save": CaseDirectoryTracker(root: staging.appendingPathComponent("save", isDirectory: true)),
-            "save_device": CaseDirectoryTracker(root: staging.appendingPathComponent("save_device", isDirectory: true))
+            "save": CaseDirectoryTracker(root: staging.appendingPathComponent("save", isDirectory: true), overwriteExisting: mode == .merge, fileManager: fm),
+            "save_device": CaseDirectoryTracker(root: staging.appendingPathComponent("save_device", isDirectory: true), overwriteExisting: mode == .merge, fileManager: fm)
         ]
 
         for item in preview.plannedFiles {
@@ -256,7 +266,7 @@ package enum JKSVArchive {
         if CloudSaveArchive.hasLocalSaveEntries(save: save) {
             backupURL = try makeImportBackupDirectory(in: backupsRoot, now: now, fileManager: fm)
             do {
-                for folder in ["save", "save_device"] {
+                for folder in SaveMigration.folders {
                     let src = CloudSaveArchive.targetFolder(folder, save: save)
                     if CloudSaveCheck.hasEntries(src.path) {
                         try fm.copyItem(at: src, to: backupURL!.appendingPathComponent(folder, isDirectory: true))
@@ -268,10 +278,12 @@ package enum JKSVArchive {
             }
         }
 
-        for folder in ["save", "save_device"] where !preview.folders.contains(folder) {
-            let existing = CloudSaveArchive.targetFolder(folder, save: save)
-            if CloudSaveCheck.hasEntries(existing.path) {
-                try fm.copyItem(at: existing, to: staging.appendingPathComponent(folder, isDirectory: true))
+        if mode == .replace {
+            for folder in SaveMigration.folders where !preview.folders.contains(folder) {
+                let existing = CloudSaveArchive.targetFolder(folder, save: save)
+                if CloudSaveCheck.hasEntries(existing.path) {
+                    try fm.copyItem(at: existing, to: staging.appendingPathComponent(folder, isDirectory: true))
+                }
             }
         }
 
@@ -307,7 +319,7 @@ package enum JKSVArchive {
             ZipCodec.WriteItem(archivePath: metaFileName, fileURL: nil, data: Meta(titleID: numericTID, saveType: saveType).encode(), modDate: Date())
         ]
 
-        for (index, folder) in ["save", "save_device"].enumerated() {
+        for (index, folder) in SaveMigration.folders.enumerated() {
             let dir = index == 0 ? save.path : save.path + "_device"
             guard CloudSaveCheck.hasEntries(dir) else { continue }
             var entries: [(archivePath: String, fileURL: URL, modDate: Date)] = []
@@ -340,8 +352,10 @@ package enum JKSVArchive {
 
     // MARK: - Helpers & APFS case-collision tracker
 
-    private static func isIgnoredMacMetadata(_ trimmedPath: String) -> Bool {
+    static func isIgnoredMacMetadata(_ trimmedPath: String) -> Bool {
         if trimmedPath == "__MACOSX" || trimmedPath.hasPrefix("__MACOSX/") { return true }
+        let parts = trimmedPath.split(separator: "/")
+        if parts.contains(where: { $0 == "__MACOSX" }) { return true }
         let last = (trimmedPath as NSString).lastPathComponent
         return last == ".DS_Store" || last.hasPrefix("._")
     }
@@ -361,16 +375,63 @@ package enum JKSVArchive {
             let rest = String($0.rawName.dropFirst(prefix.count))
             return rest.hasPrefix("save/") || rest.hasPrefix("save_device/")
         }
-        return wrapsSaveFolders ? prefix : nil
+        if wrapsSaveFolders { return prefix }
+
+        // Keep slot directories (like Stardew Valley's `<Farm>_<Seed>/`) intact when they are the sole top-level folder.
+        let directChildNames = files.compactMap { entry -> String? in
+            let rest = String(entry.rawName.dropFirst(prefix.count))
+            return rest.contains("/") ? nil : rest
+        }
+        if SaveImport.isSlotFileSet(folderName: root, directFileNames: directChildNames) {
+            return nil
+        }
+
+        // Unwrap a 16-hex Title ID wrapper or an outer container wrapping a slot subdirectory (e.g. `1RLtR8/Thien_335352527/SaveGameInfo`).
+        let isTitleIDRoot = root.count == 16 && root.allSatisfy { $0.isASCII && $0.isHexDigit }
+        if isTitleIDRoot { return prefix }
+
+        var directSubdirFiles: [String: [String]] = [:]
+        for entry in files {
+            let rest = String(entry.rawName.dropFirst(prefix.count))
+            let parts = rest.split(separator: "/", omittingEmptySubsequences: false)
+            if parts.count == 2 {
+                directSubdirFiles[String(parts[0]), default: []].append(String(parts[1]))
+            }
+        }
+        if directSubdirFiles.contains(where: { SaveImport.isSlotFileSet(folderName: $0.key, directFileNames: $0.value) }) {
+            return prefix
+        }
+        return nil
     }
 
-    private struct CaseDirectoryTracker {
+    struct CaseDirectoryTracker {
         let root: URL
+        let overwriteExisting: Bool
         private var usedLowerNames: [String: [String: String]] = [:]
         private var exactMap: [String: [String: String]] = [:]
 
-        init(root: URL) {
+        init(root: URL, overwriteExisting: Bool = false, fileManager fm: FileManager = .default) {
             self.root = root
+            self.overwriteExisting = overwriteExisting
+            if overwriteExisting, fm.fileExists(atPath: root.path) {
+                seedExisting(at: root, parentKey: "", fileManager: fm)
+            }
+        }
+
+        private mutating func seedExisting(at dir: URL, parentKey: String, fileManager fm: FileManager) {
+            guard let items = try? fm.contentsOfDirectory(atPath: dir.path) else { return }
+            for physical in items where physical != ".DS_Store" && !physical.hasPrefix("._") {
+                let abs = dir.appendingPathComponent(physical)
+                var st = stat()
+                guard lstat(abs.path, &st) == 0 else { continue }
+                let guest = JKSVArchive.resolvedGuestComponent(physical: physical, absPath: abs.path)
+                exactMap[parentKey, default: [:]][guest] = physical
+                usedLowerNames[parentKey, default: [:]][physical.lowercased()] = guest
+                if (st.st_mode & S_IFMT) == S_IFDIR {
+                    let nextKey = parentKey.isEmpty ? physical : "\(parentKey)/\(physical)"
+                    seedExisting(at: abs, parentKey: nextKey, fileManager: fm)
+                }
+            }
         }
 
         mutating func prepareFileDestination(relativePath: String, fileManager fm: FileManager) throws -> URL {
@@ -391,11 +452,24 @@ package enum JKSVArchive {
                         if needsGuestAttr {
                             try writeGuestName(component, to: currentURL.path)
                         }
+                    } else if overwriteExisting {
+                        var st = stat()
+                        if lstat(currentURL.path, &st) == 0, (st.st_mode & S_IFMT) == S_IFLNK {
+                            throw Failure.symlinkNotAllowed(relativePath)
+                        }
                     }
                     currentParentKey = currentParentKey.isEmpty ? physicalName : "\(currentParentKey)/\(physicalName)"
                 } else {
                     if fm.fileExists(atPath: currentURL.path) {
-                        throw Failure.invalidArchive("Duplicate file path in ZIP archive: \(relativePath)")
+                        if overwriteExisting {
+                            var st = stat()
+                            if lstat(currentURL.path, &st) == 0, (st.st_mode & S_IFMT) == S_IFLNK {
+                                throw Failure.symlinkNotAllowed(relativePath)
+                            }
+                            try fm.removeItem(at: currentURL)
+                        } else {
+                            throw Failure.invalidArchive("Duplicate file path in ZIP archive: \(relativePath)")
+                        }
                     }
                     let fd = open(currentURL.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o644)
                     guard fd >= 0 else {
@@ -473,7 +547,7 @@ package enum JKSVArchive {
         return walkDir(root, folderPrefix)
     }
 
-    private static func resolvedGuestComponent(physical: String, absPath: String) -> String {
+    static func resolvedGuestComponent(physical: String, absPath: String) -> String {
         guard physical.hasPrefix(".dm-case-") else { return physical }
         var buf = [UInt8](repeating: 0, count: 1024)
         let len = getxattr(absPath, guestAttr, &buf, buf.count, 0, XATTR_NOFOLLOW)
@@ -482,7 +556,7 @@ package enum JKSVArchive {
         return (decoded?.isEmpty == false) ? decoded! : physical
     }
 
-    private static func makeImportBackupDirectory(in root: URL, now: Date, fileManager fm: FileManager) throws -> URL {
+    static func makeImportBackupDirectory(in root: URL, now: Date, fileManager fm: FileManager) throws -> URL {
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")

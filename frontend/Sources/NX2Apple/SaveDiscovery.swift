@@ -70,7 +70,7 @@ final class SavesModel: ObservableObject {
         case timedOut
     }
 
-    let template: SaveTransfer             // the Mac side, and the title ID
+    private(set) var template: SaveTransfer  // the Mac side, and the title ID
     let name: String
     let recordedBundle: String?
     let recordedDevice: String
@@ -96,6 +96,32 @@ final class SavesModel: ObservableObject {
         self.installTarget = installTarget; self.remembered = remembered; self.rememberChoice = rememberChoice
         self.listDevices = listDevices; self.timeout = timeout
         self.macLocation = template.macLocation()
+        self.macSave = template.readMac()
+    }
+
+    /// Refreshes only the Mac save path and contents (e.g. after changing the save folder or importing a save locally).
+    func updateTemplate(_ newTemplate: SaveTransfer) {
+        template = newTemplate
+        macSave = newTemplate.readMac()
+        macLocation = newTemplate.macLocation()
+        if let existing = found {
+            var updated = SaveTransfer(
+                titleID: existing.titleID,
+                macSave: newTemplate.macSave,
+                legacySave: newTemplate.legacySave,
+                device: existing.device,
+                bundle: existing.bundle,
+                devicectl: existing.devicectl
+            )
+            updated.scratch = existing.scratch
+            updated.now = existing.now
+            found = updated
+        }
+    }
+
+    func refreshMacOnly() {
+        macSave = template.readMac()
+        macLocation = template.macLocation()
     }
 
     var isReading: Bool { deviceState == .reading }

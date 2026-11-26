@@ -6,7 +6,7 @@ popover and alert, every notice and every case of the state enums the views swit
 `NX_WRITE_COVERAGE=1 swift test --package-path frontend --filter GalleryCoverageTests`. The gallery has
 342 scenes.
 
-## Views: 235 of 245 in a scene
+## Views: 237 of 247 in a scene
 
 | View | Scenes |
 |---|---|
@@ -165,6 +165,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `Hosted` | `settings`, `settingsTools` |
 | `InstallCard` | `wizardInstall` |
 | `KeysCard` | `settingsTools` |
+| `LaunchOptionsDeviceSavesCard` | `gameOptions` |
 | `LaunchOptionsView` | `gameOptions` |
 | `LauncherActionButton` | `libraryGames` |
 | `LauncherBrandMark` | `wizardInstall` |
@@ -229,6 +230,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `RefreshDevicesButton` | `wizardInstall` |
 | `RenameGameSheet` | `rename` |
 | `RootView` | Reason: The app's roots: they choose the onboarding, the launcher or the console demo, whose scenes show what they draw. |
+| `SaveDeviceTransferSection` | `saves`, `desktop-savesReady` |
 | `SaveImportSheet` | `saveImport` |
 | `SavesView` | `saves`, `desktop-savesReady` |
 | `SeedCompressionSettingsRow` | `settingsTools`, `desktop-seedCompressionStorage` |
