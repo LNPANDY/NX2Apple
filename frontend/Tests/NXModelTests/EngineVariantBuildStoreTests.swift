@@ -490,4 +490,66 @@ import XCTest
         XCTAssertEqual(store.recommendedTunedEngine, .macNativeGames)
         XCTAssertEqual(store.tunedEnginesForCurrentGame, [.macNativeGames])
     }
+
+    func testKidWithSwordMacBuildPatchesExistingTreeBeforeLaunchingScript() throws {
+        let kwsTree = try makeVariantTree(name: "kws-existing-mac", flags: "\"--work-dir\" \"--progress\"")
+        let fm = FileManager.default
+        let packURL = URL(fileURLWithPath: kwsTree).appendingPathComponent(KidWithSwordCompat.macPackScriptRelativePath)
+        let homeURL = URL(fileURLWithPath: kwsTree).appendingPathComponent(KidWithSwordCompat.launcherHomeRelativePath)
+        try fm.createDirectory(at: packURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fm.createDirectory(at: homeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "def swift_sources():\n    return [HERE / 'Launcher.swift', HERE.parent / 'ios/Sources/LauncherHome.swift']\n"
+            .write(to: packURL, atomically: true, encoding: .utf8)
+        let unpatchedHome = """
+        struct AllSettingsDrawer: View {
+            @State private var testingMic = false
+            var body: some View {
+                List {
+                    if m.rows(in: current).contains(where: { $0.env == "DM_MIC" }) {
+                        Section {
+                            Button("Test Microphone") { testingMic = true }
+                        }
+                    }
+                }
+                .sheet(isPresented: $testingMic) { MicTesterView(m: m) }
+            }
+        }
+        """
+        try unpatchedHome.write(to: homeURL, atomically: true, encoding: .utf8)
+
+        let runner = RecordingRunner()
+        let outDir = temporary.appendingPathComponent("out-kws-mac", isDirectory: true)
+        try fm.createDirectory(at: outDir, withIntermediateDirectories: true)
+
+        let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
+        defaults.set(false, forKey: MacPreflight.defaultsKey)
+        store.home = temporary.path
+        store.kidWithSwordPath = kwsTree
+        store.outDir = outDir.path
+
+        let oot = temporary.appendingPathComponent("OcarinaOfTime [0400486024DEC000].nsp")
+        let keys = temporary.appendingPathComponent("prod.keys")
+        try Data([0]).write(to: oot)
+        try Data([0]).write(to: keys)
+        store.updateSlot("base") { $0.paths = [oot.path] }
+        store.updateSlot("keys") { $0.paths = [keys.path] }
+        store.target = BuildTarget.mac
+        store.selectUpstream(.kidWithSword)
+
+        var launcherHomeAtLaunch = ""
+        runner.onStart = { _ in
+            launcherHomeAtLaunch = (try? String(contentsOf: homeURL, encoding: .utf8)) ?? ""
+        }
+
+        store.startBuild()
+        XCTAssertTrue(waitUntil { !runner.launches.isEmpty && !store.running })
+        XCTAssertTrue(
+            launcherHomeAtLaunch.contains("#if os(iOS)\n        .sheet(isPresented: $testingMic) { MicTesterView(m: m) }\n        #endif"),
+            "Existing Kid with Sword tree must be patched before launching Mac build"
+        )
+        XCTAssertTrue(
+            launcherHomeAtLaunch.contains("#if os(iOS)\n            if m.rows(in: current).contains(where: { $0.env == \"DM_MIC\" }) {"),
+            "Test Microphone section must also be guarded for macOS"
+        )
+    }
 }
