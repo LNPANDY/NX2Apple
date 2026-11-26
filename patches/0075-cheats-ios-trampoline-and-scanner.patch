@@ -12,18 +12,18 @@ Issue: none
 ---
  dm/host/dm.h                      |   28 +
  dm/host/front.h                   |   26 +
- dm/host/hle_cheats.c              |  886 ++++++++++++++++-
+ dm/host/hle_cheats.c              |  886 +++++++++++++++-
  dm/host/hle_hid.c                 |   19 +-
  dm/host/loader.c                  |    8 +
  dm/host/tests/t_cheats.c          |  212 +++-
  dm/host/tests/t_hid.c             |   37 +
  dm/ios/tools/build_ipa.sh         |    1 +
- dm/tools/cheat_bake.py            | 1534 +++++++++++++++++++++++++++++
+ dm/tools/cheat_bake.py            | 1551 +++++++++++++++++++++++++++++
  dm/tools/patch_nso.py             |   89 +-
- dm/tools/tests/test_cheat_bake.py |  587 +++++++++++
+ dm/tools/tests/test_cheat_bake.py |  625 ++++++++++++
  dm/tools/tests/test_ipa_tables.py |   10 +
  scripts/build_ipa_from_nsp.py     |   32 +-
- 13 files changed, 3432 insertions(+), 37 deletions(-)
+ 13 files changed, 3487 insertions(+), 37 deletions(-)
  create mode 100644 dm/tools/cheat_bake.py
  create mode 100644 dm/tools/tests/test_cheat_bake.py
 
@@ -1506,10 +1506,10 @@ index fb87c0b..6391ef4 100755
  else cp "$GD/shader_map.tsv" "$GD/c1_full.tsv" $TD/ || die "copy shader tables"
 diff --git a/dm/tools/cheat_bake.py b/dm/tools/cheat_bake.py
 new file mode 100644
-index 0000000..cd8ac3a
+index 0000000..97ede1a
 --- /dev/null
 +++ b/dm/tools/cheat_bake.py
-@@ -0,0 +1,1534 @@
+@@ -0,0 +1,1551 @@
 +"""Offline Atmosphère cheat trampoline baker and Code Cave switch-table relocator.
 +
 +Used by dm/tools/patch_nso.py when baking cheats into main so unjailbroken iOS
@@ -1947,17 +1947,18 @@ index 0000000..cd8ac3a
 +
 +def analyze_entries(entries: list[CheatEntry], rx_end: int) -> None:
 +    """Decode entries, extract static .text writes, conditional depth, and key masks."""
-+    # Registers modified by master entries carry into every normal entry during a pass.
-+    # Normal entries also share g_reg in file order within a pass, so registers dirtied by
-+    # earlier normal entries conservatively propagate to later normal entries.
++    # Only registers modified by always-on {Master} entries carry into subsequent entries.
++    # Optional [...] entries are independent and must not pollute later unrelated entries.
 +    master_dirty: set[int] = set()
++    master_wrap_dirty: set[int] = set()
 +    for half in (0, 1):
-+        running_dirty = set(master_dirty) if half == 1 else set()
 +        for ent in entries:
 +            if ent.label or ent.broken or (ent.master != (half == 0)):
 +                continue
-+            dirty = set(running_dirty)
++            dirty = set(master_dirty)
++            wrap_dirty = set(master_wrap_dirty)
 +            ent_dirty: set[int] = set()
++            ent_wrap_dirty: set[int] = set()
 +            cond_stack: list[int] = []  # key_mask for each enclosing conditional (0 for non-key)
 +            idx = 0
 +            while idx < len(ent.words):
@@ -1984,8 +1985,10 @@ index 0000000..cd8ac3a
 +                                key_mask=km,
 +                            ))
 +                    elif is_main and r in dirty:
-+                        # Offset depends on a runtime register: cannot know if it targets .text statically.
-+                        ent.has_dynamic_text_write = True
++                        # An unsigned rel >= rx_end cannot wrap into main.text unless r itself
++                        # may carry a negative/wrapping offset (e.g. arithmetic or high-bit const).
++                        if rel < rx_end or r in wrap_dirty:
++                            ent.has_dynamic_text_write = True
 +                    else:
 +                        ent.has_non_main_write = True
 +                elif op in (1, 0xC0):
@@ -2003,12 +2006,21 @@ index 0000000..cd8ac3a
 +                elif op == 4:
 +                    if info['val'] == 0 and not cond_stack:
 +                        dirty.discard(info['r'])
++                        wrap_dirty.discard(info['r'])
 +                    else:
 +                        dirty.add(info['r'])
 +                        ent_dirty.add(info['r'])
-+                elif op in (5, 7, 9):
++                        if info['val'] >= 0x8000_0000_0000_0000:
++                            wrap_dirty.add(info['r'])
++                            ent_wrap_dirty.add(info['r'])
++                elif op in (5,):
 +                    dirty.add(info['r'])
 +                    ent_dirty.add(info['r'])
++                elif op in (7, 9):
++                    dirty.add(info['r'])
++                    ent_dirty.add(info['r'])
++                    wrap_dirty.add(info['r'])
++                    ent_wrap_dirty.add(info['r'])
 +                elif op == 6:
 +                    if info['inc']:
 +                        dirty.add(info['r'])
@@ -2023,31 +2035,36 @@ index 0000000..cd8ac3a
 +                    if info['c'] == 3:
 +                        if not cond_stack:
 +                            dirty.discard(info['r'])
++                            wrap_dirty.discard(info['r'])
 +                    elif info['c'] not in (1, 2):
 +                        dirty.add(info['r'])
 +                        ent_dirty.add(info['r'])
++                        wrap_dirty.add(info['r'])
++                        ent_wrap_dirty.add(info['r'])
 +                elif op == 0xC2:
 +                    if info['c'] == 3:
 +                        if not cond_stack:
 +                            for bit in range(16):
 +                                if info['mask'] & (1 << bit):
 +                                    dirty.discard(bit)
++                                    wrap_dirty.discard(bit)
 +                    elif info['c'] not in (1, 2):
 +                        for bit in range(16):
 +                            if info['mask'] & (1 << bit):
 +                                dirty.add(bit)
 +                                ent_dirty.add(bit)
++                                wrap_dirty.add(bit)
++                                ent_wrap_dirty.add(bit)
 +                elif op == 0xC3:
 +                    if info['x'] < 0x80:
 +                        dirty.add(info['r'])
 +                        ent_dirty.add(info['r'])
++                        wrap_dirty.add(info['r'])
++                        ent_wrap_dirty.add(info['r'])
 +                idx += ln
-+            if not ent.broken:
-+                if half == 0:
-+                    master_dirty |= ent_dirty
-+                    running_dirty |= ent_dirty
-+                else:
-+                    running_dirty |= ent_dirty
++            if not ent.broken and half == 0:
++                master_dirty |= ent_dirty
++                master_wrap_dirty |= ent_wrap_dirty
 +
 +
 +def _expand_word_writes(w: StaticWrite, orig_text: bytes) -> list[tuple[int, int]] | None:
@@ -3216,10 +3233,10 @@ index 7eb097c..9831f90 100644
      if FPS_TARGET_F32: f.write('# FPS_TARGET_F32\t0x1\n')
 diff --git a/dm/tools/tests/test_cheat_bake.py b/dm/tools/tests/test_cheat_bake.py
 new file mode 100644
-index 0000000..e5e6fee
+index 0000000..6635cef
 --- /dev/null
 +++ b/dm/tools/tests/test_cheat_bake.py
-@@ -0,0 +1,587 @@
+@@ -0,0 +1,625 @@
 +"""Unit tests for dm/tools/cheat_bake.py: AArch64 NZCV-preserving trampolines,
 +PC-relative instruction relocation, multi-variant (>8) dispatch, key-mask
 +extraction, EdiZon/Zing sections, protected-site conflict skipping, and
@@ -3782,12 +3799,41 @@ index 0000000..e5e6fee
 +        with self.assertRaises(ValueError):
 +            cb.relocate_cave_switches(plan.cave_code, plan.mirrors, cheat_state, md, emit_stub=None)
 +
-+    def test_cross_normal_entry_dirty_register_propagation(self):
++    def test_normal_entries_do_not_pollute_dirty_registers_while_master_and_intra_entry_do(self):
++        # Optional entry modifying R10 (e.g. 580A0000) must NOT taint later unrelated optional entries:
++        # - rel >= rx_end (data write) must stay 'data', never 'unbaked_code'
++        # - rel < rx_end (.text write) must bake as 'baked_static'
 +        text = (
-+            '[DirtyR1]\n'
-+            '40010000 00000000 00000004\n'
-+            '[UsesDirtyR1]\n'
++            '[OptionalDirtyR10]\n'
++            '580A0000 05255A60\n'
++            '[DataWriteAboveRxEnd]\n'
++            '040A0000 57A14FF0 00000001\n'
++            '[StaticCodeWrite]\n'
++            '040A0000 00000100 D503201F\n'
++            '[IntraEntryDirtyR10]\n'
++            '580A0000 05255A60\n'
++            '040A0000 00000104 D503201F\n'
++            '[IntraEntryDirtyR10AboveRxEnd]\n'
++            '580A0000 05255A60\n'
++            '040A0000 57A14FF0 00000001\n'
++        )
++        plan, _, _, _, _ = run_bake_synthetic(text, {})
++        by_name = {e.name: e for e in plan.entries}
++        self.assertEqual(by_name['DataWriteAboveRxEnd'].kind, 'data')
++        self.assertEqual(by_name['StaticCodeWrite'].kind, 'baked_static')
++        self.assertEqual(by_name['IntraEntryDirtyR10'].kind, 'unbaked_code')
++        self.assertEqual(by_name['IntraEntryDirtyR10AboveRxEnd'].kind, 'data')
++
++    def test_master_dirty_register_propagation_and_wrap_guard(self):
++        # {Master} register taint propagates to optional entries for .text writes (rel < rx_end),
++        # unless cleared by zero-load or C1 clear; rel >= rx_end stays 'data' unless wrapping is possible.
++        text = (
++            '{MasterLoadsR1}\n'
++            '58010000 05255A60\n'
++            '[UsesMasterDirtyR1Text]\n'
 +            '04010000 00000100 D503201F\n'
++            '[UsesMasterDirtyR1Data]\n'
++            '04010000 57A14FF0 00000001\n'
 +            '[ClearsR1ThenWrites]\n'
 +            '40010000 00000000 00000000\n'
 +            '04010000 00000104 D503201F\n'
@@ -3796,13 +3842,22 @@ index 0000000..e5e6fee
 +            '04010000 00000108 D503201F\n'
 +            '[AfterClearStillDirty]\n'
 +            '04010000 0000010C D503201F\n'
++            '[IntraEntryWrapArithAboveRxEnd]\n'
++            '40020000 FFFFFFFF FFFFFFC0\n'
++            '04020000 57A14FF0 00000001\n'
++            '[IntraEntrySubAboveRxEnd]\n'
++            '78030001 00000010\n'
++            '04030000 57A14FF0 00000001\n'
 +        )
 +        plan, _, _, _, _ = run_bake_synthetic(text, {})
 +        by_name = {e.name: e for e in plan.entries}
-+        self.assertEqual(by_name['UsesDirtyR1'].kind, 'unbaked_code')
++        self.assertEqual(by_name['UsesMasterDirtyR1Text'].kind, 'unbaked_code')
++        self.assertEqual(by_name['UsesMasterDirtyR1Data'].kind, 'data')
 +        self.assertEqual(by_name['ClearsR1ThenWrites'].kind, 'baked_static')
 +        self.assertEqual(by_name['ClearsR1WithC1'].kind, 'baked_static')
 +        self.assertEqual(by_name['AfterClearStillDirty'].kind, 'unbaked_code')
++        self.assertEqual(by_name['IntraEntryWrapArithAboveRxEnd'].kind, 'unbaked_code')
++        self.assertEqual(by_name['IntraEntrySubAboveRxEnd'].kind, 'unbaked_code')
 +
 +
 +if __name__ == '__main__':
