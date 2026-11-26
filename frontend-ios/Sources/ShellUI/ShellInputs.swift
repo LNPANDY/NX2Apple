@@ -54,6 +54,76 @@ public enum CloudSaveDecision: Equatable, Sendable {
     case cancel
 }
 
+/// Kind of save source picked by the player from Files on iOS.
+public enum SaveImportSourceKind: Equatable, Sendable {
+    case jksvArchive
+    case zipArchive
+    case folder
+    case singleFile
+}
+
+/// How imported files are applied to the game's local save directory.
+public enum SaveImportMode: String, Equatable, Sendable {
+    case replace
+    case merge
+}
+
+/// Preflighted summary presented to the player before writing an imported save to disk.
+public struct SaveImportPrompt: Identifiable, Equatable, Sendable {
+    public var id: String { token }
+    public var token: String
+    public var gameID: String
+    public var gameTitle: String
+    public var sourceName: String
+    public var sourceKind: SaveImportSourceKind
+    public var fileCount: Int
+    public var totalBytes: UInt64
+    public var formattedSize: String
+    public var jksvTitleID: String?
+    public var targetFolders: [String]
+    public var hasExistingSave: Bool
+    public var defaultMode: SaveImportMode
+
+    public init(token: String = UUID().uuidString, gameID: String, gameTitle: String, sourceName: String,
+                sourceKind: SaveImportSourceKind, fileCount: Int, totalBytes: UInt64, formattedSize: String,
+                jksvTitleID: String? = nil, targetFolders: [String] = ["save"],
+                hasExistingSave: Bool, defaultMode: SaveImportMode = .replace) {
+        self.token = token
+        self.gameID = gameID
+        self.gameTitle = gameTitle
+        self.sourceName = sourceName
+        self.sourceKind = sourceKind
+        self.fileCount = fileCount
+        self.totalBytes = totalBytes
+        self.formattedSize = formattedSize
+        self.jksvTitleID = jksvTitleID
+        self.targetFolders = targetFolders
+        self.hasExistingSave = hasExistingSave
+        self.defaultMode = defaultMode
+    }
+}
+
+/// Result of picking and preflighting a save import source.
+public enum SaveImportPreviewOutcome: Equatable, Sendable {
+    case preview(SaveImportPrompt)
+    case cancelled
+    case failed(String)
+}
+
+/// Result of applying a preflighted save import.
+public enum SaveImportCommitOutcome: Equatable, Sendable {
+    case imported(message: String)
+    case cancelled
+    case failed(String)
+}
+
+/// Result of packing and presenting the export share sheet for a game's local save.
+public enum SaveExportOutcome: Equatable, Sendable {
+    case exported(message: String)
+    case cancelled
+    case failed(String)
+}
+
 /// Pre-launch cloud save prompt data supplied by `ShellHost` when both sides changed or the cloud save could not be read.
 public struct CloudSavePrompt: Identifiable, Equatable, Sendable {
     public var id: String
@@ -190,10 +260,15 @@ public struct GameDetail: Identifiable, Equatable, Sendable {
     public var playSummary: String?
     /// Lightweight summary of this game's cheats for the Game Settings entry row.
     public var cheatsSummary: GameCheatsSummary?
+    /// True when this game already has local save entries under `Documents/games/<titleID>/save[_device]`.
+    public var hasLocalSave: Bool
+    /// Optional localized summary of local save files and size (for example "3 files · 1.2 MB").
+    public var localSaveSummary: String?
     public init(game: GameTile, sections: [SettingSection] = [], dataSource: String = "", dataNote: String = "",
                 cloudSaves: String? = nil, cloudNote: String = "", dlc: String = "", hasModifiedSettings: Bool = false,
                 dataFromShell: Bool = false, cloudFromShell: Bool = false, cloudCanUseShell: Bool = false,
-                latestSaveBackup: String? = nil, playSummary: String? = nil, cheatsSummary: GameCheatsSummary? = nil) {
+                latestSaveBackup: String? = nil, playSummary: String? = nil, cheatsSummary: GameCheatsSummary? = nil,
+                hasLocalSave: Bool = false, localSaveSummary: String? = nil) {
         self.game = game
         self.sections = sections
         self.dataSource = dataSource
@@ -208,6 +283,8 @@ public struct GameDetail: Identifiable, Equatable, Sendable {
         self.latestSaveBackup = latestSaveBackup
         self.playSummary = playSummary
         self.cheatsSummary = cheatsSummary
+        self.hasLocalSave = hasLocalSave
+        self.localSaveSummary = localSaveSummary
     }
 }
 
@@ -467,6 +544,14 @@ public struct ShellActions {
     public var onDismissCheatFuseAlert: ((_ gameID: String) -> GameCheatsSnapshot)?
     /// Dismisses the 30-second crash guard fuse alert off the main thread and returns the refreshed snapshot.
     public var onDismissCheatFuseAlertAsync: (@MainActor (_ gameID: String) async -> GameCheatsSnapshot)?
+    /// Opens the Files picker to select and preflight a save folder, `.zip` archive, or individual save file.
+    public var onPickSaveImport: (@MainActor (_ gameID: String) async -> SaveImportPreviewOutcome)?
+    /// Commits a previously preflighted save import with the player's chosen replace/merge mode.
+    public var onConfirmSaveImport: (@MainActor (_ gameID: String, _ token: String, _ mode: SaveImportMode) async -> SaveImportCommitOutcome)?
+    /// Releases any staged save import preview when cancelled or dismissed.
+    public var onCancelSaveImport: ((_ gameID: String, _ token: String) -> Void)?
+    /// Packs the game's local save as a JKSV-compatible `.zip` and opens the system share/export sheet.
+    public var onExportSave: (@MainActor (_ gameID: String) async -> SaveExportOutcome)?
 
     public var supportsHomeScreen: Bool {
         onAddToHomeScreenWithGuide != nil || onAddToHomeScreen != nil || onCopyShortcutURL != nil
@@ -482,6 +567,10 @@ public struct ShellActions {
 
     public var supportsCheats: Bool {
         onLoadCheatsAsync != nil || onLoadCheats != nil
+    }
+
+    public var supportsSaves: Bool {
+        onPickSaveImport != nil || onExportSave != nil
     }
 
     public init(onSelect: @escaping (String) -> Void = { _ in }, onPlay: @escaping (String) -> Void = { _ in },
@@ -521,7 +610,11 @@ public struct ShellActions {
                 onConfirmMismatchCheatImportAsync: (@MainActor (_ gameID: String, _ token: String) async -> CheatImportOutcome)? = nil,
                 onCancelMismatchCheatImport: ((_ gameID: String) -> Void)? = nil,
                 onDismissCheatFuseAlert: ((_ gameID: String) -> GameCheatsSnapshot)? = nil,
-                onDismissCheatFuseAlertAsync: (@MainActor (_ gameID: String) async -> GameCheatsSnapshot)? = nil) {
+                onDismissCheatFuseAlertAsync: (@MainActor (_ gameID: String) async -> GameCheatsSnapshot)? = nil,
+                onPickSaveImport: (@MainActor (_ gameID: String) async -> SaveImportPreviewOutcome)? = nil,
+                onConfirmSaveImport: (@MainActor (_ gameID: String, _ token: String, _ mode: SaveImportMode) async -> SaveImportCommitOutcome)? = nil,
+                onCancelSaveImport: ((_ gameID: String, _ token: String) -> Void)? = nil,
+                onExportSave: (@MainActor (_ gameID: String) async -> SaveExportOutcome)? = nil) {
         self.onSelect = onSelect
         self.onPlay = onPlay
         self.onChange = onChange
@@ -568,5 +661,9 @@ public struct ShellActions {
         self.onCancelMismatchCheatImport = onCancelMismatchCheatImport
         self.onDismissCheatFuseAlert = onDismissCheatFuseAlert
         self.onDismissCheatFuseAlertAsync = onDismissCheatFuseAlertAsync
+        self.onPickSaveImport = onPickSaveImport
+        self.onConfirmSaveImport = onConfirmSaveImport
+        self.onCancelSaveImport = onCancelSaveImport
+        self.onExportSave = onExportSave
     }
 }

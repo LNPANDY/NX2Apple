@@ -6,6 +6,7 @@ extension LibraryView {
         case buttonTest
         case choice(String)
         case help(String)
+        case saveImport(String)
         case cheats(String)
         case restoreBackup(String)
         case homeScreen(String)
@@ -23,6 +24,7 @@ extension LibraryView {
         guard hasRootMenu else { return nil }
         if let choice { return .choice("\(choice.gameID):\(choice.row.id)") }
         if let id = helpGameID { return .help(id) }
+        if let prompt = saveImportPrompt { return .saveImport(prompt.token) }
         if let id = cheatsGameID { return .cheats(id) }
         if let id = restoreBackupGameID { return .restoreBackup(id) }
         if let id = homeScreenGameID { return .homeScreen(id) }
@@ -113,6 +115,29 @@ extension LibraryView {
                     .toolbar { secondaryLauncherToolbar(for: route) }
                     .modifier(SecondaryEdgeSwipeBackModifier { clearSecondaryMenuRouteFromNavigationPop() })
                     .onPreferenceChange(FocusTargets.self) { targets.values = visibleTargets($0) }
+            }
+        case .saveImport:
+            if let prompt = saveImportPrompt {
+                ScrollView {
+                    SaveImportConfirmView(
+                        prompt: prompt,
+                        committing: saveImportCommitting,
+                        confirm: { confirmSaveImport($0) },
+                        cancel: closeSaveImport
+                    )
+                }
+                .background(ShellPalette.background)
+                .navigationTitle("")
+                #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+                #endif
+                .navigationBarBackButtonHidden()
+                .interactiveDismissDisabled(saveImportCommitting)
+                .toolbar { secondaryLauncherToolbar(for: route) }
+                .modifier(SecondaryEdgeSwipeBackModifier {
+                    if !saveImportCommitting { clearSecondaryMenuRouteFromNavigationPop() }
+                })
+                .onPreferenceChange(FocusTargets.self) { targets.values = visibleTargets($0) }
             }
         case .cheats(let id):
             if let detail = games.first(where: { $0.id == id }) {
@@ -225,7 +250,7 @@ extension LibraryView {
             ZStack {
                 if settingsOpen, let selected {
                     settingsPane(selected, width: geometry.size.width)
-                        .accessibilityHidden(controllersOpen || shellSettingsOpen || activityLogOpen || cheatsGameID != nil || choice != nil || padMapping != nil || helpGameID != nil || restoreBackupGameID != nil || homeScreenGameID != nil || deleteGameID != nil)
+                        .accessibilityHidden(controllersOpen || shellSettingsOpen || activityLogOpen || cheatsGameID != nil || choice != nil || padMapping != nil || helpGameID != nil || saveImportPrompt != nil || restoreBackupGameID != nil || homeScreenGameID != nil || deleteGameID != nil)
                 }
                 if retention.draws(.controllers, open: controllersOpen) {
                     ControllersView(controllers: controllers, onBack: back, padMap: globalPadMap,
@@ -256,6 +281,17 @@ extension LibraryView {
                 }
                 if !hasRootMenu, let id = cheatsGameID, let detail = games.first(where: { $0.id == id }) {
                     cheatsSheetContent(id: id, detail: detail)
+                }
+                if !hasRootMenu, let prompt = saveImportPrompt {
+                    ScrollView {
+                        SaveImportConfirmView(
+                            prompt: prompt,
+                            committing: saveImportCommitting,
+                            confirm: { confirmSaveImport($0) },
+                            cancel: closeSaveImport
+                        )
+                    }
+                    .background(ShellPalette.background)
                 }
                 if !hasRootMenu, let id = restoreBackupGameID, let game = games.first(where: { $0.id == id })?.game {
                     ScrollView {
@@ -290,11 +326,11 @@ extension LibraryView {
 
     var tabletopSettings: Bool {
         horizontalDivision && settingsOpen && !controllersOpen && !shellSettingsOpen && !activityLogOpen && cheatsGameID == nil && choice == nil
-            && padMapping == nil && !buttonTestOpen && helpGameID == nil && restoreBackupGameID == nil && homeScreenGameID == nil && deleteGameID == nil
+            && padMapping == nil && !buttonTestOpen && helpGameID == nil && saveImportPrompt == nil && restoreBackupGameID == nil && homeScreenGameID == nil && deleteGameID == nil
     }
 
     var menuTitle: String {
-        guard choice == nil, padMapping == nil, !buttonTestOpen, helpGameID == nil, restoreBackupGameID == nil, homeScreenGameID == nil, deleteGameID == nil else { return "" }
+        guard choice == nil, padMapping == nil, !buttonTestOpen, helpGameID == nil, saveImportPrompt == nil, restoreBackupGameID == nil, homeScreenGameID == nil, deleteGameID == nil else { return "" }
         if !hasRootMenu, cheatsGameID != nil { return ShellStrings.text("Cheats") }
         if cheatsGameID != nil { return "" }
         if activityLogOpen { return ShellStrings.text("Activity log") }

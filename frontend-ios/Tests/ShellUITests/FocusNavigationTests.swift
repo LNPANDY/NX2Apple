@@ -106,6 +106,8 @@ final class FocusNavigationTests: XCTestCase {
 
     func testGameSettingsScrollRowIDAndOrderedLazyFallback() {
         XCTAssertEqual(GameDetailView.scrollRowID(for: "set.appdata"), "set.data")
+        XCTAssertEqual(GameDetailView.scrollRowID(for: "set.save.import"), "set.save")
+        XCTAssertEqual(GameDetailView.scrollRowID(for: "set.save.export"), "set.save")
         XCTAssertEqual(GameDetailView.scrollRowID(for: "set.cloud.shell"), "set.cloud")
         XCTAssertEqual(GameDetailView.scrollRowID(for: "set.cloud.off"), "set.cloud")
         XCTAssertEqual(GameDetailView.scrollRowID(for: "set.cover.reset"), "set.cover")
@@ -113,6 +115,7 @@ final class FocusNavigationTests: XCTestCase {
         XCTAssertEqual(GameDetailView.scrollRowID(for: "set.row.padMapping"), "set.row.padMapping")
         XCTAssertEqual(GameDetailView.focusRowID(for: "set.row.DM_SHOW_FPS"), "set.row.DM_SHOW_FPS")
         XCTAssertEqual(GameDetailView.focusRowID(for: "set.appdata"), "set.data")
+        XCTAssertEqual(GameDetailView.focusRowID(for: "set.save.export"), "set.save")
 
         let detail = GameDetail(
             game: GameTile(id: "g1", title: "Game 1"),
@@ -175,5 +178,27 @@ final class FocusNavigationTests: XCTestCase {
         XCTAssertEqual(GameDetailView.fallbackVerticalTarget(from: "set.back", action: .down, orderedRows: orderedWithCheats), "set.cheats")
         XCTAssertEqual(GameDetailView.fallbackVerticalTarget(from: "set.cheats", action: .down, orderedRows: orderedWithCheats), "set.row.DM_OPMODE")
         XCTAssertEqual(GameDetailView.fallbackVerticalTarget(from: "set.cheats", action: .up, orderedRows: orderedWithCheats), "set.back")
+
+        let orderedWithSaves = GameDetailView.orderedFocusRowIDs(
+            detail: detail,
+            showsSaves: true,
+            showsHomeScreen: true,
+            showsChangeCover: true,
+            showsDelete: true
+        )
+        XCTAssertEqual(orderedWithSaves, [
+            "set.row.DM_OPMODE",
+            "set.row.padMapping",
+            "set.data",
+            "set.save",
+            "set.cloud",
+            "set.cloud.restore",
+            "set.homeScreen",
+            "set.cover",
+            "set.reset",
+            "set.delete"
+        ])
+        XCTAssertEqual(GameDetailView.fallbackVerticalTarget(from: "set.appdata", action: .down, orderedRows: orderedWithSaves), "set.save")
+        XCTAssertEqual(GameDetailView.fallbackVerticalTarget(from: "set.save.export", action: .down, orderedRows: orderedWithSaves), "set.cloud")
     }
 }

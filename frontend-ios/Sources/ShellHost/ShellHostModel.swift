@@ -193,6 +193,7 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored private let picker: any FolderPicker
     @ObservationIgnored private let certificatePicker: any SideloadCertificatePicker
     @ObservationIgnored let cheatPicker: any CheatFilePicker
+    @ObservationIgnored let savePresenter: any SaveTransferPresenter
     @ObservationIgnored private let sideloadCertificateStore: SideloadCertificateStore
     @ObservationIgnored private var pendingPKCS12Data: Data?
     @ObservationIgnored var pendingCheatImport: (gameID: String, token: String, targetBuildID: String, data: Data)?
@@ -200,6 +201,9 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored var cheatsSummaries: [String: GameCheatsSummary] = [:]
     @ObservationIgnored var cheatsScanTask: Task<Void, Never>?
     @ObservationIgnored var cheatsScanGeneration: UInt64 = 0
+    @ObservationIgnored var pendingSaveImports: [String: PendingSaveImport] = [:]
+    @ObservationIgnored var saveOpGeneration: [String: UInt64] = [:]
+    @ObservationIgnored var localSaveSummaries: [String: SaveArchiveService.LocalSummary] = [:]
     @ObservationIgnored private var certificateGeneration: UInt64 = 0
     @ObservationIgnored private var certificateLoadTask: Task<Void, Never>?
     @ObservationIgnored private let adapter = GamepadAdapter()
@@ -233,7 +237,7 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored private var cloudCheckGeneration: UInt64 = 0
     @ObservationIgnored private var pendingCloudLaunch: PendingCloudLaunch?
     @ObservationIgnored private var backupScanGeneration: UInt64 = 0
-    @ObservationIgnored private var backupScanTask: Task<Void, Never>?
+    @ObservationIgnored var backupScanTask: Task<Void, Never>?
     @ObservationIgnored private var latestBackups: [String: String] = [:]
     @ObservationIgnored private var bannerFetchGeneration: UInt64 = 0
     @ObservationIgnored private var bannerFetchTask: Task<Void, Never>?
@@ -254,12 +258,14 @@ public struct ShellHostConfig: Sendable {
     public init(config: ShellHostConfig, launcher: any GameLauncher = StubGameLauncher(), picker: any FolderPicker = NoFolderPicker(),
                 certificatePicker: any SideloadCertificatePicker = NoSideloadCertificatePicker(),
                 cheatPicker: any CheatFilePicker = NoCheatFilePicker(),
+                savePresenter: any SaveTransferPresenter = NoSaveTransferPresenter(),
                 shellSettings: ShellSettingsStore = .current, playHistory: PlayHistoryStore? = nil) {
         self.config = config
         self.launcher = launcher
         self.picker = picker
         self.certificatePicker = certificatePicker
         self.cheatPicker = cheatPicker
+        self.savePresenter = savePresenter
         self.sideloadCertificateStore = SideloadCertificateStore(backing: config.sideloadCertBacking, now: config.now)
         self.shellSettings = shellSettings
         self.playHistory = playHistory ?? PlayHistoryStore(fileURL: PlayHistoryStore.defaultFileURL(appDataRoot: config.appDataRoot))
@@ -351,7 +357,7 @@ public struct ShellHostConfig: Sendable {
         signingWarning = nil
     }
 
-    private var isBusyWithGame: Bool {
+    var isBusyWithGame: Bool {
         if launchingGame || isDeepLinkLaunching { return true }
         if let runningID = config.activeRunningGameID(), !runningID.isEmpty { return true }
         return false
@@ -521,30 +527,36 @@ public struct ShellHostConfig: Sendable {
         }
     }
 
-    private func startBackupScan() {
+    func startBackupScan() {
         backupScanTask?.cancel()
         backupScanGeneration &+= 1
         let generation = backupScanGeneration
         let targets = entries.map { ($0.id, appFolder(for: $0.id)) }
         guard !targets.isEmpty else {
             latestBackups.removeAll()
+            localSaveSummaries.removeAll()
             return
         }
         backupScanTask = Task { [weak self] in
-            let scanned = await Task.detached(priority: .utility) { () -> [String: String] in
-                var found: [String: String] = [:]
+            let scanned = await Task.detached(priority: .utility) { () -> (backups: [String: String], saves: [String: SaveArchiveService.LocalSummary]) in
+                var foundBackups: [String: String] = [:]
+                var foundSaves: [String: SaveArchiveService.LocalSummary] = [:]
                 for (id, folder) in targets where !Task.isCancelled {
                     if let backup = CloudSaveSyncCheck.latestBackup(in: folder) {
-                        found[id] = backup.label
+                        foundBackups[id] = backup.label
                     }
+                    foundSaves[id] = SaveArchiveService.localSummary(in: folder)
                 }
-                return found
+                return (foundBackups, foundSaves)
             }.value
             guard let self, !Task.isCancelled, self.backupScanGeneration == generation else { return }
-            let previous = self.latestBackups
-            self.latestBackups = scanned
-            let changedIDs = Set(previous.keys).union(scanned.keys).filter { previous[$0] != scanned[$0] }
-            for id in changedIDs { self.refresh(id) }
+            let previousBackups = self.latestBackups
+            let previousSaves = self.localSaveSummaries
+            self.latestBackups = scanned.backups
+            self.localSaveSummaries = scanned.saves
+            let changedBackups = Set(previousBackups.keys).union(scanned.backups.keys).filter { previousBackups[$0] != scanned.backups[$0] }
+            let changedSaves = Set(previousSaves.keys).union(scanned.saves.keys).filter { previousSaves[$0] != scanned.saves[$0] }
+            for id in changedBackups.union(changedSaves) { self.refresh(id) }
         }
     }
 
@@ -686,7 +698,7 @@ public struct ShellHostConfig: Sendable {
         refresh(id)
     }
 
-    private func refresh(_ id: String) {
+    func refresh(_ id: String) {
         if let e = entries.firstIndex(where: { $0.id == id }), let d = details.firstIndex(where: { $0.id == id }) {
             details[d] = detail(for: entries[e])
         }
@@ -746,11 +758,11 @@ public struct ShellHostConfig: Sendable {
         return s
     }
 
-    private enum CloudSaves { case off, own(URL), stale, shell(URL), none }
+    enum CloudSaves { case off, own(URL), stale, shell(URL), none }
 
     /// Where the game's cloud saves go: off when the player turned them off for the game, then the game's own folder,
     /// then the shell settings' folder.
-    private func cloudSaves(_ id: String) -> CloudSaves {
+    func cloudSaves(_ id: String) -> CloudSaves {
         if config.defaults(id).bool(forKey: GameDefaults.cloudSavesOffKey) { return .off }
         switch cloudStore(id).resolve() {
         case .url(let url): return .own(url)
@@ -913,13 +925,16 @@ public struct ShellHostConfig: Sendable {
         if case .url = shellCloud.resolve() { shellFolder = true }
         let snapshot = settingsSnapshot(for: entry.id, profile: profile)
         let cheatsSummary = cheatsSummaries[entry.id]
+        let saveSummary = localSaveSummaries[entry.id]
         return GameDetail(
             game: tile, sections: snapshot.sections,
             dataSource: dataSource(data), dataNote: dataNote(for: entry.id, data: data, found: data.found, readiness: readiness),
             cloudSaves: cloud, cloudNote: cloudNote, dlc: dlc(data), hasModifiedSettings: snapshot.hasModifiedSettings,
             dataFromShell: data.source == .shell, cloudFromShell: cloudFromShell,
             cloudCanUseShell: shellFolder && !cloudFromShell,
-            latestSaveBackup: latestBackup, playSummary: playSummary, cheatsSummary: cheatsSummary)
+            latestSaveBackup: latestBackup, playSummary: playSummary, cheatsSummary: cheatsSummary,
+            hasLocalSave: saveSummary?.hasEntries == true,
+            localSaveSummary: formattedLocalSaveSummary(saveSummary))
     }
 
     private func dataSource(_ data: DataResolution) -> String {
@@ -1101,6 +1116,21 @@ public struct ShellHostConfig: Sendable {
             onDismissCheatFuseAlertAsync: { [weak self] id in
                 guard let self else { return GameCheatsSnapshot(gameID: id, gameTitle: "") }
                 return await self.dismissCheatFuseAlertAsync(for: id)
+            },
+            onPickSaveImport: { [weak self] id in
+                guard let self else { return .cancelled }
+                return await self.pickSaveImportNow(for: id)
+            },
+            onConfirmSaveImport: { [weak self] id, token, mode in
+                guard let self else { return .cancelled }
+                return await self.confirmSaveImportNow(for: id, token: token, mode: mode)
+            },
+            onCancelSaveImport: { [weak self] id, token in
+                self?.cancelSaveImport(for: id, token: token)
+            },
+            onExportSave: { [weak self] id in
+                guard let self else { return .cancelled }
+                return await self.exportSaveNow(for: id)
             })
     }
 
@@ -1495,8 +1525,11 @@ public struct ShellHostConfig: Sendable {
         joinGeneration &+= 1
         joiningProgress.removeValue(forKey: id)
         pickGeneration[id] = (pickGeneration[id] ?? 0) &+ 1
+        saveOpGeneration[id] = (saveOpGeneration[id] ?? 0) &+ 1
+        cancelAllPendingSaveImports(for: id)
         pickedDataNotes.removeValue(forKey: id)
         latestBackups.removeValue(forKey: id)
+        localSaveSummaries.removeValue(forKey: id)
         resolvedProfiles.removeValue(forKey: id)
         if let customURL = GameBannerStore.customBannerURL(for: id, bannersRoot: config.bannersRoot) {
             artwork.removeValue(forKey: customURL)
@@ -1746,6 +1779,7 @@ public struct ShellHostConfig: Sendable {
     func handleReturnToLibrary() {
         stoppingRunningGame = false
         refreshSettingsAfterGameReturn()
+        startBackupScan()
         if let queued = queuedDeepLinkRequest {
             queuedDeepLinkRequest = nil
             pendingDeepLinkSuccessURL = nil
@@ -2139,7 +2173,7 @@ public struct ShellHostConfig: Sendable {
         }
     }
 
-    private static func formatByteSize(_ bytes: Int64) -> String {
+    static func formatByteSize(_ bytes: Int64) -> String {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
         formatter.allowsNonnumericFormatting = false

@@ -1089,6 +1089,70 @@
         }
       }
     },
+    "%lld files · %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Dateien · %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld files · %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld archivos · %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld fichiers · %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld file · %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld ファイル · %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 %lld개 · %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld arquivos · %@"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld filer · %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个文件 · %@"
+          }
+        }
+      }
+    },
     "1 additional content pack": {
       "localizations": {
         "de": {
@@ -1149,6 +1213,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "1 个附加内容包"
+          }
+        }
+      }
+    },
+    "1 file · %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 Datei · %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 file · %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 archivo · %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 fichier · %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 file · %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 ファイル · %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 1개 · %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 arquivo · %@"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 fil · %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 个文件 · %@"
           }
         }
       }
@@ -1409,6 +1537,70 @@
         }
       }
     },
+    "Choose a destination outside the save folder.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle ein Ziel außerhalb des Spielstandordners."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a destination outside the save folder."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige un destino fuera de la carpeta de partidas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez une destination en dehors du dossier de sauvegarde."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli una destinazione al di fuori della cartella dei salvataggi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セーブデータフォルダ以外の場所を選択してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장 폴더 외부의 대상을 선택하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha um destino fora da pasta de salvamentos."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Välj en plats utanför sparmappen."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请选择存档目录以外的位置。"
+          }
+        }
+      }
+    },
     "Choose the folder holding romfs.img (or the game's title ID folder) on this device, an external drive, or iCloud Drive.": {
       "localizations": {
         "de": {
@@ -1469,6 +1661,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "在此设备、外置硬盘或 iCloud Drive 上选择包含 romfs.img 的文件夹（或游戏的 Title ID 文件夹）。"
+          }
+        }
+      }
+    },
+    "Close the running game before modifying saves.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schließe das laufende Spiel, bevor du Spielstände änderst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close the running game before modifying saves."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cierra el juego en ejecución antes de modificar las partidas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fermez le jeu en cours avant de modifier les sauvegardes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiudi il gioco in esecuzione prima di modificare i salvataggi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セーブデータを変更する前に実行中のゲームを終了してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장 데이터를 변경하기 전에 실행 중인 게임을 종료하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feche o jogo em execução antes de alterar os dados salvos."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stäng det pågående spelet innan du ändrar sparfiler."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修改或导出存档前请先关闭正在运行的游戏。"
           }
         }
       }
@@ -1981,6 +2237,134 @@
           "stringUnit": {
             "state": "translated",
             "value": "完成"
+          }
+        }
+      }
+    },
+    "Exported %lld save files as a JKSV archive.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Spielstanddateien als JKSV-Archiv exportiert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exported %lld save files as a JKSV archive."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se exportaron %lld archivos de partida como archivo JKSV."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld fichiers de sauvegarde exportés en archive JKSV."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld file di salvataggio esportati come archivio JKSV."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 件のセーブファイルを JKSV アーカイブとして書き出しました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장 파일 %lld개를 JKSV 아카이브로 내보냈습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld arquivos de salvamento exportados como arquivo JKSV."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exporterade %lld sparfiler som JKSV-arkiv."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已导出 %lld 个存档文件为 JKSV 压缩包。"
+          }
+        }
+      }
+    },
+    "Exported 1 save file as a JKSV archive.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 Spielstanddatei als JKSV-Archiv exportiert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exported 1 save file as a JKSV archive."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se exportó 1 archivo de partida como archivo JKSV."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 fichier de sauvegarde exporté en archive JKSV."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 file di salvataggio esportato come archivio JKSV."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 件のセーブファイルを JKSV アーカイブとして書き出しました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장 파일 1개를 JKSV 아카이브로 내보냈습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 arquivo de salvamento exportado como arquivo JKSV."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exporterade 1 sparfil som JKSV-arkiv."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已导出 1 个存档文件为 JKSV 压缩包。"
           }
         }
       }
@@ -2753,6 +3137,70 @@
         }
       }
     },
+    "Launch this game once to finish syncing your previous cloud save before importing.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starte dieses Spiel einmal, um die vorherige Cloud-Synchronisierung abzuschließen, bevor du importierst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Launch this game once to finish syncing your previous cloud save before importing."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia este juego una vez para terminar la sincronización en la nube anterior antes de importar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lancez ce jeu une fois pour terminer la synchronisation cloud précédente avant d’importer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avvia il gioco una volta per completare la sincronizzazione cloud precedente prima di importare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前回のクラウド同期を完了するため、読み込み前にゲームを一度起動してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져오기 전에 이전 클라우드 동기화를 완료하려면 게임을 한 번 실행하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicie este jogo uma vez para concluir a sincronização na nuvem anterior antes de importar."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starta spelet en gång för att slutföra föregående molnsynkronisering innan du importerar."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次云存档同步尚未完成，请先启动一次游戏完成恢复后再导入。"
+          }
+        }
+      }
+    },
     "Launching is not available yet.": {
       "localizations": {
         "de": {
@@ -3261,6 +3709,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "快捷指令链接中未指定游戏。"
+          }
+        }
+      }
+    },
+    "No save files were found in the selected item.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im ausgewählten Element wurden keine Spielstanddateien gefunden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No save files were found in the selected item."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontraron archivos de partida en el elemento seleccionado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun fichier de sauvegarde trouvé dans l’élément sélectionné."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun file di salvataggio trovato nell’elemento selezionato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択した項目にセーブファイルが見つかりませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 항목에서 저장 파일을 찾을 수 없습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum arquivo de salvamento foi encontrado no item selecionado."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inga sparfiler hittades i det valda objektet."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所选项目不包含任何存档文件。"
           }
         }
       }
@@ -4289,6 +4801,198 @@
         }
       }
     },
+    "Save imported.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spielstand importiert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save imported."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partida importada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sauvegarde importée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salvataggio importato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セーブデータを読み込みました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장 데이터를 가져왔습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dados salvos importados."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sparfil importerad."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "存档已导入。"
+          }
+        }
+      }
+    },
+    "Save imported. Your previous save was backed up (%@).": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spielstand importiert. Dein vorheriger Spielstand wurde gesichert (%@)."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save imported. Your previous save was backed up (%@)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partida importada. Tu partida anterior se respaldó (%@)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sauvegarde importée. L’ancienne sauvegarde a été conservée (%@)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salvataggio importato. Il salvataggio precedente è stato salvato in backup (%@)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セーブデータを読み込みました。以前のセーブはバックアップ済みです（%@）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장 데이터를 가져왔습니다. 이전 저장 데이터는 백업되었습니다 (%@)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dados salvos importados. Seus dados anteriores foram salvos em backup (%@)."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sparfil importerad. Din tidigare sparfil säkerhetskopierades (%@)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "存档已导入，原有存档已自动备份（%@）。"
+          }
+        }
+      }
+    },
+    "Save operation failed: %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spielstandvorgang fehlgeschlagen: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save operation failed: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error en la operación de guardado: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec de l’opération de sauvegarde : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Operazione di salvataggio non riuscita: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セーブデータの処理に失敗しました: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장 데이터 작업 실패: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falha na operação de salvamento: %@"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sparåtgärden misslyckades: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "存档操作失败：%@"
+          }
+        }
+      }
+    },
     "Set in env.txt": {
       "localizations": {
         "de": {
@@ -4993,6 +5697,198 @@
         }
       }
     },
+    "That archive exceeds the save size or file count limit.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Archiv überschreitet das Limit für Spielstandgröße oder Dateianzahl."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That archive exceeds the save size or file count limit."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ese archivo supera el límite de tamaño o de cantidad de archivos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette archive dépasse la limite de taille ou de nombre de fichiers."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo archivio supera il limite di dimensione o di numero di file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したアーカイブはセーブデータの容量またはファイル数の上限を超えています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 아카이브가 저장 크기 또는 파일 수 제한을 초과했습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esse arquivo excede o limite de tamanho ou de quantidade de arquivos."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arkivet överskrider gränsen för sparfilsstorlek eller antal filer."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所选压缩包或目录超出了存档大小或文件数量上限。"
+          }
+        }
+      }
+    },
+    "That file could not be read as a valid save archive.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Datei konnte nicht als gültiges Spielstandarchiv gelesen werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That file could not be read as a valid save archive."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo leer ese archivo como un archivo de partida válido."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de lire ce fichier comme une archive de sauvegarde valide."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile leggere questo file come archivio di salvataggio valido."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルを有効なセーブアーカイブとして読み込めませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해당 파일을 유효한 저장 아카이브로 읽을 수 없습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível ler esse arquivo como um arquivo de salvamento válido."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filen kunde inte läsas som ett giltigt spararkiv."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法将该文件读取为有效的存档压缩包。"
+          }
+        }
+      }
+    },
+    "That file or archive contains an unsafe path or symbolic link and was rejected.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Datei oder das Archiv enthält einen unsicheren Pfad oder symbolischen Link und wurde abgelehnt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That file or archive contains an unsafe path or symbolic link and was rejected."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ese archivo contiene una ruta no segura o un enlace simbólico y fue rechazado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce fichier ou cette archive contient un chemin non sûr ou un lien symbolique et a été rejeté."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il file o archivio contiene un percorso non sicuro o un collegamento simbolico ed è stato rifiutato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全でないパスまたはシンボリックリンクが含まれているため拒否されました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "안전하지 않은 경로 또는 심볼릭 링크가 포함되어 있어 거부되었습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esse arquivo contém um caminho inseguro ou link simbólico e foi rejeitado."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filen eller arkivet innehåller en osäker sökväg eller symbolisk länk och avvisades."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所选文件或压缩包包含不安全路径或符号链接，已被拒绝。"
+          }
+        }
+      }
+    },
     "That folder could not be remembered. Try a different one.": {
       "localizations": {
         "de": {
@@ -5629,6 +6525,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "无法保存自定义封面。"
+          }
+        }
+      }
+    },
+    "The export sheet could not open here. Open the app on its own and try again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Exportmenü konnte hier nicht geöffnet werden. Öffne die App direkt und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The export sheet could not open here. Open the app on its own and try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo abrir la hoja de exportación aquí. Abre la app por separado e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La feuille d’exportation n’a pas pu s’ouvrir ici. Ouvrez l’app directement et réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile aprire il pannello di esportazione qui. Apri l’app autonomamente e riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここでは書き出し画面を開けません。アプリを単体で開いてからもう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여기에서 내보내기 시트를 열 수 없습니다. 앱을 단독으로 연 뒤 다시 시도하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível abrir a janela de exportação aqui. Abra o app diretamente e tente novamente."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exportpanelen kunde inte öppnas här. Öppna appen fristående och försök igen."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前无法打开导出分享面板，请单独打开应用后再试。"
           }
         }
       }
@@ -7361,6 +8321,70 @@
         }
       }
     },
+    "The selected save could not be read. Download it in Files first if it is in iCloud Drive, then try again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der ausgewählte Spielstand konnte nicht gelesen werden. Lade ihn zuerst in „Dateien“ aus iCloud Drive herunter und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The selected save could not be read. Download it in Files first if it is in iCloud Drive, then try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo leer la partida seleccionada. Descárgala primero en Archivos si está en iCloud Drive e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de lire la sauvegarde sélectionnée. Téléchargez-la d’abord dans Fichiers si elle est sur iCloud Drive, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile leggere il salvataggio selezionato. Scaricalo prima in File se è su iCloud Drive, poi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したセーブデータを読み込めませんでした。iCloud Drive 上にある場合は「ファイル」でダウンロードしてからやり直してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 저장 데이터를 읽을 수 없습니다. iCloud Drive에 있는 경우 파일 앱에서 먼저 다운로드한 후 다시 시도하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível ler o salvamento selecionado. Baixe primeiro no app Arquivos se estiver no iCloud Drive e tente novamente."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den valda sparfilen kunde inte läsas. Hämta den i Filer först om den ligger i iCloud Drive och försök igen."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取所选存档。若位于 iCloud 云盘，请先在“文件”App 中下载后再试。"
+          }
+        }
+      }
+    },
     "The settings list": {
       "localizations": {
         "de": {
@@ -7485,6 +8509,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "无法保存已签名的游戏框架。"
+          }
+        }
+      }
+    },
+    "This JKSV archive belongs to %@, not %@.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses JKSV-Archiv gehört zu %@, nicht zu %@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This JKSV archive belongs to %@, not %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este archivo JKSV pertenece a %@, no a %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette archive JKSV appartient à %@, pas à %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo archivio JKSV appartiene a %@, non a %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この JKSV アーカイブは %@ 用であり、%@ 用ではありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 JKSV 아카이브는 %@용이며 %@용이 아닙니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este arquivo JKSV pertence a %@, não a %@."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det här JKSV-arkivet tillhör %@, inte %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 JKSV 存档属于 %@，而非 %@。"
           }
         }
       }
@@ -7869,6 +8957,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "此游戏还没有日志。运行一次后会出现。"
+          }
+        }
+      }
+    },
+    "This game has no save to export yet.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Spiel hat noch keinen Spielstand zum Exportieren."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This game has no save to export yet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este juego aún no tiene partida para exportar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce jeu n’a pas encore de sauvegarde à exporter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo gioco non ha ancora salvataggi da esportare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このゲームにはまだ書き出せるセーブデータがありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 게임에는 아직 내보낼 저장 데이터가 없습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este jogo ainda não tem dados salvos para exportar."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det här spelet har ingen sparfil att exportera ännu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此游戏暂无可导出的本地存档。"
           }
         }
       }
@@ -8637,6 +9789,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "未保存的进度将会丢失。你将返回游戏库。"
+          }
+        }
+      }
+    },
+    "Your cloud save will sync on the next launch.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Cloud-Spielstand wird beim nächsten Start synchronisiert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your cloud save will sync on the next launch."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu partida en la nube se sincronizará en el próximo inicio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre sauvegarde cloud sera synchronisée au prochain lancement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il salvataggio cloud verrà sincronizzato al prossimo avvio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次回の起動時にクラウドセーブと同期されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음 실행 시 클라우드 저장 데이터와 동기화됩니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seu salvamento na nuvem será sincronizado na próxima inicialização."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din molnsparfil synkroniseras vid nästa start."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下次启动游戏时将自动同步到云存档。"
           }
         }
       }

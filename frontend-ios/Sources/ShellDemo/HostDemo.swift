@@ -187,6 +187,15 @@ struct HostDemoScreen: View {
             try? Data("DM_OPMODE=0\nDM_SHOW_FPS=1\nDM_RENDER_SCALE=1.25\n".utf8)
                 .write(to: orbitDir.appendingPathComponent("env.txt"))
         }
+        if args.contains("--mock-save-existing") {
+            let existingSave = appData
+                .appendingPathComponent("0100000000010000", isDirectory: true)
+                .appendingPathComponent("save", isDirectory: true)
+                .appendingPathComponent("Farm_Existing", isDirectory: true)
+            try? fm.createDirectory(at: existingSave, withIntermediateDirectories: true)
+            try? Data("existing-farm-data".utf8).write(to: existingSave.appendingPathComponent("SaveGameInfo"))
+            try? Data(repeating: 0x2A, count: 2048).write(to: existingSave.appendingPathComponent("Farm_Existing"))
+        }
         let suite = Self.suite
         let config = ShellHostConfig(gamesRoot: gamesRoot, appDataRoot: appData,
                                      environment: HostEnvironment(chain: "b-3f9a2c"),
@@ -228,7 +237,40 @@ struct HostDemoScreen: View {
             cheatPicker = NoCheatFilePicker()
             #endif
         }
-        return ShellHostModel(config: config, picker: folderPicker, certificatePicker: certPicker, cheatPicker: cheatPicker)
+        let savePresenter: any SaveTransferPresenter
+        if args.contains("--mock-save-import-jksv") || args.contains("--mock-save-import-mismatch") || args.contains("--mock-save-import-single") || args.contains("--mock-save-export") {
+            let mockSaveRoot = fm.temporaryDirectory.appendingPathComponent("shell-demo-save-mock", isDirectory: true)
+            try? fm.removeItem(at: mockSaveRoot)
+            try? fm.createDirectory(at: mockSaveRoot, withIntermediateDirectories: true)
+            let pickURL: URL?
+            if args.contains("--mock-save-import-single") {
+                let singleFile = mockSaveRoot.appendingPathComponent("ThienChuong_335352527", isDirectory: false)
+                try? Data(repeating: 0x53, count: 4096).write(to: singleFile)
+                pickURL = singleFile
+            } else if args.contains("--mock-save-import-jksv") || args.contains("--mock-save-import-mismatch") {
+                let srcApp = mockSaveRoot.appendingPathComponent("src", isDirectory: true)
+                let srcSave = srcApp.appendingPathComponent("save", isDirectory: true)
+                    .appendingPathComponent("slot0", isDirectory: true)
+                try? fm.createDirectory(at: srcSave, withIntermediateDirectories: true)
+                try? Data(repeating: 0x4A, count: 8192).write(to: srcSave.appendingPathComponent("main.dat"))
+                try? Data("info".utf8).write(to: srcSave.appendingPathComponent("SaveGameInfo"))
+                let tid = args.contains("--mock-save-import-mismatch") ? "0100999988880000" : "0100000000010000"
+                let zipURL = mockSaveRoot.appendingPathComponent("OrbitFixture [\(tid)].zip", isDirectory: false)
+                _ = try? SaveArchiveService.exportJKSV(from: srcApp, titleID: tid, to: zipURL)
+                pickURL = zipURL
+            } else {
+                pickURL = nil
+            }
+            savePresenter = DemoFixedSaveTransferPresenter(pickURL: pickURL, exportSucceeds: args.contains("--mock-save-export"))
+        } else {
+            #if canImport(UIKit)
+            savePresenter = DocumentSaveTransferPresenter()
+            #else
+            savePresenter = NoSaveTransferPresenter()
+            #endif
+        }
+        return ShellHostModel(config: config, picker: folderPicker, certificatePicker: certPicker,
+                              cheatPicker: cheatPicker, savePresenter: savePresenter)
     }
 
     private static let suite = "dev.nx2apple.shell.demo."
@@ -257,4 +299,18 @@ private struct DemoFixedCheatFilePicker: CheatFilePicker {
     let data: Data
     let fileName: String
     func pickCheatFileOutcome() async -> CheatFilePickOutcome { .picked(data: data, fileName: fileName) }
+}
+
+private struct DemoFixedSaveTransferPresenter: SaveTransferPresenter {
+    let pickURL: URL?
+    let exportSucceeds: Bool
+
+    func pickSaveSourceOutcome() async -> SaveSourcePickOutcome {
+        if let pickURL { return .picked(pickURL) }
+        return .cancelled
+    }
+
+    func presentExportArchive(at url: URL) async -> SaveExportShareOutcome {
+        exportSucceeds ? .exported : .cancelled
+    }
 }
