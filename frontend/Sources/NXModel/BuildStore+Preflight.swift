@@ -42,9 +42,11 @@ extension BuildStore {
     /// builds whose `shellRoot` sits on a different volume from the output folder, verifies `shellRoot` free space as well.
     /// When `fastRefreshActive` is true, evaluates a compact refresh budget (~500 MB) instead of package extraction budget.
     package func preflightSpaceProblem() -> String? {
-        let folder = effectiveOutputFolder
+        // The extracted game goes to the build-files folder when one is chosen (BuildStore+BuildFiles.swift), else beside the app.
+        // A build-files folder on a drive that is not connected is the run's own message, not a space problem.
+        let folder = BuildFilesFolder.root(chosen: buildFilesFolder, appFolder: effectiveOutputFolder)
         let inputPaths = [basePath, updatePath] + dlcPaths
-        if !folder.isEmpty, let free = spaceAvailable(folder) {
+        if !folder.isEmpty, !BuildFilesFolder.driveMissing(folder, volumes: volumesRoot), let free = spaceAvailable(folder) {
             // A build again into the same folder keeps the game files it extracted before
             let reused = fastRefreshActive ? 0 : BuildSpace.finishedExtraction(in: nxnativeWorkDirectory(baseOut: folder, tidHex: buildKey))
             let needed = fastRefreshActive ? 500_000_000 : max(0, BuildSpace.estimatedNeeded(for: inputPaths) - reused)

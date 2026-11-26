@@ -62,23 +62,14 @@ enum FreeSpaceError: LocalizedError, Equatable {
 }
 
 enum BuildFolder {
-    /// Where the game's build folder can be: in its output folder (--work-dir), else beside its NSPs (the script's default,
-    /// and where a checkout without --work-dir puts it). Includes isolated variant work folders (`<TID>_<variant>_build`).
-    nonisolated static func candidates(for game: LibraryGame) -> [String] {
+    /// Where the game's build folders can be: in the build-files folder Settings chose (BuildFilesFolder), in its output folder
+    /// (--work-dir), else beside its NSPs (the script's default, and where a checkout without --work-dir puts it). Each place
+    /// includes the isolated variant work folders (`<TID>_<variant>_build`).
+    nonisolated static func candidates(for game: LibraryGame, buildFilesFolder: String = BuildFilesFolder.chosen()) -> [String] {
         let base = game.inputs["base", default: []].first.map { ($0 as NSString).deletingLastPathComponent } ?? ""
-        let dirs = [game.outputDirectory, base].filter { !$0.isEmpty }
         let suffixes = [""] + EngineUpstreamKind.allCases.compactMap(\.workDirSuffix).map { "_" + $0 }
-        var seen = Set<String>()
-        var result: [String] = []
-        for dir in dirs {
-            for suffix in suffixes {
-                let candidate = dir + "/" + game.titleID + suffix + "_build"
-                if seen.insert(candidate).inserted {
-                    result.append(candidate)
-                }
-            }
-        }
-        return result
+        return BuildFilesFolder.candidates(key: game.titleID, chosen: buildFilesFolder, others: [game.outputDirectory, base],
+                                           suffixes: suffixes)
     }
 
     nonisolated static func locations(for game: LibraryGame) -> [String] {

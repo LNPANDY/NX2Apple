@@ -254,7 +254,7 @@ extension BuildStore {
         let tidHex = buildKey
         let resolvedTitleID = gameTitleID
         let outputRoot = outDir.isEmpty ? baseDir : outDir
-        let workDir = nxnativeWorkDirectory(baseOut: outputRoot, tidHex: tidHex, upstream: .macNativeGames)
+        guard let workDir = startingBuildWorkDir(baseDir: baseDir, tidHex: tidHex, upstream: .macNativeGames) else { return }
         if cloudFolderCheck(workDir) {
             failure = BuildFailure(kind: .cloudFolder, gameName: nil, detail: workDir)
             fail(failureWhat(failure!))
@@ -273,7 +273,8 @@ extension BuildStore {
             titleID: resolvedTitleID,
             upstream: .macNativeGames,
             preferred: macAppPath,
-            stagingDirectory: stageDir
+            stagingDirectory: stageDir,
+            appDirectory: separateAppFolder(baseDir: baseDir)
         )
         oneGameIPAPath = ""
         macAppPath = ""

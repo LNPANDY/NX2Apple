@@ -110,6 +110,7 @@ package enum RefreshPrecheck {
         repoPath: String,
         externalIOSImgPath: String? = nil,
         iosWantsPulling: Bool = true,
+        buildFilesFolder: String = "",
         fm: FileManager = .default
     ) -> RefreshPlanAssessment {
         let tid = titleID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
@@ -124,7 +125,10 @@ package enum RefreshPrecheck {
         }
 
         let resolvedOutDir = resolveOutputDirectory(outDir: outDir, macAppPath: macAppPath)
-        let workDir = resolvedOutDir.isEmpty ? "" : (resolvedOutDir + "/" + tid + "_build")
+        // The build folder a refresh would use, or the one an earlier build left beside the app (BuildFilesFolder)
+        let workDirs = BuildFilesFolder.candidates(key: tid, chosen: buildFilesFolder, others: [resolvedOutDir])
+        let workDir = workDirs.first { var dir: ObjCBool = false; return fm.fileExists(atPath: $0, isDirectory: &dir) && dir.boolValue }
+            ?? workDirs.first ?? ""
 
         let inspection = BuildSeedCache.inspect(titleID: tid, seedRoot: seedRoot, repoPath: repoPath, fm: fm)
         let hasUsableSeed = inspection.isUsable

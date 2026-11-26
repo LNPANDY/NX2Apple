@@ -164,6 +164,22 @@ final class FreeSpaceTests: IsolatedDefaultsTestCase {
         XCTAssertEqual(variantSurvey.oldShaders.map(\.name), ["b-000099998888"])
     }
 
+    func testTheChosenBuildFilesFolderIsLookedInFirst() {
+        var game = LibraryGame(titleID: "0100000000010000", name: "Adventure", outputDirectory: "/Users/a/Games")
+        game.inputs = ["base": ["/Volumes/Drive/Switch/Adventure/game.nsp"]]
+        let found = BuildFolder.candidates(for: game, buildFilesFolder: "/Volumes/Drive/Builds")
+        XCTAssertEqual(found.filter { $0.hasSuffix("/0100000000010000_build") }, [
+            "/Volumes/Drive/Builds/0100000000010000_build",
+            "/Users/a/Games/0100000000010000_build",
+            "/Volumes/Drive/Switch/Adventure/0100000000010000_build",
+        ])
+        XCTAssertEqual(found.first, "/Volumes/Drive/Builds/0100000000010000_build")
+        XCTAssertTrue(found.contains("/Volumes/Drive/Builds/0100000000010000_mng_build"), "each engine's own folder, in the chosen folder too")
+        XCTAssertLessThan(found.firstIndex(of: "/Volumes/Drive/Builds/0100000000010000_nolagkart_build") ?? .max,
+                          found.firstIndex(of: "/Users/a/Games/0100000000010000_build") ?? .max, "the chosen folder first")
+        XCTAssertEqual(BuildFolder.candidates(for: game, buildFilesFolder: "").first, "/Users/a/Games/0100000000010000_build")
+    }
+
     func testThePartsAreSizedAndWhatStaysIsNotOffered() throws {
         let game = try fixture()
         let survey = BuildFolder.survey(build.path, protecting: BuildFolder.protectedPaths(for: game))

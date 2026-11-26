@@ -169,7 +169,8 @@ package enum GameUpdateCatalog {
         appVersion: String,
         gitSpecificChanged: Bool?,
         seedRoot: String = BuildSeedCache.defaultRoot(),
-        repoPath: String
+        repoPath: String,
+        buildFilesFolder: String = ""
     ) -> GameRefreshAssessment {
         let tid = titleID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         let spec = hasSpecificUpdate(titleID: tid, appVersion: appVersion, gitSpecificChanged: gitSpecificChanged)
@@ -196,7 +197,8 @@ package enum GameUpdateCatalog {
             outDir: outDir,
             gameName: gameName,
             seedRoot: seedRoot,
-            repoPath: repoPath
+            repoPath: repoPath,
+            buildFilesFolder: buildFilesFolder
         )
 
         let canFastRefreshMac = hasMacBuild && plan.canFastRefreshMac
