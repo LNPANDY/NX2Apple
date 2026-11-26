@@ -372,6 +372,131 @@ import XCTest
         }
     }
 
+    func testGameSettingsSaveImportMergeExportAndMismatchFlow() throws {
+        // 1. Existing local save + JKSV .zip import with Merge mode -> confirmation sheet + success alert.
+        XCUIDevice.shared.orientation = .portrait
+        app.launchArguments = [
+            "-AppleLanguages", "(en)", "-AppleLocale", "en",
+            "--host", "--select", "0100000000010000", "--screen", "settings",
+            "--mock-save-existing", "--mock-save-import-jksv", "--mock-save-export"
+        ]
+        app.launch()
+
+        let scroll = app.descendants(matching: .any)["settings.scroll"].firstMatch
+        XCTAssertTrue(scroll.waitForExistence(timeout: 10))
+        let importButton = app.buttons["set.save.import"]
+        for _ in 0..<8 where !importButton.exists {
+            scroll.swipeUp()
+        }
+        XCTAssertTrue(importButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["set.save.export"].exists)
+        saveOptionalSaveScreenshot(named: "ios-settings-saves-entry-en")
+
+        importButton.tap()
+        XCTAssertTrue(app.staticTexts["saveImport.title"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["saveImport.jksvVerified"].exists)
+        let mergeOption = app.buttons["saveImport.mode.merge"]
+        XCTAssertTrue(mergeOption.waitForExistence(timeout: 5))
+        mergeOption.tap()
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier == 'saveImport.confirm' AND label == %@", "Merge and import")).firstMatch.waitForExistence(timeout: 3))
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.35))
+        saveOptionalSaveScreenshot(named: "ios-save-import-confirm-en")
+
+        app.buttons["saveImport.confirm"].tap()
+        let alert = app.alerts["NX2Apple"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        alert.buttons["OK"].tap()
+        XCTAssertTrue(scroll.waitForExistence(timeout: 5))
+
+        // Export save as JKSV .zip.
+        let exportButton = app.buttons["set.save.export"]
+        for _ in 0..<8 where !exportButton.exists {
+            scroll.swipeUp()
+        }
+        XCTAssertTrue(exportButton.waitForExistence(timeout: 5))
+        exportButton.tap()
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        alert.buttons["OK"].tap()
+        app.terminate()
+
+        // 2. Mismatched JKSV Title ID must be blocked with an alert.
+        app.launchArguments = [
+            "-AppleLanguages", "(en)", "-AppleLocale", "en",
+            "--host", "--select", "0100000000010000", "--screen", "settings",
+            "--mock-save-import-mismatch"
+        ]
+        app.launch()
+        XCTAssertTrue(scroll.waitForExistence(timeout: 10))
+        for _ in 0..<8 where !importButton.exists {
+            scroll.swipeUp()
+        }
+        XCTAssertTrue(importButton.waitForExistence(timeout: 5))
+        importButton.tap()
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.alerts.staticTexts.matching(NSPredicate(format: "label CONTAINS '0100999988880000'")).firstMatch.exists)
+        alert.buttons["OK"].tap()
+        app.terminate()
+
+        // 3. Single extensionless file import on fresh save.
+        app.launchArguments = [
+            "-AppleLanguages", "(en)", "-AppleLocale", "en",
+            "--host", "--select", "0100000000010000", "--screen", "settings",
+            "--mock-save-import-single"
+        ]
+        app.launch()
+        XCTAssertTrue(scroll.waitForExistence(timeout: 10))
+        for _ in 0..<8 where !importButton.exists {
+            scroll.swipeUp()
+        }
+        XCTAssertTrue(importButton.waitForExistence(timeout: 5))
+        importButton.tap()
+        XCTAssertTrue(app.staticTexts["saveImport.freshNote"].waitForExistence(timeout: 5))
+        app.buttons["saveImport.confirm"].tap()
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        alert.buttons["OK"].tap()
+        app.terminate()
+    }
+
+    func testCaptureSaveScreenshotsZh() throws {
+        guard let shotDir = ProcessInfo.processInfo.environment["NX_IOS_SAVES_SHOT_DIR"], !shotDir.isEmpty else {
+            throw XCTSkip("Set NX_IOS_SAVES_SHOT_DIR to capture iOS Saves Chinese screenshots")
+        }
+        let dirURL = URL(fileURLWithPath: shotDir, isDirectory: true)
+        try FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
+
+        XCUIDevice.shared.orientation = .portrait
+        app.launchArguments = [
+            "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh-Hans",
+            "--host", "--select", "0100000000010000", "--screen", "settings",
+            "--mock-save-existing", "--mock-save-import-jksv", "--mock-save-export"
+        ]
+        app.launch()
+        let scroll = app.descendants(matching: .any)["settings.scroll"].firstMatch
+        XCTAssertTrue(scroll.waitForExistence(timeout: 10))
+        let importButton = app.buttons["set.save.import"]
+        for _ in 0..<8 where !importButton.exists {
+            scroll.swipeUp()
+        }
+        XCTAssertTrue(importButton.waitForExistence(timeout: 5))
+        saveOptionalSaveScreenshot(named: "ios-settings-saves-entry-zh")
+
+        importButton.tap()
+        XCTAssertTrue(app.staticTexts["saveImport.title"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["saveImport.mode.merge"].waitForExistence(timeout: 5))
+        app.buttons["saveImport.mode.merge"].tap()
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier == 'saveImport.confirm' AND label == %@", "合并并导入")).firstMatch.waitForExistence(timeout: 3))
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.35))
+        saveOptionalSaveScreenshot(named: "ios-save-import-confirm-zh")
+        app.terminate()
+    }
+
+    private func saveOptionalSaveScreenshot(named name: String) {
+        guard let shotDir = ProcessInfo.processInfo.environment["NX_IOS_SAVES_SHOT_DIR"], !shotDir.isEmpty else { return }
+        let url = URL(fileURLWithPath: shotDir, isDirectory: true).appendingPathComponent("\(name).png")
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? XCUIScreen.main.screenshot().pngRepresentation.write(to: url)
+    }
+
     private func saveOptionalScreenshot(named name: String) {
         guard let shotDir = ProcessInfo.processInfo.environment["NX_IOS_CHEATS_SHOT_DIR"], !shotDir.isEmpty else { return }
         let url = URL(fileURLWithPath: shotDir, isDirectory: true).appendingPathComponent("\(name).png")

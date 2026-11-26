@@ -13,23 +13,30 @@ public struct GameDetailView: View {
     public var nativeSections: Bool
     @Environment(\.shellAskDelete) private var askDelete
     @Environment(\.shellAskRestoreBackup) private var askRestoreBackup
+    @Environment(\.shellAskSaveImport) private var askSaveImport
+    @Environment(\.shellShowSaveMessage) private var showSaveMessage
     @Environment(\.shellAskHomeScreen) private var askHomeScreen
     @Environment(\.shellAskChangeCover) private var askChangeCover
     @Environment(\.shellOpenCheats) private var openCheats
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private enum LocalSheet: Identifiable {
         case restoreBackup
+        case saveImport(SaveImportPrompt)
         case homeScreen
         case cheats
         var id: String {
             switch self {
             case .restoreBackup: "restoreBackup"
+            case .saveImport(let prompt): "saveImport.\(prompt.token)"
             case .homeScreen: "homeScreen"
             case .cheats: "cheats"
             }
         }
     }
     @State private var localSheet: LocalSheet?
+    @State private var saveOpBusy = false
+    @State private var saveImportCommitting = false
+    @State private var localSaveFeedback: String?
     public init(detail: GameDetail, actions: ShellActions = ShellActions(), showsPrimaryAction: Bool = true, showsHeader: Bool = true, nativeSections: Bool = false) {
         self.detail = detail
         self.actions = actions
@@ -48,6 +55,17 @@ public struct GameDetailView: View {
         }
         .foregroundStyle(.white)
         .animation(reduceMotion ? nil : .snappy(duration: 0.22), value: sectionRowIDs)
+        .alert(
+            ShellStrings.text("Saves"),
+            isPresented: Binding(
+                get: { localSaveFeedback != nil },
+                set: { if !$0 { localSaveFeedback = nil } }
+            )
+        ) {
+            Button(ShellStrings.text("OK")) { localSaveFeedback = nil }
+        } message: {
+            Text(localSaveFeedback ?? "")
+        }
         .sheet(item: $localSheet) { sheet in
             switch sheet {
             case .restoreBackup:
@@ -61,6 +79,28 @@ public struct GameDetailView: View {
                     .presentationDetents([.medium])
                     .presentationBackground(ShellPalette.background)
                 }
+            case .saveImport(let prompt):
+                ScrollView {
+                    SaveImportConfirmView(prompt: prompt, committing: saveImportCommitting, confirm: { mode in
+                        Task {
+                            saveImportCommitting = true
+                            let outcome = await actions.onConfirmSaveImport?(detail.id, prompt.token, mode) ?? .cancelled
+                            saveImportCommitting = false
+                            localSheet = nil
+                            switch outcome {
+                            case .imported(let message), .failed(let message):
+                                reportSaveMessage(message)
+                            case .cancelled:
+                                break
+                            }
+                        }
+                    }, cancel: {
+                        localSheet = nil
+                        actions.onCancelSaveImport?(detail.id, prompt.token)
+                    })
+                }
+                .presentationDetents([.medium, .large])
+                .presentationBackground(ShellPalette.background)
             case .homeScreen:
                 ScrollView {
                     AddToHomeScreenView(
@@ -151,6 +191,39 @@ public struct GameDetailView: View {
             }
             .frame(maxWidth: .infinity, minHeight: 32)
             .accessibilityElement(children: .combine)
+        }
+        if actions.supportsSaves {
+            group(ShellStrings.text("Saves")) {
+                SourceRow(symbol: "archivebox",
+                          title: detail.hasLocalSave ? ShellStrings.text("Saved on this device") : ShellStrings.text("No local save yet"),
+                          note: saveRowNote) {
+                    if actions.onPickSaveImport != nil {
+                        GameSettingsGlassButton(title: ShellStrings.text("Import save…")) {
+                            requestSaveImport()
+                        }
+                        .disabled(saveOpBusy)
+                        .accessibilityIdentifier("set.save.import")
+                        .shellTarget("set.save.import", enabled: !saveOpBusy) { requestSaveImport() }
+                    }
+                    if actions.onExportSave != nil {
+                        GameSettingsGlassButton(title: ShellStrings.text("Export save…")) {
+                            requestSaveExport()
+                        }
+                        .disabled(saveOpBusy)
+                        .accessibilityIdentifier("set.save.export")
+                        .shellTarget("set.save.export", enabled: !saveOpBusy) { requestSaveExport() }
+                    }
+                }
+                .id("set.save")
+                if saveOpBusy {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text(ShellStrings.text("Working on save…"))
+                            .shellType(ShellType.note)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
         }
         group(ShellStrings.text("Cloud saves")) {
             SourceRow(symbol: detail.cloudSaves == nil ? "icloud.slash" : "icloud",
@@ -388,6 +461,59 @@ public struct GameDetailView: View {
         else { SettingsGroup(title: title, content: content) }
     }
 
+    private var saveRowNote: String {
+        if let summary = detail.localSaveSummary, !summary.isEmpty {
+            return summary
+        }
+        return ShellStrings.text("Import a folder, .zip archive, or save file from Files, or export a JKSV .zip.")
+    }
+
+    private func reportSaveMessage(_ message: String) {
+        if let showSaveMessage {
+            showSaveMessage(message)
+        } else {
+            localSaveFeedback = message
+        }
+    }
+
+    private func requestSaveImport() {
+        guard !saveOpBusy, let pick = actions.onPickSaveImport else { return }
+        let targetID = detail.id
+        saveOpBusy = true
+        Task {
+            let outcome = await pick(targetID)
+            saveOpBusy = false
+            switch outcome {
+            case .preview(let prompt):
+                if let askSaveImport {
+                    askSaveImport(prompt)
+                } else {
+                    localSheet = .saveImport(prompt)
+                }
+            case .cancelled:
+                break
+            case .failed(let message):
+                reportSaveMessage(message)
+            }
+        }
+    }
+
+    private func requestSaveExport() {
+        guard !saveOpBusy, let export = actions.onExportSave else { return }
+        let targetID = detail.id
+        saveOpBusy = true
+        Task {
+            let outcome = await export(targetID)
+            saveOpBusy = false
+            switch outcome {
+            case .exported(let message), .failed(let message):
+                reportSaveMessage(message)
+            case .cancelled:
+                break
+            }
+        }
+    }
+
     private func requestRestoreBackup(_ backup: String) {
         if let askRestoreBackup {
             askRestoreBackup(detail.game, backup)
@@ -402,6 +528,7 @@ public struct GameDetailView: View {
     static func focusRowID(for targetID: String) -> String {
         switch targetID {
         case "set.appdata": "set.data"
+        case "set.save.import", "set.save.export": "set.save"
         case "set.cloud.shell", "set.cloud.off": "set.cloud"
         case "set.cover.reset": "set.cover"
         default: targetID
@@ -423,6 +550,7 @@ public struct GameDetailView: View {
     static func orderedFocusRowIDs(
         detail: GameDetail,
         showsCheats: Bool = false,
+        showsSaves: Bool = false,
         showsHomeScreen: Bool,
         showsChangeCover: Bool,
         showsDelete: Bool
@@ -441,6 +569,9 @@ public struct GameDetailView: View {
             }
         }
         ids.append("set.data")
+        if showsSaves {
+            ids.append("set.save")
+        }
         ids.append("set.cloud")
         if let backup = detail.latestSaveBackup, !backup.isEmpty {
             ids.append("set.cloud.restore")

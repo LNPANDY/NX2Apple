@@ -140,6 +140,27 @@ extension LibraryView {
                 return await dismissAsync(id)
             }
         }
+        if let pickSave = o.onPickSaveImport {
+            a.onPickSaveImport = { @MainActor id in
+                guard !gate.isSystemEcho else { return .cancelled }
+                return await pickSave(id)
+            }
+        }
+        if let confirmSave = o.onConfirmSaveImport {
+            a.onConfirmSaveImport = { @MainActor id, token, mode in
+                guard !gate.isSystemEcho else { return .cancelled }
+                return await confirmSave(id, token, mode)
+            }
+        }
+        a.onCancelSaveImport = o.onCancelSaveImport.map { cancel in
+            { id, token in if !echo() { cancel(id, token) } }
+        }
+        if let exportSave = o.onExportSave {
+            a.onExportSave = { @MainActor id in
+                guard !gate.isSystemEcho else { return .cancelled }
+                return await exportSave(id)
+            }
+        }
         return a
     }
     /// An action that did not come from a controller or key came from touch: hints and focus ring step back. False when
@@ -226,6 +247,45 @@ extension LibraryView {
         restoreBackupLabel = label
         restoreBackupGameID = id
         focus.id = "rst.cancel"
+    }
+    func openSaveImport(_ prompt: SaveImportPrompt) {
+        returnFocus = focus.id
+        saveImportCommitting = false
+        saveImportPrompt = prompt
+        focus.id = "svi.cancel"
+    }
+    func closeSaveImport() {
+        guard !fromSystemEcho, !saveImportCommitting else { return }
+        if let prompt = saveImportPrompt {
+            saveImportPrompt = nil
+            actions.onCancelSaveImport?(prompt.gameID, prompt.token)
+        }
+        focus.id = returnFocus
+        focusRefresh &+= 1
+    }
+    func confirmSaveImport(_ mode: SaveImportMode) {
+        guard !fromSystemEcho, !saveImportCommitting, let prompt = saveImportPrompt else { return }
+        guard let confirm = actions.onConfirmSaveImport else {
+            saveImportPrompt = nil
+            return
+        }
+        saveImportCommitting = true
+        Task {
+            let outcome = await confirm(prompt.gameID, prompt.token, mode)
+            saveImportCommitting = false
+            saveImportPrompt = nil
+            focus.id = returnFocus
+            focusRefresh &+= 1
+            switch outcome {
+            case .imported(let message), .failed(let message):
+                saveFeedbackMessage = message
+            case .cancelled:
+                break
+            }
+        }
+    }
+    func showSaveFeedback(_ message: String) {
+        saveFeedbackMessage = message
     }
     func closeRestoreBackup() {
         guard !fromSystemEcho else { return }
@@ -453,6 +513,12 @@ extension LibraryView {
             helpGameID = nil
             focus.id = returnFocus
             focusRefresh &+= 1
+        } else if let prompt = saveImportPrompt {
+            saveImportPrompt = nil
+            saveImportCommitting = false
+            actions.onCancelSaveImport?(prompt.gameID, prompt.token)
+            focus.id = returnFocus
+            focusRefresh &+= 1
         } else if cheatsGameID != nil {
             cheatsGameID = nil
             focus.id = returnFocus
@@ -485,6 +551,7 @@ extension LibraryView {
             else if touchLayout.requestExit() { closeTouchLayout() }
         }
         else if helpGameID != nil { closeHelp() }
+        else if saveImportPrompt != nil { closeSaveImport() }
         else if cheatsGameID != nil { closeCheats() }
         else if restoreBackupGameID != nil { closeRestoreBackup() }
         else if homeScreenGameID != nil { closeHomeScreen() }
@@ -587,6 +654,7 @@ extension LibraryView {
         if controllersOpen { return .controllers }
         if shellSettingsOpen { return .shellSettings }
         if helpGameID != nil { return .help }
+        if saveImportPrompt != nil { return .saveImport }
         if restoreBackupGameID != nil { return .restoreBackup }
         if homeScreenGameID != nil { return .homeScreen }
         if deleteGameID != nil { return .delete }
@@ -598,6 +666,7 @@ extension LibraryView {
         return GameDetailView.orderedFocusRowIDs(
             detail: selected,
             showsCheats: actions.supportsCheats,
+            showsSaves: actions.supportsSaves,
             showsHomeScreen: actions.supportsHomeScreen,
             showsChangeCover: actions.supportsCustomCover,
             showsDelete: true
@@ -644,6 +713,7 @@ extension LibraryView {
         if let choice { return "pick." + choice.row.value }
         if touchLayout != nil { return activeTargets.contains { $0.id == "lay.done" } ? "lay.done" : "lay.options" }
         if helpGameID != nil { return "help.done" }
+        if saveImportPrompt != nil { return "svi.cancel" }
         if cheatsGameID != nil { return "cht.close" }
         if restoreBackupGameID != nil { return "rst.cancel" }
         if homeScreenGameID != nil { return "hsc.save" }

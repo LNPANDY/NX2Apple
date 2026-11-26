@@ -70,6 +70,10 @@ public struct LibraryView: View {
     /// The game whose save-backup restore confirmation is open, and its backup timestamp label.
     @State var restoreBackupGameID: String?
     @State var restoreBackupLabel = ""
+    /// Staged save import preview awaiting confirmation inside the menu navigation stack.
+    @State var saveImportPrompt: SaveImportPrompt?
+    @State var saveImportCommitting = false
+    @State var saveFeedbackMessage: String?
     /// The game whose Add to Home Screen guide is open.
     @State var homeScreenGameID: String?
     /// The game whose Cheats center sheet is open.
@@ -244,15 +248,23 @@ public struct LibraryView: View {
                     .alert(
                         Text(verbatim: noticeTitle),
                         isPresented: Binding(
-                            get: { menuShowsNotice },
-                            set: { if !$0 { onDismissNotice() } }
+                            get: { menuShowsNotice || (saveFeedbackMessage != nil && !childModalPresented) },
+                            set: {
+                                if !$0 {
+                                    if menuShowsNotice { onDismissNotice() }
+                                    saveFeedbackMessage = nil
+                                }
+                            }
                         )
                     ) {
-                        Button(noticeDismissTitle) { onDismissNotice() }
+                        Button(noticeDismissTitle) {
+                            if menuShowsNotice { onDismissNotice() }
+                            saveFeedbackMessage = nil
+                        }
                     } message: {
-                        Text(notice ?? "")
+                        Text(menuShowsNotice ? (notice ?? "") : (saveFeedbackMessage ?? ""))
                     }
-                    .modifier(ShellKeyboardNavigation(active: touchLayout == nil && padMapping?.row == nil && coverCropInSheetSession == nil && !childModalPresented && !menuShowsNotice) { handle($0, from: .keyboard) })
+                    .modifier(ShellKeyboardNavigation(active: touchLayout == nil && padMapping?.row == nil && coverCropInSheetSession == nil && !childModalPresented && !menuShowsNotice && saveFeedbackMessage == nil) { handle($0, from: .keyboard) })
             }
 
             .environment(\.shellOpenTouchLayout, { openTouchLayout(whole, insets) })
@@ -275,6 +287,7 @@ public struct LibraryView: View {
         .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: activityLogOpen)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: helpGameID)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: restoreBackupGameID)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: saveImportPrompt?.token)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: homeScreenGameID)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: cheatsGameID)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: deleteGameID)
@@ -288,6 +301,8 @@ public struct LibraryView: View {
         .environment(\.shellIgnoresPress, { [gate] in gate.isSystemEcho })
         .environment(\.shellShowHelp, { game in openHelp(game.id) })
         .environment(\.shellAskRestoreBackup, { game, label in openRestoreBackup(game.id, label: label) })
+        .environment(\.shellAskSaveImport, actions.supportsSaves ? { prompt in openSaveImport(prompt) } : nil)
+        .environment(\.shellShowSaveMessage, { message in showSaveFeedback(message) })
         .environment(\.shellAskHomeScreen, actions.supportsHomeScreen ? { game in openHomeScreen(game.id) } : nil)
         .environment(\.shellOpenCheats, actions.supportsCheats ? { game in openCheats(game.id) } : nil)
         .environment(\.shellAskChangeCover, actions.supportsCustomCover ? { game in openCoverPicker(game.id) } : nil)
@@ -355,7 +370,7 @@ public struct LibraryView: View {
 
     var menuPresented: Bool {
         touchLayout != nil || settingsOpen || controllersOpen || shellSettingsOpen || activityLogOpen || cheatsGameID != nil || helpGameID != nil
-            || restoreBackupGameID != nil || homeScreenGameID != nil || deleteGameID != nil || choice != nil || padMapping != nil || buttonTestOpen
+            || saveImportPrompt != nil || restoreBackupGameID != nil || homeScreenGameID != nil || deleteGameID != nil || choice != nil || padMapping != nil || buttonTestOpen
     }
 
     var libraryModalPresented: Bool {
@@ -409,6 +424,11 @@ public struct LibraryView: View {
         coverPickerInSheetPresented = false
         coverCropInSheetSession = nil
         helpGameID = nil
+        if let prompt = saveImportPrompt {
+            saveImportPrompt = nil
+            saveImportCommitting = false
+            actions.onCancelSaveImport?(prompt.gameID, prompt.token)
+        }
         restoreBackupGameID = nil
         homeScreenGameID = nil
         cheatsGameID = nil
@@ -616,7 +636,7 @@ public struct LibraryView: View {
             return [.init(title: settingsOpen ? "Game settings" : "Close", symbol: settingsOpen ? "chevron.left" : "xmark", id: "cheats.close", target: "cht.close", placement: .close, action: closeCheats)]
         case .homeScreen:
             return [.init(title: settingsOpen ? "Game settings" : "Close", symbol: settingsOpen ? "chevron.left" : "xmark", id: "homeScreen.close", target: "hsc.close", placement: .close, action: closeHomeScreen)]
-        case .restoreBackup, .delete:
+        case .restoreBackup, .delete, .saveImport:
             return []
         }
     }
@@ -632,6 +652,7 @@ public struct LibraryView: View {
                     .init(title: "Done", symbol: "checkmark", id: "touchLayout.done", target: "lay.done", placement: .done, action: confirmTouchLayout)]
         }
         if helpGameID != nil { return [.init(title: settingsOpen ? "Game settings" : "Close", symbol: settingsOpen ? "chevron.left" : "xmark", id: "help.done", target: "help.done", placement: .close, action: closeHelp)] }
+        if saveImportPrompt != nil { return [] }
         if cheatsGameID != nil { return [.init(title: settingsOpen ? "Game settings" : "Close", symbol: settingsOpen ? "chevron.left" : "xmark", id: "cheats.close", target: "cht.close", placement: .close, action: closeCheats)] }
         if homeScreenGameID != nil { return [.init(title: settingsOpen ? "Game settings" : "Close", symbol: settingsOpen ? "chevron.left" : "xmark", id: "homeScreen.close", target: "hsc.close", placement: .close, action: closeHomeScreen)] }
         if restoreBackupGameID != nil { return [] }
@@ -689,6 +710,7 @@ public struct LibraryView: View {
         else if touchLayout != nil { prefix = "lay." }
         else if cheatsGameID != nil { prefix = "cht." }
         else if helpGameID != nil { prefix = "help." }
+        else if saveImportPrompt != nil { prefix = "svi." }
         else if restoreBackupGameID != nil { prefix = "rst." }
         else if homeScreenGameID != nil { prefix = "hsc." }
         else if deleteGameID != nil { prefix = "del." }

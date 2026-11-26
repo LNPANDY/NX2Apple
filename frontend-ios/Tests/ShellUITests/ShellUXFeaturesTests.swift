@@ -79,12 +79,52 @@ import Testing
     @Test func cloudConflictAndRestoreBackupLayersIsolateControllerFocus() {
         #expect(!LibraryView.optionsOpensShellSettings(under: .restoreBackup))
         #expect(!LibraryView.optionsOpensShellSettings(under: .cloudConflict))
+        #expect(!LibraryView.optionsOpensShellSettings(under: .saveImport))
         #expect(FocusLayer.restoreBackup.prefix == "rst.")
         #expect(FocusLayer.cloudConflict.prefix == "cld.")
+        #expect(FocusLayer.saveImport.prefix == "svi.")
         #expect(FocusLayer.isLive("rst.confirm", under: .restoreBackup))
         #expect(!FocusLayer.isLive("set.play", under: .restoreBackup))
         #expect(FocusLayer.isLive("cld.cloud", under: .cloudConflict))
         #expect(!FocusLayer.isLive("lib.play", under: .cloudConflict))
+        #expect(FocusLayer.isLive("svi.confirm", under: .saveImport))
+        #expect(FocusLayer.isLive("svi.mode.merge", under: .saveImport))
+        #expect(!FocusLayer.isLive("set.save.import", under: .saveImport))
+    }
+
+    @Test func saveImportConfirmViewBuildsForExistingAndFreshSaves() {
+        let existingPrompt = SaveImportPrompt(
+            gameID: "0100000000010000",
+            gameTitle: "Orbit",
+            sourceName: "Orbit [0100000000010000].zip",
+            sourceKind: .jksvArchive,
+            fileCount: 3,
+            totalBytes: 4096,
+            formattedSize: "4 KB",
+            jksvTitleID: "0100000000010000",
+            targetFolders: ["save"],
+            hasExistingSave: true,
+            defaultMode: .replace
+        )
+        let freshPrompt = SaveImportPrompt(
+            gameID: "0100000000010000",
+            gameTitle: "Orbit",
+            sourceName: "Farm_335352527",
+            sourceKind: .singleFile,
+            fileCount: 1,
+            totalBytes: 2048,
+            formattedSize: "2 KB",
+            hasExistingSave: false
+        )
+        _ = SaveImportConfirmView(prompt: existingPrompt, confirm: { _ in }, cancel: {})
+        _ = SaveImportConfirmView(prompt: freshPrompt, confirm: { _ in }, cancel: {})
+        let detail = GameDetail(game: GameTile(id: "0100000000010000", title: "Orbit"), hasLocalSave: true, localSaveSummary: "3 files · 4 KB")
+        let actions = ShellActions(
+            onPickSaveImport: { _ in .cancelled },
+            onExportSave: { _ in .cancelled }
+        )
+        #expect(actions.supportsSaves)
+        _ = GameDetailView(detail: detail, actions: actions)
     }
 
     @Test func signingWarningBannerResolvesDistinctTitlesAcrossStates() {
