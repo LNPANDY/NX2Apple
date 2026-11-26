@@ -13,6 +13,10 @@ public struct TouchLayout: Equatable, Sendable {
         public var full: Bool { self == .threeD || self == .threeDSplit }
         public var split: Bool { self == .twoDSplit || self == .threeDSplit }
         public static func of(full: Bool, split: Bool) -> Kind { split ? (full ? .threeDSplit : .twoDSplit) : (full ? .threeD : .twoD) }
+        public static func kinds(for orientation: ShellSettingsStore.TouchOrientation) -> [Kind] {
+            orientation == .landscape ? [.twoD, .threeD] : [.twoDSplit, .threeDSplit]
+        }
+        public var orientation: ShellSettingsStore.TouchOrientation { split ? .portrait : .landscape }
     }
 
     /// The controls that move, in the engine's order (the order it places them). `face` is the whole diamond, `a b x y` one key of
@@ -53,8 +57,14 @@ public struct TouchLayout: Equatable, Sendable {
     /// No control moved.
     public var isEmpty: Bool { offsets.isEmpty }
     public func isEmpty(_ kind: Kind) -> Bool { offsets[kind] == nil }
+    public func isEmpty(for orientation: ShellSettingsStore.TouchOrientation) -> Bool {
+        Kind.kinds(for: orientation).allSatisfy { isEmpty($0) }
+    }
     /// Every control of one layout back to its built-in place.
     public mutating func reset(_ kind: Kind) { offsets[kind] = nil }
+    public mutating func reset(for orientation: ShellSettingsStore.TouchOrientation) {
+        for kind in Kind.kinds(for: orientation) { offsets[kind] = nil }
+    }
     /// The moved controls of one layout.
     public func moved(_ kind: Kind) -> [Control: Offset] { offsets[kind] ?? [:] }
 

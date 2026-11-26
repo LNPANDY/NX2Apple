@@ -69,4 +69,61 @@ import ShellUI
         #expect(!store.set("DM_PICTURE_FIT", to: "stretch"), "only the two values the engine reads")
         #expect(store.values()["DM_PICTURE_FIT"] == "fit")
     }
+
+    @Test func portraitFillLaunchResolvesAutoScreenAspectTo43AndPreservesPerGameTouchSize() async throws {
+        let box = try box()
+        let url = box.games.appendingPathComponent(Fixtures.orbit).appendingPathComponent("launcher.json")
+        var json = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        var settings = try #require(json["settings"] as? [[String: Any]])
+        settings.append([
+            "env": "DM_SCREEN_ASPECT",
+            "kind": "choice",
+            "section": "Game",
+            "label": "Picture shape",
+            "note": "",
+            "default": "auto",
+            "options": [["auto", "Match screen"], ["0", "16:9 (Switch)"]]
+        ])
+        settings.append([
+            "env": "DM_ROTATION",
+            "kind": "choice",
+            "section": "Game",
+            "label": "Rotation",
+            "note": "",
+            "default": "auto",
+            "options": [["auto", "Automatic"], ["landscape", "Landscape"], ["portrait", "Portrait"]]
+        ])
+        settings.append([
+            "env": "DM_TOUCH_SIZE",
+            "kind": "choice",
+            "section": "Controls",
+            "label": "Size",
+            "note": "",
+            "default": "medium",
+            "options": [["small", "Small"], ["medium", "Medium"], ["large", "Large"]]
+        ])
+        json["settings"] = settings
+        try JSONSerialization.data(withJSONObject: json).write(to: url)
+
+        let launcher = RecordingLauncher()
+        let model = ShellHostModel(config: box.config(), launcher: launcher)
+        model.shellSettings.storeTouchSize("small", for: .landscape)
+        model.shellSettings.storeTouchSize("large", for: .portrait)
+        model.change(Fixtures.orbit, setting: "DM_PICTURE_FIT", value: "fill")
+        model.change(Fixtures.orbit, setting: "DM_ROTATION", value: "portrait")
+        model.change(Fixtures.orbit, setting: "DM_TOUCH_SIZE", value: "large")
+
+        await model.playNow(Fixtures.orbit)
+        let game = try #require(launcher.launched.last)
+        let plan = EngineLaunchPlan.make(game: game, appResources: box.root, documents: box.root, envFileText: nil)
+        #expect(plan.environment["DM_SCREEN_ASPECT"] == "1.333")
+        #expect(plan.environment["DM_TOUCH_SIZE"] == "large")
+        #expect(plan.environment["DM_TOUCH_SIZE_PORTRAIT"] == nil)
+
+        // When explicit fit is chosen, DM_SCREEN_ASPECT stays untouched.
+        model.change(Fixtures.orbit, setting: "DM_PICTURE_FIT", value: "fit")
+        await model.playNow(Fixtures.orbit)
+        let fitGame = try #require(launcher.launched.last)
+        #expect(EngineLaunchPlan.make(game: fitGame, appResources: box.root, documents: box.root, envFileText: nil).environment["DM_SCREEN_ASPECT"] == "auto")
+    }
 }

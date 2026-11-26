@@ -10,21 +10,24 @@ import Testing
     @MainActor @Test func savedModeReopensAndUsesTheExistingEngineSetting() {
         let store = store()
         #expect(store.gameDefaults["DM_PROF_PAD_LAYOUT"] == nil)
-        let editor = TouchLayoutEditorModel(store: store)
+        #expect(store.gameDefaults["DM_PAD_LAYOUT_PORTRAIT"] == nil)
+        let editor = TouchLayoutEditorModel(store: store, upright: .proMaxPortrait)
         editor.setKind(.twoD)
         #expect(store.touchMode == "3d")
         editor.commit()
-        #expect(store.touchMode == "2d" && store.gameDefaults["DM_PROF_PAD_LAYOUT"] == "0")
-        let reopened = TouchLayoutEditorModel(store: store)
+        #expect(store.touchMode(for: .landscape) == "2d" && store.gameDefaults["DM_PROF_PAD_LAYOUT"] == "0")
+        #expect(store.touchMode(for: .portrait) == "3d" && store.gameDefaults["DM_PAD_LAYOUT_PORTRAIT"] == "1")
+        let reopened = TouchLayoutEditorModel(store: store, upright: .proMaxPortrait)
         #expect(reopened.kind == .twoD && !reopened.hasChanges)
         reopened.updateScreen(.duoUpright)
-        #expect(reopened.kind == .twoDSplit && !reopened.hasChanges)
-        reopened.setKind(.threeDSplit)
+        #expect(reopened.kind == .threeDSplit && !reopened.hasChanges)
+        reopened.setKind(.twoDSplit)
         reopened.commit()
-        #expect(TouchLayoutEditorModel(store: store).kind == .threeD)
-        #expect(store.gameDefaults["DM_PROF_PAD_LAYOUT"] == "1")
+        #expect(TouchLayoutEditorModel(store: store, upright: .proMaxPortrait).kind == .twoD)
+        #expect(store.gameDefaults["DM_PROF_PAD_LAYOUT"] == "0")
+        #expect(store.gameDefaults["DM_PAD_LAYOUT_PORTRAIT"] == "0")
         store.storeTouchMode("invalid")
-        #expect(store.touchMode == "3d")
+        #expect(store.touchMode == "2d")
     }
 
     @MainActor @Test(arguments: ["noop", "size", "stick", "arrangement", "pose"])
@@ -180,7 +183,7 @@ import Testing
         #expect(!m.confirmingReset && m.layoutIsBuiltIn)
         #expect(store.touchLayout == original, "reset remains a draft too")
         m.commit()
-        #expect(store.touchLayout.isEmpty(.threeD) && !store.touchLayout.isEmpty(.twoD), "the 2D move is saved")
+        #expect(store.touchLayout.isEmpty(.threeD) && store.touchLayout.isEmpty(.twoD), "reset clears the whole active orientation")
         #expect(store.touchLayout[.threeDSplit, .stick] == original[.threeDSplit, .stick], "the split layout is preserved")
     }
 
@@ -243,17 +246,20 @@ import Testing
         #expect(model.editing.layout == draft, "pose adaptation must not prune or replace any saved/draft offsets")
         #expect(model.selected == .stick && !model.held)
         #expect(!model.invalidPlacement && !model.rejected && !model.confirmingReset)
-        #expect(model.editing.size == "large" && model.editing.stick == "inward")
+        #expect(model.editing.size == "medium" && model.editing.stick == "corner")
 
         model.updateScreen(.proMax)
         #expect(model.kind == .threeD, "the landscape surface returns to the over-the-picture variant")
         #expect(model.editing.screen == .proMax && model.editing.layout == draft)
+        #expect(model.editing.size == "large" && model.editing.stick == "inward")
         #expect(model.selected == .stick && !model.held)
 
         model.setKind(.twoD)
         model.updateScreen(.duoUpright)
-        #expect(model.kind == .twoDSplit, "the same pose adaptation retains the selected 2D layout")
+        #expect(model.kind == .threeDSplit, "portrait keeps its own layout mode independently of landscape 2D")
         #expect(model.editing.layout == draft)
+        model.updateScreen(.proMax)
+        #expect(model.kind == .twoD && model.editing.size == "large" && model.editing.stick == "inward")
     }
 
     @MainActor @Test func exitOnlyConfirmsUnsavedPersistentChanges() {
@@ -315,6 +321,27 @@ import Testing
         model.commit()
         #expect(store.touchLayout[.threeDSplit, .stick] == TouchLayout.Offset(dx: -1, dy: 0))
         #expect(store.touchLayout[.threeD, .face] == TouchLayout.Offset(dx: -1, dy: 0))
+    }
+
+    @MainActor @Test func dualOrientationConfigSavesAndMigratesLegacyDefaultsOnce() {
+        let legacyDefaults = TestDefaults.make("t-legacy-migrate")
+        legacyDefaults.set("large", forKey: ShellSettingsStore.touchSizeKey)
+        legacyDefaults.set("higher", forKey: ShellSettingsStore.touchStickKey)
+        legacyDefaults.set("2d", forKey: ShellSettingsStore.touchModeKey)
+
+        let migrated = ShellSettingsStore(defaults: legacyDefaults)
+        #expect(migrated.touchSize(for: .landscape) == "large" && migrated.touchSize(for: .portrait) == "large")
+        #expect(migrated.touchStick(for: .landscape) == "higher" && migrated.touchStick(for: .portrait) == "higher")
+        #expect(migrated.touchMode(for: .landscape) == "2d" && migrated.touchMode(for: .portrait) == "2d")
+
+        migrated.resetTouchConfiguration(for: .portrait)
+        let reopened = ShellSettingsStore(defaults: legacyDefaults)
+        #expect(reopened.touchSize(for: .portrait) == "medium")
+        #expect(reopened.touchStick(for: .portrait) == "corner")
+        #expect(reopened.touchMode(for: .portrait) == "3d")
+        #expect(reopened.touchSize(for: .landscape) == "large")
+        #expect(reopened.touchStick(for: .landscape) == "higher")
+        #expect(reopened.touchMode(for: .landscape) == "2d")
     }
 
 }

@@ -15,9 +15,11 @@ import UIKit
     let sideways: PadScreen
     let upright: PadScreen?
     private let initialLayout: TouchLayout
-    private let initialSize: String
-    private let initialStick: String
-    private let initialFull: Bool
+    private let initialConfigs: [ShellSettingsStore.TouchOrientation: ShellSettingsStore.TouchOrientationConfig]
+    private let initialStoredModes: [ShellSettingsStore.TouchOrientation: String?]
+    private var draftConfigs: [ShellSettingsStore.TouchOrientation: ShellSettingsStore.TouchOrientationConfig]
+    private var explicitModes: [ShellSettingsStore.TouchOrientation: String?]
+    private var resetOrientations: Set<ShellSettingsStore.TouchOrientation> = []
     var confirmingExit = false
     private(set) var editing: TouchLayoutEditing
     /// The control the arrows and VoiceOver's actions move.
@@ -31,25 +33,51 @@ import UIKit
     private(set) var rejected = false
     /// A touch drag is currently showing a rejected position; Save waits until the finger is released.
     private(set) var invalidPlacement = false
-    /// Reset all was asked for and waits for its answer: the editor asks before it puts every control of the shown layout back.
+    /// Reset all was asked for and waits for its answer: the editor asks before it puts every control and parameter of the shown orientation back.
     private(set) var confirmingReset = false
 
     init(store: ShellSettingsStore = .current, sideways: PadScreen = .proMax, upright: PadScreen? = nil, kind: TouchLayout.Kind? = nil) {
         self.store = store
+        let landscapeInitial = store.touchConfiguration(for: .landscape)
+        let portraitInitial = store.touchConfiguration(for: .portrait)
+        let initialStored: [ShellSettingsStore.TouchOrientation: String?] = [
+            .landscape: store.storedTouchMode(for: .landscape),
+            .portrait: store.storedTouchMode(for: .portrait)
+        ]
+        var drafts: [ShellSettingsStore.TouchOrientation: ShellSettingsStore.TouchOrientationConfig] = [
+            .landscape: landscapeInitial,
+            .portrait: portraitInitial
+        ]
+        var modes = initialStored
         initialLayout = store.touchLayout
-        initialSize = store.touchSize
-        initialStick = store.touchStick
+        initialConfigs = [.landscape: landscapeInitial, .portrait: portraitInitial]
+        initialStoredModes = initialStored
         self.sideways = sideways
         self.upright = upright
-        let kind = kind ?? .of(full: store.touchMode == "3d", split: false)
-        initialFull = kind.full
-        let k = upright == nil && kind.split ? TouchLayout.Kind.of(full: kind.full, split: false) : kind
-        editing = TouchLayoutEditing(layout: store.touchLayout, kind: k, screen: k.split ? (upright ?? sideways) : sideways,
-                                     size: store.touchSize, stick: store.touchStick)
+
+        let preferredOrientation: ShellSettingsStore.TouchOrientation = kind?.split == true ? .portrait : .landscape
+        let activeOrientation: ShellSettingsStore.TouchOrientation = (upright == nil && preferredOrientation == .portrait && kind != nil) ? .landscape : preferredOrientation
+        let activeConfig = drafts[activeOrientation] ?? .default
+        let resolvedFull = kind?.full ?? (activeConfig.mode == "3d")
+        if let kind, kind.full != (activeConfig.mode == "3d") {
+            drafts[activeOrientation]?.mode = kind.full ? "3d" : "2d"
+            modes[activeOrientation] = kind.full ? (initialStored[activeOrientation] == nil ? nil : "3d") : "2d"
+        }
+        draftConfigs = drafts
+        explicitModes = modes
+        let k = TouchLayout.Kind.of(full: resolvedFull, split: activeOrientation == .portrait && (upright != nil || kind?.split == true))
+        let targetScreen = k.split ? (upright ?? .proMaxPortrait) : sideways
+        editing = TouchLayoutEditing(layout: store.touchLayout, kind: k, screen: targetScreen,
+                                     size: activeConfig.size, stick: activeConfig.stick)
+    }
+
+    var activeOrientation: ShellSettingsStore.TouchOrientation {
+        editing.kind.orientation
     }
 
     var hasChanges: Bool {
-        editing.layout != initialLayout || editing.size != initialSize || editing.stick != initialStick || editing.kind.full != initialFull
+        syncActiveDraft()
+        return editing.layout != initialLayout || draftConfigs != initialConfigs || explicitModes != initialStoredModes
     }
     func requestExit() -> Bool {
         confirmingExit = hasChanges
@@ -61,9 +89,55 @@ import UIKit
     var together: Bool { editing.together }
     var layoutIsBuiltIn: Bool { editing.layout.isEmpty(editing.kind) }
 
+    func configuration(for orientation: ShellSettingsStore.TouchOrientation) -> ShellSettingsStore.TouchOrientationConfig {
+        if orientation == activeOrientation {
+            return ShellSettingsStore.TouchOrientationConfig(size: editing.size, stick: editing.stick, mode: editing.kind.full ? "3d" : "2d")
+        }
+        return draftConfigs[orientation] ?? .default
+    }
+
+    func isCustomized(for orientation: ShellSettingsStore.TouchOrientation) -> Bool {
+        let cfg = configuration(for: orientation)
+        let explicit = orientation == activeOrientation ? currentExplicitMode(for: orientation) : (explicitModes[orientation] ?? nil)
+        return cfg.size != "medium" || cfg.stick != "corner" || explicit == "2d" || !editing.layout.isEmpty(for: orientation)
+    }
+
+    var canResetCurrentOrientation: Bool {
+        let cfg = configuration(for: activeOrientation)
+        let explicit = currentExplicitMode(for: activeOrientation)
+        return cfg.size != "medium" || cfg.stick != "corner" || cfg.mode != "3d" || explicit != nil || !editing.layout.isEmpty(for: activeOrientation)
+    }
+
+    var isCrossOrientationPreview: Bool {
+        guard let actualScreen else { return false }
+        let physicalPortrait = actualScreen.size.height > actualScreen.size.width
+        return physicalPortrait != (activeOrientation == .portrait)
+    }
+
+    var canRotatePhysicalOrientation: Bool {
+        !(actualScreen?.partiallyOpen ?? false) && !editing.screen.partiallyOpen
+    }
+
+    private func currentExplicitMode(for orientation: ShellSettingsStore.TouchOrientation) -> String? {
+        if orientation == activeOrientation {
+            let mode = editing.kind.full ? "3d" : "2d"
+            if mode == "2d" { return "2d" }
+            if resetOrientations.contains(orientation) { return nil }
+            return (initialStoredModes[orientation] ?? nil) == nil ? nil : "3d"
+        }
+        return explicitModes[orientation] ?? nil
+    }
+
+    private func syncActiveDraft() {
+        let orientation = activeOrientation
+        let mode = editing.kind.full ? "3d" : "2d"
+        draftConfigs[orientation] = ShellSettingsStore.TouchOrientationConfig(size: editing.size, stick: editing.stick, mode: mode)
+        explicitModes[orientation] = currentExplicitMode(for: orientation)
+    }
+
     /// The live game surface supplied by the in-context editor. The legacy sideways/upright pair remains the initial fallback for
     /// settings previews and captures; once a live surface arrives it owns the active geometry and split-layout choice unless the
-    /// player explicitly picks an orientation in the options menu while rotation is locked.
+    /// player explicitly picks an orientation in the top segmented control.
     private(set) var actualScreen: PadScreen?
     private var pinnedSplit: Bool?
     private var lastPhysicalPortrait: Bool?
@@ -82,39 +156,54 @@ import UIKit
         lastPhysicalPortrait = physicalPortrait
 
         if let pinnedSplit, !screen.partiallyOpen {
-            let nextKind = TouchLayout.Kind.of(full: editing.kind.full, split: pinnedSplit)
-            let targetScreen = (pinnedSplit == physicalPortrait) ? screen : (pinnedSplit ? (upright ?? sideways) : sideways)
-            guard actualScreen != screen || editing.screen != targetScreen || editing.kind != nextKind else { return }
+            syncActiveDraft()
+            let targetOrientation: ShellSettingsStore.TouchOrientation = pinnedSplit ? .portrait : .landscape
+            let targetConfig = draftConfigs[targetOrientation] ?? .default
+            let nextKind = TouchLayout.Kind.of(full: targetConfig.mode == "3d", split: pinnedSplit)
+            let targetScreen = (pinnedSplit == physicalPortrait) ? screen : (pinnedSplit ? (upright ?? .proMaxPortrait) : sideways)
+            guard actualScreen != screen || editing.screen != targetScreen || editing.kind != nextKind || editing.size != targetConfig.size || editing.stick != targetConfig.stick else { return }
             actualScreen = screen
             editing.screen = targetScreen
             editing.kind = nextKind
+            editing.size = targetConfig.size
+            editing.stick = targetConfig.stick
             resetTransientState(for: nextKind)
             return
         }
 
+        syncActiveDraft()
         let split = PadGeo.region(screen).separated
-        let nextKind = TouchLayout.Kind.of(full: editing.kind.full, split: split)
-        guard actualScreen != screen || editing.screen != screen || editing.kind != nextKind else { return }
+        let targetOrientation: ShellSettingsStore.TouchOrientation = split ? .portrait : .landscape
+        let targetConfig = draftConfigs[targetOrientation] ?? .default
+        let nextKind = TouchLayout.Kind.of(full: targetConfig.mode == "3d", split: split)
+        guard actualScreen != screen || editing.screen != screen || editing.kind != nextKind || editing.size != targetConfig.size || editing.stick != targetConfig.stick else { return }
 
         actualScreen = screen
         editing.screen = screen
         editing.kind = nextKind
+        editing.size = targetConfig.size
+        editing.stick = targetConfig.stick
         resetTransientState(for: nextKind)
     }
 
     func selectOrientation(portrait: Bool) {
         if let actualScreen, actualScreen.partiallyOpen { return }
+        syncActiveDraft()
         pinnedSplit = portrait
-        let nextKind = TouchLayout.Kind.of(full: editing.kind.full, split: portrait)
+        let targetOrientation: ShellSettingsStore.TouchOrientation = portrait ? .portrait : .landscape
+        let targetConfig = draftConfigs[targetOrientation] ?? .default
+        let nextKind = TouchLayout.Kind.of(full: targetConfig.mode == "3d", split: portrait)
         let targetScreen: PadScreen
         if let actualScreen, (actualScreen.size.height > actualScreen.size.width) == portrait {
             targetScreen = actualScreen
         } else {
-            targetScreen = portrait ? (upright ?? sideways) : sideways
+            targetScreen = portrait ? (upright ?? .proMaxPortrait) : sideways
         }
-        guard editing.kind != nextKind || editing.screen != targetScreen else { return }
+        guard editing.kind != nextKind || editing.screen != targetScreen || editing.size != targetConfig.size || editing.stick != targetConfig.stick else { return }
         editing.kind = nextKind
         editing.screen = targetScreen
+        editing.size = targetConfig.size
+        editing.stick = targetConfig.stick
         resetTransientState(for: nextKind)
     }
 
@@ -127,30 +216,37 @@ import UIKit
     }
 
     func setKind(_ kind: TouchLayout.Kind) {
-        let nextKind: TouchLayout.Kind
+        let split: Bool
         if let pinnedSplit, !(actualScreen?.partiallyOpen ?? false) {
-            nextKind = .of(full: kind.full, split: pinnedSplit)
+            split = pinnedSplit
         } else if let actualScreen {
-            nextKind = .of(full: kind.full, split: PadGeo.region(actualScreen).separated)
+            split = PadGeo.region(actualScreen).separated
         } else {
-            guard !kind.split || upright != nil else { return }
-            nextKind = kind
+            split = kind.split
         }
+        let targetOrientation: ShellSettingsStore.TouchOrientation = split ? .portrait : .landscape
+        if targetOrientation != activeOrientation {
+            selectOrientation(portrait: split)
+        }
+        let nextKind: TouchLayout.Kind = .of(full: kind.full, split: split)
         guard nextKind != editing.kind else { return }
         editing.kind = nextKind
         if actualScreen == nil {
-            editing.screen = nextKind.split ? (upright ?? sideways) : sideways
+            editing.screen = nextKind.split ? (upright ?? .proMaxPortrait) : sideways
         }
+        syncActiveDraft()
         resetTransientState(for: nextKind)
     }
     func setSize(_ size: String) {
         guard ShellSettingsStore.touchSizes.contains(size) else { return }
         editing.size = size
+        syncActiveDraft()
         held = false; rejected = false; invalidPlacement = false
     }
     func setStick(_ stick: String) {
         guard ShellSettingsStore.touchStickPlaces.contains(stick) else { return }
         editing.stick = stick
+        syncActiveDraft()
         held = false; rejected = false; invalidPlacement = false
     }
 
@@ -216,22 +312,38 @@ import UIKit
         invalidPlacement = false
     }
     /// Reset all: ask first. Nothing to reset asks nothing.
-    func askReset() { if !layoutIsBuiltIn { confirmingReset = true } }
+    func askReset() { if canResetCurrentOrientation { confirmingReset = true } }
     func cancelReset() { confirmingReset = false }
-    /// Every control of the shown layout back to its built-in place (the answer to askReset).
+    /// Resets ONLY the currently displayed orientation (coordinates for 2D/3D of that orientation AND its size/stick/mode).
     func reset() {
-        editing.reset()
+        let orientation = activeOrientation
+        editing.layout.reset(for: orientation)
+        editing.size = "medium"
+        editing.stick = "corner"
+        editing.kind = .of(full: true, split: orientation == .portrait)
+        draftConfigs[orientation] = .default
+        resetOrientations.insert(orientation)
+        explicitModes[orientation] = nil
+        if let selected, !selected.drawn(full: editing.kind.full) { self.selected = nil }
         rejected = false
         invalidPlacement = false
         confirmingReset = false
     }
 
-    /// Save presets and custom positions together; untouched layout variants remain in the draft.
+    /// Save both orientations' presets and custom positions together without leaking across orientations.
     func commit() {
-        store.storeTouchSize(editing.size)
-        store.storeTouchStick(editing.stick)
+        syncActiveDraft()
+        for orientation in ShellSettingsStore.TouchOrientation.allCases {
+            let cfg = draftConfigs[orientation] ?? .default
+            store.storeTouchSize(cfg.size, for: orientation)
+            store.storeTouchStick(cfg.stick, for: orientation)
+            if let explicit = explicitModes[orientation] ?? nil {
+                store.storeTouchMode(explicit, for: orientation)
+            } else {
+                store.defaults.removeObject(forKey: orientation == .landscape ? ShellSettingsStore.touchModeKey : ShellSettingsStore.touchModePortraitKey)
+            }
+        }
         store.storeTouchLayout(editing.layout)
-        if editing.kind.full != initialFull { store.storeTouchMode(editing.kind.full ? "3d" : "2d") }
     }
 }
 
@@ -244,7 +356,9 @@ extension TouchLayoutEditorModel {
         let isPad = false
         #endif
         let screens = TouchLayoutScreens.device(window: window, insets: insets, isPad: isPad)
-        let initialKind: TouchLayout.Kind = .of(full: store.touchMode == "3d", split: window.height > window.width)
+        let portrait = window.height > window.width
+        let orientation: ShellSettingsStore.TouchOrientation = portrait ? .portrait : .landscape
+        let initialKind: TouchLayout.Kind = .of(full: store.touchMode(for: orientation) == "3d", split: portrait)
         return TouchLayoutEditorModel(store: store, sideways: screens.sideways, upright: screens.upright, kind: initialKind)
     }
 

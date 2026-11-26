@@ -164,10 +164,10 @@ index 3b3c16f..87ff55f 100644
      g_lib = nil; g_util = nil; g_read_bc_pso = nil;
      g_samp0 = nil;
 diff --git a/dm/host/dm.h b/dm/host/dm.h
-index e93b060..4e6b7a6 100644
+index 87cd4b7..5132d84 100644
 --- a/dm/host/dm.h
 +++ b/dm/host/dm.h
-@@ -302,5 +302,10 @@ void dm_gfx_shot_at(long k, const char *path);   // graphics side: screenshot of
+@@ -305,5 +305,10 @@ void dm_gfx_shot_at(long k, const char *path);   // graphics side: screenshot of
  void dm_shot_written(const char *path, int ok);   // The graphics side finished writing a screenshot to disk (diag.c: DM_TICK_HOLD=E:SHOT unfreezes on this)
  void dm_host_shutdown_then(const char *why, void (*then)(void *), void *arg);   // The same, then(arg) in place of the last _exit(0) (oe::ExecuteProgram: execve of the next program)
  void dm_host_shutdown(const char *why);   // Graceful exit (hle_lifecycle.c): stop background threads and audio, stop the pipeline prewarm, drain graphics, write the pipeline archive, then _exit(0); used by SIGTERM and oe::ExecuteProgram
@@ -1069,7 +1069,7 @@ index 0aaaf01..7c7ec77 100644
  
  // sp inside the guest address block -> the top of this thread's host stack (16-byte aligned); otherwise 0 (no switch)
 diff --git a/dm/host/hle_lifecycle.c b/dm/host/hle_lifecycle.c
-index b6421b9..b7902cf 100644
+index 560b194..5a2fc85 100644
 --- a/dm/host/hle_lifecycle.c
 +++ b/dm/host/hle_lifecycle.c
 @@ -7,6 +7,7 @@
@@ -1115,7 +1115,7 @@ index b6421b9..b7902cf 100644
      static _Atomic int once; if (atomic_exchange(&once, 1)) return;
      uint64_t t0 = now_ns(); LOG("received %s: graceful exit", why);
      // Past every wait below (something else stuck): end the process all the same, and start the next program if the exit has not, so a hand-over does not become a quit
-@@ -48,11 +76,15 @@ void dm_term_install(void) {
+@@ -54,11 +82,15 @@ void dm_term_install(void) {
      dispatch_source_set_event_handler(g_term_src, ^{ dm_host_shutdown("SIGTERM"); });
      dispatch_resume(g_term_src);
  }
@@ -1136,7 +1136,7 @@ index b6421b9..b7902cf 100644
  __attribute__((weak)) void dm_audren_stop_all(void) {}
  __attribute__((weak)) void dm_audren_teardown_post(void) {}
  __attribute__((weak)) void dm_movie_stop_all(void) {}
-@@ -84,8 +116,8 @@ void dm_host_teardown_for_shell(void) {
+@@ -93,8 +125,8 @@ void dm_host_teardown_for_shell(void) {
      dm_cheats_exit();
      dm_vsync_stop_all();
      dm_sf_stop_all();
@@ -1146,7 +1146,7 @@ index b6421b9..b7902cf 100644
      dm_movie_stop_all();
      dm_codec_video_stop_all();
      dm_save_sync_stop();
-@@ -94,6 +126,8 @@ void dm_host_teardown_for_shell(void) {
+@@ -103,6 +135,8 @@ void dm_host_teardown_for_shell(void) {
      dm_gfx_quit_begin();
      dm_gfx_suspend(1);
      dm_threads_park_all();
@@ -1195,7 +1195,7 @@ index d532b59..f5a4f8d 100644
      }
      // GetSystemTick: Horizon returns the 64-bit tick directly in x0 (libnx and the SDK's svc::GetSystemTick read x0). Returning 0 in x0 seeded exlaunch's
 diff --git a/dm/host/hle_thread.c b/dm/host/hle_thread.c
-index 9c7ed42..3737a6b 100644
+index 955fff1..1b24420 100644
 --- a/dm/host/hle_thread.c
 +++ b/dm/host/hle_thread.c
 @@ -341,6 +341,16 @@ void dm_teardown_check_current_thread(void) {
@@ -1232,10 +1232,10 @@ index e7b8eba..f2933a9 100644
  // "system" (the system keeps Home whatever the app asks), "app" (the app decides), "off" (the system does nothing with Home in apps),
  // "unavailable" (could not be read)
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 3a1d548..6f29eb8 100644
+index fa85a18..5896cb8 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
-@@ -220,7 +220,7 @@ save-sync: $(B)/t_save_sync $(B)/t_save_sync_metadata $(B)/t_save_sync_apple
+@@ -221,7 +221,7 @@ save-sync: $(B)/t_save_sync $(B)/t_save_sync_metadata $(B)/t_save_sync_apple
  	TMPDIR="$(abspath $(B))" $(B)/t_save_sync_apple $(QUIET)
  AUDIO_INPUT_STUB = ../audio_input.c audio_input_platform_stub.c
  AUDIO_INPUT_DEPS = $(AUDIO_INPUT_STUB) ../audio_input.h
@@ -1821,10 +1821,10 @@ index b904d9b..6431357 100644
      return fails != 0;
  }
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 1c6e931..143828e 100644
+index 78f4666..fe50af2 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
-@@ -169,6 +169,8 @@ @implementation DmGamepad {
+@@ -178,6 +178,8 @@ @implementation DmGamepad {
      CAShapeLayer *_ring, *_knob;                   // the left stick (the right one is not drawn)
      CALayer *_hint; CATextLayer *_hintText; NSString *_hintWords;   // the 3D layout's right-stick hint: words only, once per launch (see "The right-stick hint")
      DmMenuButton *_menu;                           // opens the in-game menu (GameMenu.swift)
@@ -1833,7 +1833,7 @@ index 1c6e931..143828e 100644
      unsigned _menuGen;                             // generation counter for the controller-idle menu fade timer
      BOOL _menuOpen;                                // the in-game menu is currently presented
      UIImpactFeedbackGenerator *_touchFeedback;       // one short feedback per touch-control press edge
-@@ -245,6 +247,14 @@ - (instancetype)initWithFrame:(CGRect)f {
+@@ -263,6 +265,14 @@ - (instancetype)initWithFrame:(CGRect)f {
          __weak DmGamepad *weakSelf = self;
          [_menu addAction:[UIAction actionWithHandler:^(UIAction *a) { (void)a; [weakSelf reset]; }] forControlEvents:UIControlEventMenuActionTriggered];   // the menu opens: release every key and touch first
          [self addSubview:_menu];
@@ -1848,7 +1848,7 @@ index 1c6e931..143828e 100644
          const char *hint = getenv("DM_TOUCH_HINT");   // the shell passes the player's language; empty turns the hint off
          _hintWords = hint ? [NSString stringWithUTF8String:hint] : @"Right stick: drag here";
          _hint = [CALayer layer]; _hint.backgroundColor = [UIColor colorWithWhite:0 alpha:0.5].CGColor; _hint.opacity = 0; _hint.hidden = YES;
-@@ -544,6 +554,8 @@ - (void)layoutSubviews {
+@@ -584,6 +594,8 @@ - (void)layoutSubviews {
      in.frame = _knob.bounds; in.path = ip; CGPathRelease(ip);
      [CATransaction commit];
      [self placeHint];
@@ -1857,7 +1857,7 @@ index 1c6e931..143828e 100644
      [self refresh];
  }
  
-@@ -671,7 +683,7 @@ static void read_pad(GCController *c) {
+@@ -711,7 +723,7 @@ static void read_pad(GCController *c) {
  static BOOL pad_listen(GCController *c) {
      GCExtendedGamepad *g = c.extendedGamepad;
      if (g) {
@@ -1866,7 +1866,7 @@ index 1c6e931..143828e 100644
          for (NSString *b in @[GCInputButtonHome, GCInputButtonShare]) c.physicalInputProfile.buttons[b].preferredSystemGestureState = GCSystemGestureStateDisabled;
          g.buttonHome.pressedChangedHandler = ^(GCControllerButtonInput *b, float v, BOOL down) { (void)b; (void)v; (void)down; front_ios_quit_poll(); };
          if (g.valueChangedHandler) return NO;
-@@ -748,23 +760,126 @@ static BOOL pads_slotted(GCController *gone) {
+@@ -788,23 +800,126 @@ static BOOL pads_slotted(GCController *gone) {
      dispatch_async(dispatch_get_main_queue(), ^{ cp_poll(); });   // a controller came or went while the controller applet's prompt is up
      return waiting || pad_slot_mask(&g_slots) != 0;   // a controller waiting for its first press hides the touch gamepad too
  }
@@ -1995,7 +1995,7 @@ index 1c6e931..143828e 100644
          }];
      });
  }
-@@ -777,6 +892,7 @@ - (void)updateControlVisibility {
+@@ -817,6 +932,7 @@ - (void)updateControlVisibility {
      if (_padOff && _layout.onTV) {
          ++_menuGen; [_menu.layer removeAllAnimations];
          _menu.alpha = 1; _menu.hidden = YES;
@@ -2004,10 +2004,10 @@ index 1c6e931..143828e 100644
          [self wakeMenu];
      }
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index aa20038..a0f79f4 100644
+index 740d1de..852cc3e 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
-@@ -344,6 +344,12 @@ void front_picture_shape(int w, int h) {   // front.h: the views take the presen
+@@ -362,6 +362,12 @@ void front_picture_shape(int w, int h) {   // front.h: the views take the presen
      });
  }
  
@@ -2020,7 +2020,7 @@ index aa20038..a0f79f4 100644
  // The settings the in-game menu offers (GameMenu.swift, from the gamepad's menu button), each taking effect while the game runs; the launcher's other settings need the next start.
  // value NULL: only whether env is one of them; otherwise apply it (GameMenu.swift has saved it and put it in the environment). Console mode changes as on a Switch put in or taken out of its
  // dock (the operation mode change notification); while a TV shows the picture the game stays docked, and the choice applies when the TV is unplugged
-@@ -372,6 +378,16 @@ bool dm_setting_live(const char *env, const char *value) {
+@@ -390,6 +396,16 @@ bool dm_setting_live(const char *env, const char *value) {
          }
          return true;
      }
@@ -2037,7 +2037,7 @@ index aa20038..a0f79f4 100644
      return false;
  }
  @implementation DmTVSceneDelegate
-@@ -721,8 +737,10 @@ static void save_sync_background(void) {
+@@ -740,8 +756,10 @@ static void save_sync_background(void) {
  }
  
  static _Atomic int g_quitting;
@@ -2049,7 +2049,7 @@ index aa20038..a0f79f4 100644
      switch (ev) {
          case 0: quit_close(); dm_movie_active(0); dm_gamepad_reset(); dm_focus_set(2); break;
          case 1:
-@@ -740,12 +758,23 @@ void front_ios_focus_event(int ev) {
+@@ -759,12 +777,23 @@ void front_ios_focus_event(int ev) {
              if (g_audio_intr) { LOG("audio session: active again with no interruption-ended notice; resuming"); g_audio_intr = 0; g_session_off = 1; }
              if (g_session_off) front_ios_audio_session();
              front_ios_audio_apply(); dm_gamepad_active(); dm_focus_set(1); dm_movie_active(1); break;
@@ -2074,7 +2074,7 @@ index aa20038..a0f79f4 100644
  // while it is held). A tap on Quit or A quits, a tap on Cancel or outside the card, B or a new press of Home closes it. While it is open the game is told it lost
  // the focus, as the Switch's HOME menu does, and gets no touch or controller input.
  // Quitting ends the process: one game runs per process (dm_profile() and the host's early loading run once, the shell's ShellMain.m), so the engine cannot hand
-@@ -800,7 +829,7 @@ static void quit_buttons(int *home, int *a, int *b, GCController *__strong *hold
+@@ -819,7 +848,7 @@ static void quit_buttons(int *home, int *a, int *b, GCController *__strong *hold
      *home = *a = *b = 0;
      for (GCController *c in GCController.controllers) {
          GCExtendedGamepad *g = c.extendedGamepad; if (!g) continue;
@@ -2083,7 +2083,7 @@ index aa20038..a0f79f4 100644
          *a |= g.buttonA.isPressed; *b |= g.buttonB.isPressed;
      }
  }
-@@ -867,9 +896,21 @@ static void front_ios_teardown(void) {
+@@ -887,9 +916,21 @@ static void front_ios_teardown(void) {
      }
      g_layer = nil;
      g_rotation_was[0] = 0;

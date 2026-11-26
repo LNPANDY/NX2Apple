@@ -8,21 +8,22 @@ Upstream-Status: pending [builds on seedds/nxnative#683]
 Reason: Let players resize and reposition touch controls with editor and gameplay geometry parity
 Issue: LNPANDY/NX2Apple#347
 ---
- dm/ios/Sources/DmGamepad.m                    | 231 ++++-----
- dm/ios/Sources/DmLayout.h                     |  10 +-
+ dm/ios/Sources/DmGamepad.m                    | 283 ++++++-----
+ dm/ios/Sources/DmLayout.h                     |  37 +-
  dm/ios/Sources/DmPadGeometry.h                | 457 ++++++++++++++++++
- dm/ios/Sources/front_ios.m                    |   5 +
+ dm/ios/Sources/front_ios.m                    |  44 +-
+ dm/ios/tests/duo/Tests/DuoHarnessTests.m      |  86 +++-
  dm/ios/tests/pad_geometry/UIKit/UIKit.h       |  20 +
- .../tests/pad_geometry/pad_geometry_check.m   | 362 ++++++++++++++
+ .../tests/pad_geometry/pad_geometry_check.m   | 369 ++++++++++++++
  dm/ios/tests/test_pad_geometry.py             |  37 ++
- 7 files changed, 1008 insertions(+), 114 deletions(-)
+ 8 files changed, 1197 insertions(+), 136 deletions(-)
  create mode 100644 dm/ios/Sources/DmPadGeometry.h
  create mode 100644 dm/ios/tests/pad_geometry/UIKit/UIKit.h
  create mode 100644 dm/ios/tests/pad_geometry/pad_geometry_check.m
  create mode 100644 dm/ios/tests/test_pad_geometry.py
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index c3d5cd0..77dacdf 100644
+index c3d5cd0..4c4d495 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -8,9 +8,12 @@
@@ -47,7 +48,7 @@ index c3d5cd0..77dacdf 100644
  #import "DmGameMenu.h"
  
  enum { B_A = 0, B_B, B_X, B_Y, B_LS, B_RS, B_L, B_R, B_ZL, B_ZR, B_PLUS, B_MINUS, B_LEFT, B_UP, B_RIGHT, B_DOWN, B_N };
-@@ -110,27 +114,17 @@ static void phone_motion_start(UIView *body) {
+@@ -110,29 +114,28 @@ static void phone_motion_start(UIView *body) {
      }];
  }
  
@@ -82,8 +83,19 @@ index c3d5cd0..77dacdf 100644
 +    K_RSWIPE = 1.0 / 3;                             // right stick area: this fraction of the screen width from the right edge (not in u)
  static const int k_btns[] = {B_ZL, B_L, B_ZR, B_R, B_MINUS, B_PLUS, B_LS, B_RS};   // keys locked at touch-down (L3 / R3 only in the 3D layout)
  static NSString *const k_layout_key = @"DmPadLayout";   // NSUserDefaults: 0 = 2D, 1 = 3D, 2 = Tap (DM_GAME_PAD_LAYOUT's numbers)
++static NSString *const k_layout_split_key = @"DmPadLayoutSplit";   // NSUserDefaults for portrait/split orientation
++
++static int parse_pad_layout_mode(const char *_Nullable v) {
++    if (!v || !*v) return -1;
++    if (!strcmp(v, "2d") || !strcmp(v, "0")) return 0;
++    if (!strcmp(v, "3d") || !strcmp(v, "1") || !strcmp(v, "full")) return 1;
++    if (!strcmp(v, "tap") || !strcmp(v, "2")) return 2;
++    return -1;
++}
  int dm_opmode(void);   // hle_oe.c: 0 = handheld
-@@ -160,6 +154,7 @@ @implementation DmGamepad {
+ void front_ios_quit_poll(void);          // front_ios.m: a controller's buttons changed (the Home hold, A and B in the quit prompt)
+ int front_ios_quit_blocks_input(void);   // front_ios.m: the quit prompt has the controllers, the game gets none
+@@ -160,6 +163,7 @@ @implementation DmGamepad {
      NSMapTable<UITouch *, NSNumber *> *_faceOf;    // which keys each touch on the diamond currently holds
      CAShapeLayer *_key[B_N]; CATextLayer *_label[B_N];   // one layer per key
      CAShapeLayer *_ring, *_knob;                   // the left stick (the right one is not drawn)
@@ -91,20 +103,22 @@ index c3d5cd0..77dacdf 100644
      DmMenuButton *_menu;                           // opens the in-game menu (GameMenu.swift)
      UIImpactFeedbackGenerator *_touchFeedback;       // one short feedback per touch-control press edge
      unsigned _hapticSticks;
-@@ -168,7 +163,11 @@ @implementation DmGamepad {
+@@ -168,7 +172,13 @@ @implementation DmGamepad {
      CALayer *_controls;                            // holds every control layer: hidden while a physical controller is connected (the view itself stays, for game touches)
      BOOL _padOff;                                  // a physical controller is connected: every touch goes to the game
      DmLayout _layout;
 -    UITouch *_game[16];                            // touches on the game's touch screen by finger slot
-+    DmPadOptions _opts;                            // the player's options from the environment (DM_TOUCH_SIZE, DM_TOUCH_STICK, DM_TOUCH_LAYOUT)
-+    DmPadLayout _arrangement;                      // DM_TOUCH_LAYOUT, which _opts.layout points to
-+    DmPadGeo _geo; CGRect _geoBounds; UIEdgeInsets _geoInsets; BOOL _geoFull, _geoValid;   // where the controls are, and what it was computed for
++    DmPadOptions _opts, _optsPortrait;             // the player's options from the environment (landscape overlay vs portrait split)
++    DmPadLayout _arrangement;                      // DM_TOUCH_LAYOUT, which _opts / _optsPortrait point to
++    int _defaultOverlayLayout, _defaultPortraitLayout;
++    BOOL _hasPortraitLayoutDefault;
++    DmPadGeo _geo; CGRect _geoBounds; UIEdgeInsets _geoInsets; BOOL _geoFull, _geoPortraitOpts, _geoValid;   // where the controls are, and what it was computed for
 +    unsigned _loggedDropped;                       // the moved controls that kept their place, as last logged
 +    UITouch *_game[16];                           // touches on the game's touch screen by finger slot
  }
  
  static UIColor *k_idle, *k_on, *k_line, *k_ringFill, *k_text, *k_textOn;
-@@ -188,6 +187,16 @@ @implementation DmGamepad {
+@@ -188,6 +198,23 @@ @implementation DmGamepad {
  - (instancetype)initWithFrame:(CGRect)f {
      if ((self = [super initWithFrame:f])) {
          _layout = dm_layout(self.bounds, UIEdgeInsetsZero, NO, CGRectNull, DM_PICTURE_16_9);   // until the front end arranges it
@@ -114,35 +128,85 @@ index c3d5cd0..77dacdf 100644
 +        const char *stick = getenv("DM_TOUCH_STICK");
 +        _opts.stick = dm_pad_stick_place(stick);
 +        if (stick && *stick) LOG("front end: left stick %s (DM_TOUCH_STICK)", _opts.stick == DM_PAD_STICK_HIGHER ? "higher" : _opts.stick == DM_PAD_STICK_INWARD ? "inward" : "in the corner");
++        const char *psize = getenv("DM_TOUCH_SIZE_PORTRAIT");
++        _optsPortrait.scale = (psize && *psize) ? dm_pad_size_scale(psize) : _opts.scale;
++        if (psize && *psize) LOG("front end: portrait touch controls size %s (DM_TOUCH_SIZE_PORTRAIT)", _optsPortrait.scale < 1 ? "small" : _optsPortrait.scale > 1 ? "large" : "medium");
++        const char *pstick = getenv("DM_TOUCH_STICK_PORTRAIT");
++        _optsPortrait.stick = (pstick && *pstick) ? dm_pad_stick_place(pstick) : _opts.stick;
++        if (pstick && *pstick) LOG("front end: portrait left stick %s (DM_TOUCH_STICK_PORTRAIT)", _optsPortrait.stick == DM_PAD_STICK_HIGHER ? "higher" : _optsPortrait.stick == DM_PAD_STICK_INWARD ? "inward" : "in the corner");
 +        const char *arrangement = getenv("DM_TOUCH_LAYOUT");
 +        if (!dm_pad_layout_parse(arrangement, &_arrangement)) LOG("front end: DM_TOUCH_LAYOUT ignored (not a layout the engine reads, %zu characters): every control keeps its place", strlen(arrangement));
 +        else if (dm_pad_layout_count(&_arrangement)) LOG("front end: touch controls arranged by the player (DM_TOUCH_LAYOUT, %d moved over every layout)", dm_pad_layout_count(&_arrangement));
 +        _opts.layout = &_arrangement;
++        _optsPortrait.layout = &_arrangement;
          [self registerForTraitChanges:@[UITraitDisplayScale.class] withHandler:^(id<UITraitEnvironment> environment, UITraitCollection *previous) {
              [(UIView *)environment setNeedsLayout];
          }];
-@@ -222,6 +231,11 @@ - (instancetype)initWithFrame:(CGRect)f {
+@@ -222,10 +249,18 @@ - (instancetype)initWithFrame:(CGRect)f {
          __weak DmGamepad *weakSelf = self;
          [_menu addAction:[UIAction actionWithHandler:^(UIAction *a) { (void)a; [weakSelf reset]; }] forControlEvents:UIControlEventMenuActionTriggered];   // the menu opens: release every key and touch first
          [self addSubview:_menu];
+-        NSNumber *saved = [NSUserDefaults.standardUserDefaults objectForKey:k_layout_key];
+-        int l = saved ? (int)saved.integerValue : dm_profile()->pad_layout;
+-        if (l == 2 && dm_opmode() != 0) l = 0;   // Tap only in handheld mode (env.txt's DM_OPMODE may have changed it)
+-        _full = l == 1; _tap = l == 2;
 +        const char *hint = getenv("DM_TOUCH_HINT");   // the shell passes the player's language; empty turns the hint off
 +        _hintWords = hint ? [NSString stringWithUTF8String:hint] : @"Right stick: drag here";
 +        _hint = [CALayer layer]; _hint.backgroundColor = [UIColor colorWithWhite:0 alpha:0.5].CGColor; _hint.opacity = 0; _hint.hidden = YES;
 +        _hintText = [CATextLayer layer]; _hintText.string = _hintWords; _hintText.alignmentMode = kCAAlignmentCenter;
 +        _hintText.foregroundColor = [UIColor colorWithWhite:1 alpha:0.9].CGColor; [_hint addSublayer:_hintText]; [_controls addSublayer:_hint];
-         NSNumber *saved = [NSUserDefaults.standardUserDefaults objectForKey:k_layout_key];
-         int l = saved ? (int)saved.integerValue : dm_profile()->pad_layout;
-         if (l == 2 && dm_opmode() != 0) l = 0;   // Tap only in handheld mode (env.txt's DM_OPMODE may have changed it)
-@@ -262,93 +276,56 @@ - (void)setTouchFeedback:(BOOL)on {
++        int profLayout = dm_profile()->pad_layout;
++        int ovDefault = parse_pad_layout_mode(getenv("DM_PROF_PAD_LAYOUT"));
++        _defaultOverlayLayout = ovDefault >= 0 ? ovDefault : profLayout;
++        int ptDefault = parse_pad_layout_mode(getenv("DM_PAD_LAYOUT_PORTRAIT"));
++        _hasPortraitLayoutDefault = ptDefault >= 0;
++        _defaultPortraitLayout = _hasPortraitLayoutDefault ? ptDefault : _defaultOverlayLayout;
++        [self loadLayoutMode];
+         [self applyLayout];
+         NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
+         [nc addObserver:self selector:@selector(padsChanged:) name:GCControllerDidConnectNotification object:nil];
+@@ -243,12 +278,24 @@ - (void)applyLayout {   // show / hide the controls for the current layout
+     _ring.hidden = _knob.hidden = _tap;
+     [CATransaction commit];
+ }
++- (void)loadLayoutMode {
++    BOOL split = _layout.separated;
++    NSString *key = split ? k_layout_split_key : k_layout_key;
++    NSNumber *saved = [NSUserDefaults.standardUserDefaults objectForKey:key];
++    if (!saved && split && !_hasPortraitLayoutDefault) {
++        saved = [NSUserDefaults.standardUserDefaults objectForKey:k_layout_key];
++    }
++    int fallback = split ? _defaultPortraitLayout : _defaultOverlayLayout;
++    int l = saved ? (int)saved.integerValue : fallback;
++    if (l == 2 && dm_opmode() != 0) l = 0;   // Tap only in handheld mode (env.txt's DM_OPMODE may have changed it)
++    _full = l == 1; _tap = l == 2;
++}
+ - (int)padLayout { return _tap ? 2 : _full ? 1 : 0; }
+ - (void)setPadLayout:(int)l {   // the in-game menu's pick: release every touch first (no key stays held), save, lay out again
+     if (l == 2 && dm_opmode() != 0) l = 0;
+     [self reset];
+     _full = l == 1; _tap = l == 2;
+-    [NSUserDefaults.standardUserDefaults setObject:@(l) forKey:k_layout_key];
++    [NSUserDefaults.standardUserDefaults setObject:@(l) forKey:(_layout.separated ? k_layout_split_key : k_layout_key)];
+     [self applyLayout]; [self setNeedsLayout];
+ }
+ - (void)opmodeChanged {   // docked: the Tap layout goes (the game reads no touch screen then), unsaved, so handheld mode at the next start brings it back
+@@ -262,93 +309,63 @@ - (void)setTouchFeedback:(BOOL)on {
  
  // ---- Layout (points; computed inside the safe area) ----
  - (void)arrange:(DmLayout)layout {
 -    if (CGRectEqualToRect(_layout.controls, layout.controls) && CGRectEqualToRect(_layout.game, layout.game) && _layout.separated == layout.separated && _layout.topSafeOnly == layout.topSafeOnly) return;
-+    if (CGRectEqualToRect(_layout.controls, layout.controls) && CGRectEqualToRect(_layout.game, layout.game) && _layout.separated == layout.separated
++    if (CGRectEqualToRect(_layout.controls, layout.controls) && CGRectEqualToRect(_layout.game, layout.game)
++        && CGRectEqualToRect(_layout.gameClip, layout.gameClip) && _layout.separated == layout.separated
 +        && _layout.topSafeOnly == layout.topSafeOnly && _layout.customControlsFullBounds == layout.customControlsFullBounds) return;
      [self reset];   // A finger held across a pose change must not leave a key or game touch stuck.
 -    _layout = layout;
++    BOOL splitChanged = _layout.separated != layout.separated;
 +    _layout = layout; _geoValid = NO;
++    if (splitChanged) {
++        [self loadLayoutMode];
++        [self applyLayout];
++    }
      [self setNeedsLayout];
  }
 -- (CGRect)safe { return CGRectIntersection(_layout.controls, UIEdgeInsetsInsetRect(self.bounds, dm_game_safe_insets(self.bounds, self.safeAreaInsets, _layout.topSafeOnly))); }
@@ -171,9 +235,10 @@ index c3d5cd0..77dacdf 100644
 -        return p;
 +- (const DmPadGeo *)geo {   // DmPadGeometry.h, computed again whenever the bounds, the safe area, the split or the layout changed
 +    CGRect b = self.bounds; UIEdgeInsets i = self.safeAreaInsets;
-+    if (!_geoValid || !CGRectEqualToRect(b, _geoBounds) || !UIEdgeInsetsEqualToEdgeInsets(i, _geoInsets) || _geoFull != _full) {
-+        _geo = dm_pad_geo(b, i, _layout, _full, _opts);
-+        _geoBounds = b; _geoInsets = i; _geoFull = _full; _geoValid = YES;
++    BOOL portraitOpts = _layout.separated && b.size.height > b.size.width;
++    if (!_geoValid || !CGRectEqualToRect(b, _geoBounds) || !UIEdgeInsetsEqualToEdgeInsets(i, _geoInsets) || _geoFull != _full || _geoPortraitOpts != portraitOpts) {
++        _geo = dm_pad_geo(b, i, _layout, _full, portraitOpts ? _optsPortrait : _opts);
++        _geoBounds = b; _geoInsets = i; _geoFull = _full; _geoPortraitOpts = portraitOpts; _geoValid = YES;
 +        if (_geo.dropped != _loggedDropped) {   // a moved control with no room on this screen: said once per change, for the log a player sends
 +            _loggedDropped = _geo.dropped;
 +            NSMutableArray<NSString *> *names = [NSMutableArray array];
@@ -264,7 +329,16 @@ index c3d5cd0..77dacdf 100644
  }
  - (uint64_t)faceAt:(CGPoint)p {   // keys under the finger in the diamond (between two keys both count)
      uint64_t m = 0; CGFloat r = self.faceHitR;
-@@ -424,10 +401,7 @@ - (BOOL)gameBegin:(UITouch *)t {
+@@ -414,7 +431,7 @@ - (void)pushGame {
+     dm_touch_set(t, n);
+ }
+ - (BOOL)gameBegin:(UITouch *)t {
+-    if (CGRectIsEmpty(_layout.game) || (_layout.separated && !CGRectContainsPoint(_layout.game, [t locationInView:self]))) return NO;
++    if (CGRectIsEmpty(_layout.game) || (_layout.separated && !CGRectContainsPoint(_layout.gameClip, [t locationInView:self]))) return NO;
+     for (int i = 0; i < 16; i++) if (!_game[i]) { _game[i] = t; [_owner setObject:@(C_GAME | (uint64_t)i << 8) forKey:t]; return YES; }
+     return NO;
+ }
+@@ -424,10 +441,7 @@ - (BOOL)gameBegin:(UITouch *)t {
  - (BOOL)controlAt:(CGPoint)p {
      if (_padOff || (_layout.separated && !CGRectContainsPoint(_layout.controls, p))) return NO;
      if (_tap) return NO;
@@ -276,7 +350,7 @@ index c3d5cd0..77dacdf 100644
      return _full && !_stick[1] && [self inRightArea:p];
  }
  - (UIView *)hitTest:(CGPoint)p withEvent:(UIEvent *)e {
-@@ -440,15 +414,11 @@ - (void)touchesBegan:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
+@@ -440,15 +454,11 @@ - (void)touchesBegan:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
          if (_padOff) { game |= [self gameBegin:t]; continue; }
          CGPoint p = [t locationInView:self];
          if (_layout.separated && !CGRectContainsPoint(_layout.controls, p)) { game |= [self gameBegin:t]; continue; }
@@ -296,7 +370,7 @@ index c3d5cd0..77dacdf 100644
          if (kind == C_FACE) { [_owner setObject:@(C_FACE) forKey:t]; [_faceOf setObject:@([self faceAt:p]) forKey:t]; }
          else if (kind == C_DPAD) [_owner setObject:@(C_DPAD) forKey:t];
          else if (kind == C_STICK) { [_owner setObject:@(C_STICK | (uint64_t)idx << 8) forKey:t]; _stick[idx] = t; _stickNow[idx] = p; }
-@@ -487,7 +457,7 @@ - (void)reset { [_owner removeAllObjects]; [_faceOf removeAllObjects]; _stick[0]
+@@ -487,7 +497,7 @@ - (void)reset { [_owner removeAllObjects]; [_faceOf removeAllObjects]; _stick[0]
  // ---- Shapes ----
  static CGPathRef circlePath(CGPoint c, CGFloat r) { return CGPathCreateWithEllipseInRect(CGRectMake(c.x - r, c.y - r, 2 * r, 2 * r), NULL); }
  static CGPathRef dropPath(CGPoint c, CGFloat r, CGFloat tipAngle, CGFloat round) {   // teardrop: circle + two tangents meeting at the tip, tip slightly rounded
@@ -305,7 +379,7 @@ index c3d5cd0..77dacdf 100644
      CGPoint tip = CGPointMake(c.x + d * cos(tipAngle), c.y + d * sin(tipAngle));
      CGPoint p1 = CGPointMake(c.x + r * cos(tipAngle + th), c.y + r * sin(tipAngle + th)), p2 = CGPointMake(c.x + r * cos(tipAngle - th), c.y + r * sin(tipAngle - th));
      CGMutablePathRef p = CGPathCreateMutable();
-@@ -530,26 +500,65 @@ - (void)layoutSubviews {
+@@ -530,26 +540,65 @@ - (void)layoutSubviews {
              BOOL right = b == B_ZR || b == B_R; CGPoint c = [self dropCenter:b];
              setPath(_key[b], dropPath(c, [self dropR:b], right ? -M_PI_4 : -3 * M_PI_4, 4 * u)); placeLabel(_label[b], c, 16 * u);   // tip toward the near top corner
          } else if (isClick(b)) {
@@ -376,7 +450,7 @@ index c3d5cd0..77dacdf 100644
  - (void)refresh {   // pressed state → fill, sticks → knob position
      uint64_t all = _faceBits | _dpadBits | _btnBits;
 diff --git a/dm/ios/Sources/DmLayout.h b/dm/ios/Sources/DmLayout.h
-index 8b1ac90..906b5ca 100644
+index 8b1ac90..08ef2d6 100644
 --- a/dm/ios/Sources/DmLayout.h
 +++ b/dm/ios/Sources/DmLayout.h
 @@ -5,7 +5,11 @@
@@ -384,7 +458,7 @@ index 8b1ac90..906b5ca 100644
  NS_ASSUME_NONNULL_BEGIN
  
 -typedef struct { CGRect game, controls; BOOL separated, topSafeOnly; } DmLayout;
-+typedef struct { CGRect game, controls; BOOL separated, topSafeOnly, customControlsFullBounds; } DmLayout;
++typedef struct { CGRect game, gameClip, upper, controls; BOOL separated, topSafeOnly, customControlsFullBounds, onTV; } DmLayout;
 +
 +static inline BOOL dm_layout_custom_controls_full_bounds(CGRect bounds, BOOL hingeClosed) {
 +    return hingeClosed && bounds.size.width > bounds.size.height;
@@ -392,24 +466,58 @@ index 8b1ac90..906b5ca 100644
  
  // Rotation (DM_ROTATION, a launcher and in-game menu setting): auto, landscape or portrait. auto gives `automatic`: every orientation for the view controllers, so the app's own list
  // decides, and for the app (front_ios_app_orientations) its Info.plist list for the device: the phone's two landscapes, the iPad's four. landscape locks the two landscapes, portrait
-@@ -55,7 +59,7 @@ static inline CGRect dm_horizontal_division(CGRect b, CGRect division) {
+@@ -54,8 +58,17 @@ static inline CGRect dm_horizontal_division(CGRect b, CGRect division) {
+     return CGRectMake(x, y, right - x, bottom - y);
  }
  
++// The fixed 4:3 picture canvas slot in portrait split: when upper is narrower than 4:3 (iPhones), clamp to 4:3;
++// wider upper halves (iPad, Duo inner portrait) keep upper so 16:9 never shrinks horizontally.
++static inline CGRect dm_portrait_picture_slot(CGRect upper) {
++    if (CGRectIsEmpty(upper) || upper.size.width <= 0 || upper.size.height <= 0) return CGRectZero;
++    CGFloat fourThree = 4.0 / 3.0;
++    return (upper.size.width / upper.size.height < fourThree) ? dm_aspect_fit(upper, fourThree) : upper;
++}
++
  static inline DmLayout dm_layout(CGRect b, UIEdgeInsets insets, BOOL partiallyOpen, CGRect division, CGFloat aspect) {
 -    DmLayout l = { dm_aspect_fit(b, aspect), b, NO, NO };
-+    DmLayout l = { dm_aspect_fit(b, aspect), b, NO, NO, NO };
++    CGRect fit = dm_aspect_fit(b, aspect);
++    DmLayout l = { fit, fit, b, b, NO, NO, NO };
      if (CGRectIsEmpty(b)) return l;
      division = dm_horizontal_division(b, division);
      BOOL portrait = b.size.height > b.size.width;
-@@ -72,7 +76,7 @@ static inline DmLayout dm_layout(CGRect b, UIEdgeInsets insets, BOOL partiallyOp
+@@ -67,17 +80,27 @@ static inline DmLayout dm_layout(CGRect b, UIEdgeInsets insets, BOOL partiallyOp
+     CGRect lower = CGRectMake(CGRectGetMinX(b), CGRectGetMaxY(division), b.size.width,
+                              CGRectGetMaxY(b) - CGRectGetMaxY(division));
+     if (upper.size.height <= 0 || CGRectGetMaxY(safe) <= CGRectGetMinY(lower)) return l;
+-    l.game = dm_aspect_fit(upper, aspect); l.controls = lower; l.separated = YES;
++    CGRect slot = portrait ? dm_portrait_picture_slot(upper) : upper;
++    l.upper = upper;
++    l.gameClip = portrait ? slot : dm_aspect_fit(upper, aspect);
++    l.game = dm_aspect_fit(slot, aspect);
++    l.controls = lower; l.separated = YES;
+     return l;
  }
  
  // The picture is on a TV (front_ios.m DmTVSceneDelegate): the controls take the whole view and no touch goes to the game's touch screen (the game is docked there).
 -static inline DmLayout dm_layout_pad_only(CGRect b) { return (DmLayout){ CGRectZero, b, NO, NO }; }
-+static inline DmLayout dm_layout_pad_only(CGRect b) { return (DmLayout){ CGRectZero, b, NO, NO, NO }; }
++static inline DmLayout dm_layout_pad_only(CGRect b) { return (DmLayout){ CGRectZero, CGRectZero, CGRectZero, b, NO, NO, NO }; }
  
- // Fill covers the full view only in the overlay layout (landscape). A portrait or tabletop split keeps the picture fitted in its
- // area above the controls, where cropping a small picture would cost more than the bars.
+-// Fill covers the full view only in the overlay layout (landscape). A portrait or tabletop split keeps the picture fitted in its
+-// area above the controls, where cropping a small picture would cost more than the bars.
++// Fill covers the full view in landscape overlay and fills the fixed 4:3 portrait slot above the controls while clipping overflow.
++// A tabletop half-open split keeps the picture fitted in its half where cropping a wide half leaves too little height.
+ static inline DmLayout dm_layout_picture(DmLayout l, CGRect b, BOOL fill, CGFloat aspect) {
+-    if (fill && !l.separated && !CGRectIsEmpty(b)) l.game = dm_aspect_fill(b, aspect);
++    if (!fill || CGRectIsEmpty(b)) return l;
++    if (!l.separated) {
++        l.gameClip = b;
++        l.game = dm_aspect_fill(b, aspect);
++    } else if (b.size.height > b.size.width && !CGRectIsEmpty(l.gameClip)) {
++        l.game = dm_aspect_fill(l.gameClip, aspect);
++    }
+     return l;
+ }
+ 
 diff --git a/dm/ios/Sources/DmPadGeometry.h b/dm/ios/Sources/DmPadGeometry.h
 new file mode 100644
 index 0000000..d2efd77
@@ -874,12 +982,69 @@ index 0000000..d2efd77
 +
 +NS_ASSUME_NONNULL_END
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index e9c5a1d..e763931 100644
+index e9c5a1d..3ed3666 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
-@@ -222,6 +222,11 @@ - (void)viewDidLayoutSubviews {
+@@ -91,6 +91,7 @@ - (void)updateConstraints {
+ @end
+ 
+ @interface DmRootVC : UIViewController
++@property (nonatomic, strong) UIView *gameClip;
+ @property (nonatomic, strong) DmGameView *game;
+ @property (nonatomic, strong) UIView *pad;
+ @property (nonatomic, strong) UILabel *fps;
+@@ -171,23 +172,33 @@ - (void)startGame {
+     front_hud_env();   // apply the Play selection before the device check and game view (GitHub issue #840)
+     const char *dev = front_ios_device_check();
+     if (dev) { [self showHint:[NSString stringWithFormat:@"This device is not supported.\n%s", dev]]; return; }   // the host does not start
+-    {   // Picture shape "auto" (the launcher's Match screen): the app window's own shape when it is taller than 16:9 (an iPad's 4:3, an unfolded iPhone Duo's 1.43:1; loader.c
++    self.fill = dm_picture_fill(getenv("DM_PICTURE_FIT"));
++    {   // Picture shape "auto" (the launcher's Match screen): the app window's own shape when it is taller than 16:9 (an iPad's 4:3, an unfolded iPhone Duo's 1.43:1, or the portrait 4:3 picture slot under Fill; loader.c
+         // takes 1.3 to 1.77), else 16:9. The window's, not the screen's: on an iPad under Stage Manager or Split View the app does not fill the screen. Resolved here, before the
+         // host writes the state page (main.c dm_fps_state_apply)
+         const char *a = getenv("DM_SCREEN_ASPECT");
+         if (a && !strcmp(a, "auto")) {
+-            CGSize sz = self.view.window ? self.view.window.bounds.size : UIScreen.mainScreen.bounds.size; double r = MAX(sz.width, sz.height) / MAX(MIN(sz.width, sz.height), 1);
++            CGSize sz = self.view.window ? self.view.window.bounds.size : UIScreen.mainScreen.bounds.size;
++            double r = MAX(sz.width, sz.height) / MAX(MIN(sz.width, sz.height), 1);
++            if (sz.height > sz.width && self.fill) {
++                CGRect b = CGRectMake(0, 0, sz.width, sz.height);
++                UIEdgeInsets insets = self.view.window ? self.view.window.safeAreaInsets : self.view.safeAreaInsets;
++                DmLayout l = dm_layout(b, dm_game_safe_insets(b, insets, self.hingeStatus != 0), self.partiallyOpen, CGRectNull, DM_PICTURE_16_9);
++                if (!CGRectIsEmpty(l.gameClip) && l.gameClip.size.height > 0) r = l.gameClip.size.width / l.gameClip.size.height;
++            }
+             char v[16]; if (r >= 1.3 && r < 1.77) snprintf(v, sizeof v, "%.3f", r); else strcpy(v, "0");
+             setenv("DM_SCREEN_ASPECT", v, 1); LOG("front end: picture shape auto: window %.0fx%.0f points (%.3f:1) → DM_SCREEN_ASPECT=%s", sz.width, sz.height, r, v);
+         }
+     }
+     dm_rotation_set(NULL);   // the launcher's pick (Play put it in the environment), a saved one with DM_LAUNCHER=0, or an env file's
+-    self.fill = dm_picture_fill(getenv("DM_PICTURE_FIT"));
+-    if (self.fill) LOG("front end: picture Fill (DM_PICTURE_FIT=fill), the 16:9 picture covers the screen in landscape and its edges are cropped");
++    if (self.fill) LOG("front end: picture Fill (DM_PICTURE_FIT=fill), the picture covers the screen in landscape or the portrait 4:3 slot and its edges are cropped");
+     self.view.clipsToBounds = YES;   // with Fill the game view is larger than the screen
+     self.view.window.traitOverrides.preferredContentSizeCategory = UIContentSizeCategorySmall;   // UIKit draws the in-game menu (GameMenu.swift) in this window: it keeps one compact text size over the game, whatever the system's text size
+-    self.game = [[DmGameView alloc] initWithFrame:self.view.bounds];
+-    [self.view addSubview:self.game];
++    self.gameClip = [[UIView alloc] initWithFrame:self.view.bounds];
++    self.gameClip.clipsToBounds = YES;
++    [self.view addSubview:self.gameClip];
++    self.game = [[DmGameView alloc] initWithFrame:self.gameClip.bounds];
++    [self.gameClip addSubview:self.game];
+     g_layer = (CAMetalLayer *)self.game.layer;
+     if (getenv("DM_METAL_HUD") && atoi(getenv("DM_METAL_HUD"))) { g_layer.developerHUDProperties = @{@"mode": @"default"}; LOG("front end: Metal performance HUD on (DM_METAL_HUD)"); }   // Apple's HUD over the game: frame rate, frame and GPU time, memory
+     else if (front_ios_hud_enabled_from_saved_choice()) g_layer.developerHUDProperties = @{@"mode": @"disabled"};   // the launcher switched off a HUD enabled by the saved choice
+@@ -218,10 +229,18 @@ - (void)viewDidLayoutSubviews {
+ #endif
+     BOOL duoPortrait = b.size.height > b.size.width && (self.hingeStatus != 0 || !CGRectIsNull(division));
+     UIEdgeInsets gameInsets = dm_game_safe_insets(b, self.view.safeAreaInsets, duoPortrait);
+-    BOOL onTV = self.game.superview != self.view;   // the TV's view lays the picture out; the phone is all pad
++    BOOL onTV = self.game.superview != self.gameClip && self.game.superview != self.view;   // the TV's view lays the picture out; the phone is all pad
      DmLayout layout = onTV ? dm_layout_pad_only(b) : dm_layout_picture(dm_layout(b, gameInsets, self.partiallyOpen, division, g_picture_aspect), b, self.fill, g_picture_aspect);
-     if (!onTV) self.game.frame = layout.game;
+-    if (!onTV) self.game.frame = layout.game;
++    if (!onTV) {
++        self.gameClip.frame = layout.gameClip;
++        self.game.frame = self.game.superview == self.gameClip ? CGRectOffset(layout.game, -layout.gameClip.origin.x, -layout.gameClip.origin.y) : layout.game;
++    }
      layout.topSafeOnly = duoPortrait;
 +    BOOL hingeClosed = NO;
 +#if __has_include(<UIKit/UIHingeInteraction.h>)
@@ -889,6 +1054,142 @@ index e9c5a1d..e763931 100644
      NSString *line = [NSString stringWithFormat:@"%@, hinge %ld%s, divisions %@, picture %@, controls %@", onTV ? @"pad only (picture on the TV)" : layout.separated ? @"split" : self.fill ? @"overlay, Fill" : @"overlay",
                        (long)self.hingeStatus, self.partiallyOpen ? " (half open)" : "", regionLog, NSStringFromCGRect(layout.game), NSStringFromCGRect(layout.controls)];
      if (![line isEqualToString:self.layoutLog]) { self.layoutLog = line; LOG("front end: layout %s", line.UTF8String); }
+@@ -312,7 +331,11 @@ static void tv_attach(void) {
+ }
+ static void tv_detach(void) {
+     DmGameView *v = g_root.game; g_tv = nil; v.maxPixelWidth = 0;
+-    if (v && v.superview != g_root.view) { [g_root.view insertSubview:v atIndex:0]; [g_root.view setNeedsLayout]; }
++    UIView *host = g_root.gameClip ?: g_root.view;
++    if (v && v.superview != host) {
++        if (g_root.gameClip) [g_root.gameClip addSubview:v]; else [g_root.view insertSubview:v atIndex:0];
++        [g_root.view setNeedsLayout];
++    }
+     if (g_tv_mode_was >= 0) { dm_set_opmode(g_tv_mode_was); g_tv_mode_was = -1; dm_gamepad_opmode_changed(); }
+     LOG("front end: TV disconnected, the picture is back on the phone");
+ }
+@@ -454,7 +477,8 @@ static void screen_refresh(void) {
+ // shown (DmGamepad.m hitTest); the page takes them as a click on what they land on, and the gamepad and controllers drive it as on the Switch
+ void front_web_attach(UIView *box) {
+     UIView *v = g_root.view; box.frame = v.bounds;
+-    if (g_root.game) [v insertSubview:box aboveSubview:g_root.game]; else [v addSubview:box];
++    UIView *below = g_root.gameClip ?: (UIView *)g_root.game;
++    if (below && below.superview == v) [v insertSubview:box aboveSubview:below]; else [v addSubview:box];
+ }
+ void front_web_detach(UIView *box) { (void)box; }
+ // An app of several programs (main.m: dm/programs.txt; DM_EXEC_OUT is set only there). iOS cannot start the app's process again, so oe::ExecuteProgram records the next program and the
+diff --git a/dm/ios/tests/duo/Tests/DuoHarnessTests.m b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
+index e136ecd..77c96a1 100644
+--- a/dm/ios/tests/duo/Tests/DuoHarnessTests.m
++++ b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
+@@ -191,6 +191,7 @@ - (void)tearDown {
+     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+     if (self.savedLayout) [defaults setObject:self.savedLayout forKey:@"DmPadLayout"];
+     else [defaults removeObjectForKey:@"DmPadLayout"];
++    [defaults removeObjectForKey:@"DmPadLayoutSplit"];
+     if (self.controllerListOverridden) {
+         @synchronized (GCController.class) {
+             Method original = class_getClassMethod(GCController.class, @selector(controllers));
+@@ -489,12 +490,37 @@ - (void)testPictureFillCoversTheLandscapeViewWithoutStretching {
+     XCTAssertTrue(CGRectIsEmpty(dm_aspect_fill(CGRectZero, DM_PICTURE_16_9)));
+ }
+ 
+-- (void)testPictureFillKeepsPortraitAndTabletopSplitsFitted {
++- (void)testPictureFillFillsPortrait43SlotAndKeepsTabletopFitted {
+     CGRect portrait = CGRectMake(0, 0, 390, 844);
+     DmLayout split = dm_layout(portrait, UIEdgeInsetsMake(59, 0, 34, 0), NO, CGRectNull, DM_PICTURE_16_9);
+     DmLayout filled = dm_layout_picture(split, portrait, YES, DM_PICTURE_16_9);
+     XCTAssertTrue(filled.separated);
+-    XCTAssertTrue(CGRectEqualToRect(filled.game, split.game), @"Portrait keeps the picture fitted above the controls");
++    XCTAssertEqualWithAccuracy(filled.gameClip.size.width / filled.gameClip.size.height, 4.0 / 3.0, 0.001, @"Portrait anchors a 4:3 picture canvas slot");
++    XCTAssertTrue(CGRectEqualToRect(filled.gameClip, split.gameClip), @"The 4:3 slot stays fixed between fit and fill");
++    XCTAssertTrue(CGRectEqualToRect(filled.controls, split.controls), @"The lower touch area height stays fixed");
++    XCTAssertEqualWithAccuracy(filled.game.size.height, filled.gameClip.size.height, 0.001, @"Portrait fill expands height to fill the 4:3 slot");
++    XCTAssertEqualWithAccuracy(filled.game.size.width / filled.game.size.height, 16.0 / 9.0, 0.0001, @"Portrait fill preserves 16:9 without stretching");
++    XCTAssertEqualWithAccuracy(CGRectGetMinX(filled.game), -65.0, 0.5, @"Portrait fill crops 12.5%% symmetrically on each side");
++
++    UIView *pad = [self padForLayout:filled bounds:portrait];
++    CGPoint inSlot = CGPointMake(CGRectGetMidX(filled.gameClip), CGRectGetMidY(filled.gameClip));
++    DuoFakeTouch *touch = [self touchAt:inSlot time:1];
++    [self beginTouches:@[touch] onPad:pad];
++    DuoHarnessInput input = duo_harness_input();
++    XCTAssertEqual(input.touch_count, 1);
++    XCTAssertEqualWithAccuracy(input.touches[0].x, 0.5, 0.001);
++    XCTAssertEqualWithAccuracy(input.touches[0].y, 0.5, 0.001);
++    [self endTouches:@[touch] onPad:pad cancelled:NO];
++
++    CGPoint aboveClip = CGPointMake(CGRectGetMidX(filled.gameClip), CGRectGetMinY(filled.gameClip) - 4);
++    DuoFakeTouch *outside = [self touchAt:aboveClip time:2];
++    [self beginTouches:@[outside] onPad:pad];
++    XCTAssertEqual(duo_harness_input().touch_count, 0, @"Touches outside the clipped 4:3 slot are rejected");
++    [self endTouches:@[outside] onPad:pad cancelled:NO];
++
++    DmLayout fourThree = dm_layout_picture(dm_layout(portrait, UIEdgeInsetsMake(59, 0, 34, 0), NO, CGRectNull, 4.0 / 3.0), portrait, YES, 4.0 / 3.0);
++    XCTAssertTrue(CGRectEqualToRect(fourThree.game, fourThree.gameClip), @"True 4:3 rendering fills the portrait slot uncropped");
++
+     CGRect landscape = CGRectMake(0, 0, 844, 390);
+     DmLayout tabletop = dm_layout(landscape, UIEdgeInsetsZero, YES, CGRectMake(0, 180, 844, 24), DM_PICTURE_16_9);
+     XCTAssertTrue(tabletop.separated);
+@@ -1555,4 +1581,60 @@ - (void)testRotationSettingSetsTheOrientationMasks {
+     unsetenv("DM_ROTATION");
+ }
+ 
++- (void)testDualOrientationTouchOptionsSwitchBetweenOverlayAndSplit {
++    setenv("DM_TOUCH_SIZE", "small", 1);
++    setenv("DM_TOUCH_SIZE_PORTRAIT", "large", 1);
++    setenv("DM_TOUCH_STICK", "corner", 1);
++    setenv("DM_TOUCH_STICK_PORTRAIT", "higher", 1);
++    setenv("DM_PROF_PAD_LAYOUT", "0", 1);
++    setenv("DM_PAD_LAYOUT_PORTRAIT", "1", 1);
++    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
++    [defaults removeObjectForKey:@"DmPadLayout"];
++    [defaults removeObjectForKey:@"DmPadLayoutSplit"];
++    @try {
++        CGRect landscape = CGRectMake(0, 0, 852, 393);
++        CGRect portrait = CGRectMake(0, 0, 390, 844);
++        DmLayout ovLayout = dm_layout(landscape, UIEdgeInsetsMake(0, 59, 21, 59), NO, CGRectNull, DM_PICTURE_16_9);
++        DmLayout ptLayout = dm_layout(portrait, UIEdgeInsetsMake(59, 0, 34, 0), NO, CGRectNull, DM_PICTURE_16_9);
++
++        UIView *pad = dm_gamepad_view(landscape);
++        dm_gamepad_arrange(pad, ovLayout);
++        [pad layoutIfNeeded];
++        XCTAssertEqual(dm_pad_layout(), 0, @"Landscape starts in 2D from DM_PROF_PAD_LAYOUT");
++        CGFloat ovFaceW = [self controlPathBoundsNamed:@"A" inPad:pad].size.width;
++        XCTAssertTrue([self textLayerNamed:@"L3" inLayer:pad.layer].superlayer.hidden);
++
++        pad.frame = portrait;
++        dm_gamepad_arrange(pad, ptLayout);
++        [pad layoutIfNeeded];
++        XCTAssertEqual(dm_pad_layout(), 1, @"Portrait switches to 3D from DM_PAD_LAYOUT_PORTRAIT");
++        XCTAssertFalse([self textLayerNamed:@"L3" inLayer:pad.layer].superlayer.hidden);
++
++        dm_pad_layout_set(0);
++        pad.frame = landscape;
++        dm_gamepad_arrange(pad, ovLayout);
++        [pad layoutIfNeeded];
++        XCTAssertEqual(dm_pad_layout(), 0);
++        XCTAssertEqualWithAccuracy([self controlPathBoundsNamed:@"A" inPad:pad].size.width, ovFaceW, 0.01);
++
++        UIView *defaultPad = [self padForLayout:ptLayout bounds:portrait];
++        unsetenv("DM_TOUCH_SIZE_PORTRAIT");
++        UIView *smallPortraitPad = dm_gamepad_view(portrait);
++        dm_gamepad_arrange(smallPortraitPad, ptLayout);
++        [smallPortraitPad layoutIfNeeded];
++        CGFloat smallPtW = [self controlPathBoundsNamed:@"A" inPad:smallPortraitPad].size.width;
++        XCTAssertGreaterThan([self controlPathBoundsNamed:@"A" inPad:defaultPad].size.width, smallPtW, @"Portrait large option uses larger buttons than small fallback");
++    } @finally {
++        unsetenv("DM_TOUCH_SIZE");
++        unsetenv("DM_TOUCH_SIZE_PORTRAIT");
++        unsetenv("DM_TOUCH_STICK");
++        unsetenv("DM_TOUCH_STICK_PORTRAIT");
++        unsetenv("DM_PROF_PAD_LAYOUT");
++        unsetenv("DM_PAD_LAYOUT_PORTRAIT");
++        [defaults setObject:@1 forKey:@"DmPadLayout"];
++        [defaults removeObjectForKey:@"DmPadLayoutSplit"];
++    }
++}
++
++
+ @end
 diff --git a/dm/ios/tests/pad_geometry/UIKit/UIKit.h b/dm/ios/tests/pad_geometry/UIKit/UIKit.h
 new file mode 100644
 index 0000000..e638d5a
@@ -917,10 +1218,10 @@ index 0000000..e638d5a
 +@class UIView;
 diff --git a/dm/ios/tests/pad_geometry/pad_geometry_check.m b/dm/ios/tests/pad_geometry/pad_geometry_check.m
 new file mode 100644
-index 0000000..b78567b
+index 0000000..e1aea7c
 --- /dev/null
 +++ b/dm/ios/tests/pad_geometry/pad_geometry_check.m
-@@ -0,0 +1,362 @@
+@@ -0,0 +1,369 @@
 +// The virtual gamepad's placement (DmPadGeometry.h) on the screens it runs on, checked on the Mac: built and run by test_pad_geometry.py.
 +// Every line that starts with FAIL is a broken rule; the exit status is the number of them (capped).
 +#import <UIKit/UIKit.h>
@@ -1242,12 +1543,19 @@ index 0000000..b78567b
 +                if (!CGPointEqualToPoint(h.face, c.face) || !CGPointEqualToPoint(n.face, c.face) || !CGPointEqualToPoint(n.drop[DM_PAD_R], c.drop[DM_PAD_R])) FAIL("%s: the right side moved", screens[i].name);
 +            }
 +
-+    // Picture Fill (DM_PICTURE_FIT) only makes the game rectangle larger: the controls keep the full view and their places.
++    // Picture Fill (DM_PICTURE_FIT) covers the overlay view in landscape and fills the 4:3 slot in portrait while keeping controls fixed.
 +    for (int i = 0; i < nscreens; i++) {
 +        DmLayout fit = dm_layout(screens[i].bounds, screens[i].insets, screens[i].partiallyOpen, screens[i].division, DM_PICTURE_16_9);
 +        DmLayout fill = dm_layout_picture(fit, screens[i].bounds, YES, DM_PICTURE_16_9);
 +        DmPadGeo a = dm_pad_geo(screens[i].bounds, screens[i].insets, fit, YES, (DmPadOptions){1.2}), b = dm_pad_geo(screens[i].bounds, screens[i].insets, fill, YES, (DmPadOptions){1.2});
 +        if (!CGPointEqualToPoint(a.face, b.face) || !CGPointEqualToPoint(a.stick, b.stick) || a.u != b.u) FAIL("%s: the picture fill moved the controls", screens[i].name);
++        if (fit.separated && screens[i].bounds.size.height > screens[i].bounds.size.width) {
++            if (!CGRectEqualToRect(fit.gameClip, fill.gameClip)) FAIL("%s: portrait fill changed the 4:3 picture slot", screens[i].name);
++            if (!CGRectEqualToRect(fit.controls, fill.controls)) FAIL("%s: portrait fill changed controls", screens[i].name);
++            if (!NEAR(fill.game.size.height, fill.gameClip.size.height)) FAIL("%s: portrait fill did not fill the slot height", screens[i].name);
++        } else if (fit.separated) {
++            if (!CGRectEqualToRect(fit.game, fill.game)) FAIL("%s: tabletop split should keep the picture fitted", screens[i].name);
++        }
 +    }
 +
 +    // The sizes keep their order everywhere, and on a phone in landscape large really is larger and small smaller.

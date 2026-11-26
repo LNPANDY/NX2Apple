@@ -9,7 +9,6 @@ Provide the unity_acescc_lut stub in test_early_fragment_tests.py after dmsh_bui
 Upstream-Status: pending
 Reason: Upstream dmsh_build.py and 6b352934 updated job_for and scan_blob without updating test_early_fragment_tests.py, test_sumo.py, and test_vbf.py
 Issue: none
-
 ---
  dm/gfx/tests/test_early_fragment_tests.py | 2 +-
  dm/gfx/tests/test_sumo.py                 | 2 +-

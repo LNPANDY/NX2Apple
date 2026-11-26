@@ -215,7 +215,7 @@ index 0000000..c636fba
 +
 +#endif
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 621ad05..5c8aaf6 100644
+index c07e51f..c7a9021 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
 @@ -46,6 +46,7 @@
@@ -479,7 +479,7 @@ index 621ad05..5c8aaf6 100644
      if (g_allocprof > 0) { char ab[256]; int o = 0; for (int i = 0; i < g_alloc_n && o < 200; i++) o += snprintf(ab + o, sizeof ab - o, " #%d %llu MB", i, (unsigned long long)(g_alloc4[i].allocatedSize >> 20));
          for (int i = 0; i < 3 && o < 240; i++) o += snprintf(ab + o, sizeof ab - o, " up%d %llu pres%d %llu", i, (unsigned long long)(g_up_alloc4[i].allocatedSize >> 20), i, (unsigned long long)(g_present_alloc4[i].allocatedSize >> 20));
          MLOG("command allocator usage:%s", ab);
-@@ -20276,6 +20353,7 @@ static void bcp_after_to(const tex_t *t, const tex_t *op, unsigned level, const
+@@ -20283,6 +20360,7 @@ static void bcp_after_to(const tex_t *t, const tex_t *op, unsigned level, const
      tex_t o = *op;
      id<MTLTexture> m = bcp_have(t); if (!m) return;
      int to_bc = bcp_kind(&o) < 0;
@@ -487,7 +487,7 @@ index 621ad05..5c8aaf6 100644
      id<MTLTexture> om = to_bc ? tex_mtl_replay(&o) : bcp_have(&o);   // the compressed side is made (shaders sample it); an uncompressed one follows only a texture it has
      while (om.parentTexture) om = om.parentTexture;
      if (!om || om == m) return;
-@@ -20342,6 +20420,7 @@ static int bc_alias_copy(const p_copy_t2t *c, id<MTLTexture> s, unsigned sl, uns
+@@ -20349,6 +20427,7 @@ static int bc_alias_copy(const p_copy_t2t *c, id<MTLTexture> s, unsigned sl, uns
      if (c->sr.width != c->dr.width || c->sr.height != c->dr.height || (c->sr.depth ? c->sr.depth : 1) != 1 || c->sr.width <= 0 || c->sr.height <= 0 || c->sr.xoffset < 0 || c->sr.yoffset < 0
          || c->dr.xoffset < 0 || c->dr.yoffset < 0) return 0;
      if (bcp_kind(dt) <= 0 || !bcp_find(dt, &o) || bcp_have(dt)) return 0;   // an uncompressed side with a texture takes the copy, and its pair follows (bcp_after)
@@ -495,7 +495,7 @@ index 621ad05..5c8aaf6 100644
      id<MTLTexture> bc = tex_mtl_replay(&o); while (bc.parentTexture) bc = bc.parentTexture;
      bcp_geo g;
      if (!bc || !bcp_geom(s, sl, (NSUInteger)c->sr.xoffset, (NSUInteger)c->sr.yoffset, (NSUInteger)c->sr.width, (NSUInteger)c->sr.height, bc, dl, (NSUInteger)c->dr.xoffset, (NSUInteger)c->dr.yoffset, &g)
-@@ -24362,6 +24441,7 @@ void dm_gfx_teardown(void) { @autoreleasepool {
+@@ -24420,6 +24499,7 @@ void dm_gfx_teardown(void) { @autoreleasepool {
      g_pre_out = nil;
      g_q4 = nil; g_q = nil; g_dev = nil;
      g_feedback_q = nil;
@@ -504,10 +504,10 @@ index 621ad05..5c8aaf6 100644
  }
      atomic_store(&g_image_heap_n, 0);
 diff --git a/dm/gfx/tests/Makefile b/dm/gfx/tests/Makefile
-index 7367059..ed9f3f9 100644
+index 1b609e9..f49371b 100644
 --- a/dm/gfx/tests/Makefile
 +++ b/dm/gfx/tests/Makefile
-@@ -1067,3 +1067,7 @@ check_t_cpuprof: t_cpuprof
+@@ -1072,3 +1072,7 @@ check_t_cpuprof: t_cpuprof
  t_bc_cpu: t_bc_cpu.m $(MTL_T_DEP)
  	clang $(CFLAGS) -fobjc-arc -o $@ t_bc_cpu.m $(MTL_T_SRC) $(FW)
  check_t_bc_cpu: RUN_ENV = MTL_DEBUG_LAYER=1

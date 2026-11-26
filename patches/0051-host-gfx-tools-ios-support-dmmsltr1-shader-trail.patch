@@ -494,7 +494,7 @@ index 0000000..4167f1c
 +    pthread_mutex_unlock(&g_msl_tr_mu);
 +}
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index a53fc54..bb595c6 100644
+index 66f77a5..d14efc2 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
 @@ -45,6 +45,7 @@
@@ -577,7 +577,7 @@ index a53fc54..bb595c6 100644
      }
      if (fd < 0 || fstat(fd, &st) || st.st_size <= 0) { if (fd >= 0) close(fd); if (err) *err = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"cannot open %@", path]}]; return nil; }
      size_t len = (size_t)st.st_size; void *m = mmap(NULL, len, PROT_READ, MAP_PRIVATE, fd, 0); int map_errno = errno; close(fd);
-@@ -13303,8 +13323,13 @@ static int pre_later_take(PreLater *l, int wait) {
+@@ -13310,8 +13330,13 @@ static int pre_later_take(PreLater *l, int wait) {
  // their bases cannot be made yet, so the stamp names one such file (pre_device_stamp) and a later start builds them once it is there. g_pre_nolib_file: the first one seen in this
  // run, a name in the library, under g_pre_fail_lock
  static _Atomic int g_pre_nolib; static NSString *g_pre_nolib_file;
@@ -593,7 +593,7 @@ index a53fc54..bb595c6 100644
  // 1 (and the file noted) when the library lacks <key><suffix>
  static int pre_lib_absent(NSString *key, NSString *suffix) {
      NSString *name = [key stringByAppendingString:suffix];
-@@ -23913,10 +23938,11 @@ void dm_gfx_teardown(void) { @autoreleasepool {
+@@ -23971,10 +23996,11 @@ void dm_gfx_teardown(void) { @autoreleasepool {
  
      romfs_img *mimg = atomic_exchange(&g_msl_img, NULL);
      if (mimg) romfs_image_close(mimg);
@@ -830,10 +830,10 @@ index af66fc8..70c915e 100644
      g_ev = nil;
      g_q = nil;
 diff --git a/dm/host/hle_lifecycle.c b/dm/host/hle_lifecycle.c
-index b7902cf..92dbf2e 100644
+index 5a2fc85..a4f908e 100644
 --- a/dm/host/hle_lifecycle.c
 +++ b/dm/host/hle_lifecycle.c
-@@ -98,6 +98,7 @@ __attribute__((weak)) void dm_codec_video_teardown_post(void) {}
+@@ -104,6 +104,7 @@ __attribute__((weak)) void dm_codec_video_teardown_post(void) {}
  __attribute__((weak)) void dm_cheats_teardown(void) {}
  __attribute__((weak)) void dm_gfx_quit_begin(void) {}
  __attribute__((weak)) void dm_gfx_teardown(void) {}
@@ -841,7 +841,7 @@ index b7902cf..92dbf2e 100644
  __attribute__((weak)) void dm_fs_teardown(void) {}
  __attribute__((weak)) void dm_ue_malloc_teardown(void) {}
  __attribute__((weak)) void dm_guest_clock_wake_teardown(void) {}
-@@ -141,6 +142,7 @@ void dm_host_teardown_for_shell(void) {
+@@ -150,6 +151,7 @@ void dm_host_teardown_for_shell(void) {
      dm_sdk16_teardown();
      dm_hid_touch_teardown();
      dm_fpslock_teardown();

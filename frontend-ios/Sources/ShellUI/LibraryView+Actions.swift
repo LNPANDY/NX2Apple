@@ -231,7 +231,7 @@ extension LibraryView {
     func openTouchLayout(_ window: CGSize, _ insets: EdgeInsets) {
         guard noteTouch() else { return }
         touchLayout = TouchLayoutEditorModel.forDevice(window: window, insets: insets)
-        focus.id = "lay.options"
+        focus.id = "lay.done"
     }
     func closeTouchLayout() { guard !fromSystemEcho else { return }; touchLayout = nil; focus.id = "shs.arrange"; focusRefresh &+= 1 }
     func confirmTouchLayout() {
@@ -711,7 +711,7 @@ extension LibraryView {
         if buttonTestOpen { return "test.close" }
         if let padMapping { return padMapping.row == nil ? "map.close" : "map.back" }
         if let choice { return "pick." + choice.row.value }
-        if touchLayout != nil { return activeTargets.contains { $0.id == "lay.done" } ? "lay.done" : "lay.options" }
+        if touchLayout != nil { return activeTargets.contains { $0.id == "lay.done" } ? "lay.done" : "lay.back" }
         if helpGameID != nil { return "help.done" }
         if saveImportPrompt != nil { return "svi.cancel" }
         if cheatsGameID != nil { return "cht.close" }

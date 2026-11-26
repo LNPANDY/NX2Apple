@@ -47,7 +47,7 @@ Issue: LNPANDY/NX2Apple#980
  dm/host/hle_fs.c                           |   24 +-
  dm/host/hle_hid.c                          |    7 +
  dm/host/hle_irs.c                          |    7 +
- dm/host/hle_lifecycle.c                    |   78 +-
+ dm/host/hle_lifecycle.c                    |   80 +-
  dm/host/hle_movie.c                        |   49 +-
  dm/host/hle_net.c                          |   22 +
  dm/host/hle_oe.c                           |    9 +-
@@ -76,7 +76,7 @@ Issue: LNPANDY/NX2Apple#980
  dm/host/tests/t_system_event.c             |    1 +
  dm/host/thread.c                           |   26 +-
  dm/ios/Sources/DmGamepad.m                 |   47 +-
- dm/ios/Sources/front_ios.m                 |   92 +-
+ dm/ios/Sources/front_ios.m                 |   93 +-
  dm/ios/framework/ShellGlue.m               |    9 +-
  dm/ios/project-framework.yml               |   14 +-
  dm/ios/tests/duo/Sources/DuoRuntimeStubs.m |    2 +-
@@ -85,7 +85,7 @@ Issue: LNPANDY/NX2Apple#980
  dm/ios/tools/build_ipa.sh                  |   12 +-
  dm/ios/tools/compile_check.py              |   16 +-
  dm/ios/tools/gen_objc_namespace.py         |  381 ++++++
- 76 files changed, 4536 insertions(+), 756 deletions(-)
+ 76 files changed, 4539 insertions(+), 756 deletions(-)
  create mode 100644 dm/gfx/tests/t_mtl_teardown.m
  create mode 100644 dm/host/tests/t_shell_crash_teardown.c
  create mode 100644 dm/ios/tests/test_objc_namespace.py
@@ -1010,7 +1010,7 @@ index 5f4268f..26a7fab 100644
 +static void live_teardown(void) {}
  #endif
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 3c7bd31..6d1aae4 100644
+index 3c7bd31..d9db5f0 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
 @@ -103,6 +103,39 @@ static inline uint64_t tex_slot_h(const uint64_t *tex, const uint64_t *img, unsi
@@ -5331,7 +5331,7 @@ index bdf5805..e3149b4 100644
 +    pthread_mutex_unlock(&irs_lock);
 +}
 diff --git a/dm/host/hle_lifecycle.c b/dm/host/hle_lifecycle.c
-index 59e61f1..3841197 100644
+index 59e61f1..2b71ebc 100644
 --- a/dm/host/hle_lifecycle.c
 +++ b/dm/host/hle_lifecycle.c
 @@ -40,10 +40,80 @@ void dm_host_shutdown_then(const char *why, void (*then)(void *), void *arg) {
@@ -7494,10 +7494,10 @@ index b1345d4..2dfbb88 100644
      uintptr_t prev = (uintptr_t)pthread_getspecific(g_keygslot);
      int k;
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index b65b280..a631ea8 100644
+index cc60b1a..70426ff 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
-@@ -222,12 +222,11 @@ - (instancetype)initWithFrame:(CGRect)f {
+@@ -240,12 +240,11 @@ - (instancetype)initWithFrame:(CGRect)f {
              [_touchFeedback prepare];
          }
          _owner = [NSMapTable strongToStrongObjectsMapTable]; _faceOf = [NSMapTable strongToStrongObjectsMapTable];
@@ -7512,7 +7512,7 @@ index b65b280..a631ea8 100644
          _controls = [CALayer layer]; [self.layer addSublayer:_controls];
          _ring = shape(_controls); _ring.fillColor = k_ringFill.CGColor;
          _knob = shape(_controls);
-@@ -861,6 +860,16 @@ static int cp_waiting(void) {   // connected controllers that are no player yet
+@@ -901,6 +900,16 @@ static int cp_waiting(void) {   // connected controllers that are no player yet
      g_cp_count.text = @(t[CP_TEXT_COUNT]);
      g_cp_done_btn.enabled = cp_can_confirm(&g_cp);
  }
@@ -7529,7 +7529,7 @@ index b65b280..a631ea8 100644
  // One step of the prompt (a button, a touch on the card, a controller joining, coming or going); returns whether it keeps the game's input
  static int cp_poll(void) {
      if (g_cp.phase == CP_IDLE) return 0;
-@@ -871,16 +880,19 @@ static int cp_poll(void) {
+@@ -911,16 +920,19 @@ static int cp_poll(void) {
      if (was == CP_OPEN && ph != CP_OPEN) {
          [g_cp_view removeFromSuperview]; g_cp_view = nil; g_cp_count = nil; g_cp_done_btn = nil;
          LOG("front end: controller prompt closed: %d players (%s)", joined, g_cp.ok ? "done" : "canceled");
@@ -7551,7 +7551,7 @@ index b65b280..a631ea8 100644
          [g_view reset]; dm_touch_set(NULL, 0);   // nothing the game held stays pressed while the prompt has the input
          if (g_merge) dm_pad_set(0, 0, 0, 0, 0); else for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p]) dm_pad_set_player(p, 0, 0, 0, 0, 0);
          int a, b; cp_buttons(&a, &b);
-@@ -910,3 +922,28 @@ void dm_gamepad_reset(void) {   // On resign active: release everything (a key h
+@@ -950,3 +962,28 @@ void dm_gamepad_reset(void) {   // On resign active: release everything (a key h
      if (g_merge) dm_pad_set(0, 0, 0, 0, 0);
      else for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p]) dm_pad_set_player(p, 0, 0, 0, 0, 0);
  }
@@ -7581,7 +7581,7 @@ index b65b280..a631ea8 100644
 +    k_idle = nil; k_on = nil; k_line = nil; k_ringFill = nil; k_text = nil; k_textOn = nil;
 +}
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index e862fb2..1f533ab 100644
+index 9d7f828..328856a 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
 @@ -8,6 +8,7 @@
@@ -7610,9 +7610,9 @@ index e862fb2..1f533ab 100644
 +@end
 +
  @interface DmRootVC : UIViewController
+ @property (nonatomic, strong) UIView *gameClip;
  @property (nonatomic, strong) DmGameView *game;
- @property (nonatomic, strong) UIView *pad;
-@@ -139,7 +146,7 @@ - (void)viewDidLoad {
+@@ -140,7 +147,7 @@ - (void)viewDidLoad {
  #if defined(__IPHONE_27_0)   // compiled only with an SDK that has the scene accessory API
      if (@available(iOS 27.0, *)) {   // iOS 27 offers a TV scene only to a registered scene accessory, no longer from the Info.plist entry alone (that path stays for iOS 26)
          UISceneConfiguration *c = [[UISceneConfiguration alloc] initWithName:@"TV" sessionRole:UIWindowSceneSessionRoleExternalDisplayNonInteractive];
@@ -7621,7 +7621,7 @@ index e862fb2..1f533ab 100644
          self.tv = [self registerSceneAccessory:[UISceneAccessory externalNonInteractiveSceneAccessoryWithConfiguration:c]];
      }
  #endif
-@@ -282,10 +289,11 @@ static UIInterfaceOrientationMask plist_orientations(void) {
+@@ -296,10 +303,11 @@ static UIInterfaceOrientationMask plist_orientations(void) {
      return m ? m : UIInterfaceOrientationMaskAll;
  }
  UIInterfaceOrientationMask front_ios_app_orientations(void) { return dm_rotation_mask(getenv("DM_ROTATION"), plist_orientations()); }
@@ -7634,7 +7634,7 @@ index e862fb2..1f533ab 100644
      UIInterfaceOrientationMask m = front_ios_app_orientations() & dm_rotation_vc_mask();
      for (UIScene *sc in UIApplication.sharedApplication.connectedScenes) {
          if (![sc isKindOfClass:UIWindowScene.class] || ![sc.session.role isEqualToString:UIWindowSceneSessionRoleApplication]) continue;   // not a TV's
-@@ -356,9 +364,6 @@ bool dm_setting_live(const char *env, const char *value) {
+@@ -374,9 +382,6 @@ bool dm_setting_live(const char *env, const char *value) {
      if (!strcmp(env, "DM_RUMBLE")) { if (value) { dm_haptics_set_enabled(atoi(value) != 0); LOG("front end: game rumble %s (in-game menu)", atoi(value) ? "on" : "off"); } return true; }
      return false;
  }
@@ -7644,7 +7644,7 @@ index e862fb2..1f533ab 100644
  @implementation DmTVSceneDelegate
  - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)o {
      self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
-@@ -372,17 +377,19 @@ - (void)sceneDidDisconnect:(UIScene *)s { if (g_tv == self.window) tv_detach();
+@@ -390,17 +395,19 @@ - (void)sceneDidDisconnect:(UIScene *)s { if (g_tv == self.window) tv_detach();
  // Thermal state and screen brightness for the power and present rows every 300 frames (hle_nvn.c; its weak defaults return -1 on the Mac). thermalState: 0 nominal, 1 fair, 2 serious, 3 critical.
  // Brightness is read on the main thread at start and on each change; every change of the thermal state and of Low Power Mode (which lowers the CPU clock) is logged with the time since launch
  static _Atomic double g_brightness = -1;
@@ -7668,7 +7668,7 @@ index e862fb2..1f533ab 100644
      screen_refresh();
      LOG("front end: thermal state %d, brightness %.2f, Low Power Mode %s, screen %d Hz", dm_thermal_now(), g_brightness, dm_low_power_now() ? "on" : "off", front_screen_max_fps());
  }
-@@ -397,7 +404,8 @@ static void front_ios_power_watch(void) {
+@@ -415,7 +422,8 @@ static void front_ios_power_watch(void) {
      l.backgroundColor = [UIColor colorWithWhite:0 alpha:0.45]; l.layer.cornerRadius = 6; l.layer.masksToBounds = YES; l.userInteractionEnabled = NO;
      l.text = @"-- fps";
      __block uint64_t n0 = mtl_present_count(); __block double t0 = CACurrentMediaTime();
@@ -7678,7 +7678,7 @@ index e862fb2..1f533ab 100644
          (void)t; uint64_t n = mtl_present_count(); double now = CACurrentMediaTime();
          if (now - t0 < 1.5) l.text = [NSString stringWithFormat:@"%.0f fps", (n - n0) / (now - t0)];   // a longer span is the time in the background: no reading
          n0 = n; t0 = now;
-@@ -652,7 +660,7 @@ static BOOL front_ios_same_outputs(NSArray<AVAudioSessionPortDescription *> *pre
+@@ -671,7 +679,7 @@ static BOOL front_ios_same_outputs(NSArray<AVAudioSessionPortDescription *> *pre
  }
  static void front_ios_audio_watch(void) {
      NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
@@ -7687,7 +7687,7 @@ index e862fb2..1f533ab 100644
          NSUInteger type = [n.userInfo[AVAudioSessionInterruptionTypeKey] unsignedIntegerValue], reason = [n.userInfo[AVAudioSessionInterruptionReasonKey] unsignedIntegerValue];
          if (type == AVAudioSessionInterruptionTypeBegan) { LOG("audio session: interrupted (reason %lu)", (unsigned long)reason); g_audio_intr = 1; }
          else {
-@@ -662,7 +670,7 @@ static void front_ios_audio_watch(void) {
+@@ -681,7 +689,7 @@ static void front_ios_audio_watch(void) {
          front_ios_audio_apply();
      }];
      // Reapply the channel preference first. A changed output can also interrupt callbacks at the same channel count.
@@ -7696,7 +7696,7 @@ index e862fb2..1f533ab 100644
          NSUInteger reason = [n.userInfo[AVAudioSessionRouteChangeReasonKey] unsignedIntegerValue];
          AVAudioSession *session = AVAudioSession.sharedInstance;
          AVAudioSessionRouteDescription *previous = n.userInfo[AVAudioSessionRouteChangePreviousRouteKey];
-@@ -676,7 +684,7 @@ static void front_ios_audio_watch(void) {
+@@ -695,7 +703,7 @@ static void front_ios_audio_watch(void) {
              dm_audio_route_changed();
          }
      }];
@@ -7705,7 +7705,7 @@ index e862fb2..1f533ab 100644
          (void)n; LOG("audio session: the media services were reset; setting the session and the outputs up again");
          front_ios_audio_session(); dm_audio_reset();
      }];
-@@ -696,8 +704,9 @@ static void save_sync_background(void) {
+@@ -715,8 +723,9 @@ static void save_sync_background(void) {
      });
  }
  
@@ -7716,7 +7716,7 @@ index e862fb2..1f533ab 100644
      switch (ev) {
          case 0: quit_close(); dm_movie_active(0); dm_gamepad_reset(); dm_focus_set(2); break;
          case 1:
-@@ -814,14 +823,61 @@ static void quit_show_prompt(GCController *holder) {
+@@ -833,14 +842,62 @@ static void quit_show_prompt(GCController *holder) {
      g_hq_view = v;
      UIAccessibilityPostNotification(UIAccessibilityScreenChangedNotification, v.accessibilityElements.firstObject);
  }
@@ -7743,6 +7743,7 @@ index e862fb2..1f533ab 100644
 +        [g_root.fps removeFromSuperview]; g_root.fps = nil;
 +        [g_root.pad removeFromSuperview]; g_root.pad = nil;
 +        [g_root.game removeFromSuperview]; g_root.game = nil;
++        [g_root.gameClip removeFromSuperview]; g_root.gameClip = nil;
 +        g_root.tv = nil;
 +        g_root.layoutLog = nil;
 +        g_root = nil;
@@ -7780,7 +7781,7 @@ index e862fb2..1f533ab 100644
          dm_host_shutdown("the quit prompt");
      });
  }
-@@ -851,7 +907,7 @@ static void quit_changed(hq_phase was, hq_phase now, GCController *holder) {
+@@ -870,7 +927,7 @@ static void quit_changed(hq_phase was, hq_phase now, GCController *holder) {
  }
  void front_ios_quit_poll(void) {   // DmGamepad.m on a controller's change, and the hold's timer (main queue)
      quit_start();
@@ -7789,7 +7790,7 @@ index e862fb2..1f533ab 100644
      g_hq_busy = 1;
      int home, a, b; GCController *holder = nil; quit_buttons(&home, &a, &b, &holder);
      double now = CACurrentMediaTime();
-@@ -870,7 +926,7 @@ void front_ios_quit_poll(void) {   // DmGamepad.m on a controller's change, and
+@@ -889,7 +946,7 @@ void front_ios_quit_poll(void) {   // DmGamepad.m on a controller's change, and
  }
  static void quit_open(void) {   // the in-game menu's Quit
      quit_start();

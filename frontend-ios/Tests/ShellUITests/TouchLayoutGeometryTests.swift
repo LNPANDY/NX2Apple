@@ -113,4 +113,22 @@ import Testing
         #expect(PadGeo.region(context.screen).separated)
     }
 
+    @Test func portraitKeeps43PictureSlotAndFixedControlsBetweenFitAndFill() {
+        let fit = PadGeo.region(.proMaxPortrait, pictureFill: false)
+        let fill = PadGeo.region(.proMaxPortrait, pictureFill: true)
+        #expect(fit.separated && fill.separated)
+        #expect(abs(fit.gameClip.width / fit.gameClip.height - 4.0 / 3.0) < 0.002)
+        #expect(fit.gameClip == fill.gameClip)
+        #expect(fit.controls == fill.controls)
+        #expect(abs(fill.game.height - fill.gameClip.height) < 0.01)
+        #expect(abs(fill.game.width / fill.game.height - 16.0 / 9.0) < 0.001)
+        #expect(fill.game.minX < fill.gameClip.minX && fill.game.maxX > fill.gameClip.maxX)
+
+        let fourThreeFill = PadGeo.region(.proMaxPortrait, pictureFill: true, aspect: 4.0 / 3.0)
+        #expect(fourThreeFill.game == fourThreeFill.gameClip)
+
+        let iPadFit = PadGeo.region(.iPadUpright, pictureFill: false)
+        #expect(iPadFit.gameClip == iPadFit.upper)
+    }
+
 }

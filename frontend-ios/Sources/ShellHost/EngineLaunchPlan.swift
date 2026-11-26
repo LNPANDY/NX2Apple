@@ -52,6 +52,14 @@ public struct EngineLaunchPlan: Equatable, Sendable {
             return fm.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
         }
         var env: [String: String] = [:]
+        var fromFile: [String] = []
+        let inGameEditable = Set(ShellInGameMenu.allowedEnvs)
+        let ownText = gameEnvFileText ?? fm.contents(atPath: gdir.appendingPathComponent("env.txt").path).flatMap { String(data: $0, encoding: .utf8) }
+        let ownEntries = parseEnvFile(ownText ?? "")
+        let sharedEntries = parseEnvFile(envFileText ?? "")
+        let explicitKeys = Set(ownEntries.map(\.key))
+            .union(sharedEntries.map(\.key))
+            .union(game.environment.keys.filter { !game.shellFallbackKeys.contains($0) && !game.builtInDefaultKeys.contains($0) })
 
         let perGameProfile = gdir.appendingPathComponent("profile.tsv")
         env["DM_PROFILE"] = (fm.fileExists(atPath: perGameProfile.path) ? perGameProfile : fw.appendingPathComponent(manifest.profile)).path
@@ -142,9 +150,6 @@ public struct EngineLaunchPlan: Equatable, Sendable {
         let deferredKeys = game.shellFallbackKeys.union(game.builtInDefaultKeys)
         for (key, value) in game.environment where !deferredKeys.contains(key) { env[key] = value }
 
-        var fromFile: [String] = []
-        let inGameEditable = Set(ShellInGameMenu.allowedEnvs)
-        let ownText = gameEnvFileText ?? fm.contents(atPath: gdir.appendingPathComponent("env.txt").path).flatMap { String(data: $0, encoding: .utf8) }
         func apply(_ text: String?, lockInGame: Bool) {
             for (key, value) in parseEnvFile(text ?? "") where env[key] == nil {
                 env[key] = value
@@ -157,7 +162,19 @@ public struct EngineLaunchPlan: Equatable, Sendable {
         for key in game.shellFallbackKeys where env[key] == nil {
             if let value = game.environment[key] { env[key] = value }
         }
-        for (key, value) in game.shellEnvironment where env[key] == nil { env[key] = value }
+        let pairedPortraitOverrides: [(landscape: String, portrait: String)] = [
+            ("DM_TOUCH_SIZE", "DM_TOUCH_SIZE_PORTRAIT"),
+            ("DM_TOUCH_STICK", "DM_TOUCH_STICK_PORTRAIT"),
+            ("DM_PROF_PAD_LAYOUT", "DM_PAD_LAYOUT_PORTRAIT"),
+        ]
+        for (key, value) in game.shellEnvironment where env[key] == nil {
+            if let pair = pairedPortraitOverrides.first(where: { $0.portrait == key }),
+               explicitKeys.contains(pair.landscape),
+               !explicitKeys.contains(pair.portrait) {
+                continue
+            }
+            env[key] = value
+        }
         if env["DM_ROMFS_OVERLAY"] == nil,
            let overlay = GameMods.overlay(in: gdir.appendingPathComponent("mods", isDirectory: true), titleID: game.titleID, fm) {
             env["DM_ROMFS_OVERLAY"] = overlay
@@ -173,6 +190,11 @@ public struct EngineLaunchPlan: Equatable, Sendable {
         env["DM_ENV_FILE_KEYS"] = fromFile.joined(separator: " ")
         if env["DM_PSO_BUNDLE"] == nil {
             if isDirectory(ownPSO) { env["DM_PSO_BUNDLE"] = ownPSO.path } else if isDirectory(fwPSO) { env["DM_PSO_BUNDLE"] = fwPSO.path }
+        }
+        // In locked portrait + Fill launch, resolve DM_SCREEN_ASPECT=auto to 4:3 (1.333) so games with
+        // SCREEN_ASPECT support expand vertically without cropping.
+        if env["DM_PICTURE_FIT"] == "fill", env["DM_ROTATION"] == "portrait", env["DM_SCREEN_ASPECT"] == "auto" {
+            env["DM_SCREEN_ASPECT"] = "1.333"
         }
 
         return EngineLaunchPlan(

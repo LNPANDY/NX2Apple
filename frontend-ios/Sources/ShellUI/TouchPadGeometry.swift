@@ -27,6 +27,8 @@ public struct PadScreen: Equatable, Sendable {
 
     /// iPhone Pro Max held sideways, the screen the settings preview has always shown.
     public static let proMax = PadScreen(size: CGSize(width: 932, height: 430), insets: Insets(left: 59, bottom: 21, right: 59))
+    /// iPhone Pro Max held upright.
+    public static let proMaxPortrait = PadScreen(size: CGSize(width: 430, height: 932), insets: Insets(top: 59, bottom: 34))
     /// iPad Pro 13 inch upright: the controls below the picture.
     public static let iPadUpright = PadScreen(size: CGSize(width: 1032, height: 1376), insets: Insets(top: 24, bottom: 20))
     /// iPhone Duo's inner display upright, with the fold across the middle.
@@ -40,7 +42,14 @@ public struct PadScreen: Equatable, Sendable {
 /// test program computes. The engine stays the truth on the device.
 struct PadGeo: Equatable {
     // dm_layout: the overlay layout, or the split one with the controls below the picture.
-    struct Region: Equatable { var game: CGRect, controls: CGRect, separated: Bool, topSafeOnly: Bool }
+    struct Region: Equatable {
+        var game: CGRect
+        var gameClip: CGRect = .zero
+        var upper: CGRect = .zero
+        var controls: CGRect
+        var separated: Bool
+        var topSafeOnly: Bool
+    }
 
     struct Shape: Equatable {
         var c: CGPoint
@@ -79,11 +88,22 @@ struct PadGeo: Equatable {
 
     // MARK: DmLayout.h
 
-    static func aspectFit(_ b: CGRect) -> CGRect {
+    static func aspectFit(_ b: CGRect, aspect: CGFloat = 16.0 / 9.0) -> CGRect {
         var w = b.width, h = b.height
-        if w <= 0 || h <= 0 { return .zero }
-        if w / h > 16.0 / 9.0 { w = h * 16.0 / 9.0 } else { h = w * 9.0 / 16.0 }
+        if w <= 0 || h <= 0 || aspect <= 0 { return .zero }
+        if w / h > aspect { w = h * aspect } else { h = w / aspect }
         return CGRect(x: floor(b.midX - w / 2), y: floor(b.midY - h / 2), width: w, height: h)
+    }
+    static func aspectFill(_ b: CGRect, aspect: CGFloat = 16.0 / 9.0) -> CGRect {
+        var w = b.width, h = b.height
+        if w <= 0 || h <= 0 || aspect <= 0 { return .zero }
+        if w / h > aspect { h = w / aspect } else { w = h * aspect }
+        return CGRect(x: b.midX - w / 2, y: b.midY - h / 2, width: w, height: h)
+    }
+    static func portraitPictureSlot(_ upper: CGRect) -> CGRect {
+        if upper.isEmpty || upper.width <= 0 || upper.height <= 0 { return .zero }
+        let fourThree: CGFloat = 4.0 / 3.0
+        return (upper.width / upper.height < fourThree) ? aspectFit(upper, aspect: fourThree) : upper
     }
     static func horizontalDivision(_ b: CGRect, _ division: CGRect?) -> CGRect? {
         guard let d = division, !d.isNull, d.width > d.height else { return nil }
@@ -97,20 +117,37 @@ struct PadGeo: Equatable {
     static func gameSafeInsets(_ b: CGRect, _ i: PadScreen.Insets, _ duo: Bool) -> PadScreen.Insets {
         duo && b.height > b.width ? PadScreen.Insets(top: i.top) : i
     }
-    static func region(_ screen: PadScreen) -> Region {
+    static func region(_ screen: PadScreen, pictureFill: Bool = false, aspect: CGFloat = 16.0 / 9.0) -> Region {
         let b = CGRect(origin: .zero, size: screen.size)
         let insets = gameSafeInsets(b, screen.insets, screen.topSafeOnly)
-        var l = Region(game: aspectFit(b), controls: b, separated: false, topSafeOnly: screen.topSafeOnly)
+        let fit = aspectFit(b, aspect: aspect)
+        var l = Region(game: fit, gameClip: fit, upper: b, controls: b, separated: false, topSafeOnly: screen.topSafeOnly)
         if b.isEmpty { return l }
         let division = horizontalDivision(b, screen.division)
         let portrait = b.height > b.width
-        if !portrait && (!screen.partiallyOpen || division == nil) { return l }
+        if !portrait && (!screen.partiallyOpen || division == nil) {
+            if pictureFill {
+                l.gameClip = b
+                l.game = aspectFill(b, aspect: aspect)
+            }
+            return l
+        }
         let d = division ?? CGRect(x: b.minX, y: b.midY, width: b.width, height: 0)
         let safe = inset(b, insets)
         let upper = CGRect(x: safe.minX, y: safe.minY, width: safe.width, height: d.minY - safe.minY)
         let lower = CGRect(x: b.minX, y: d.maxY, width: b.width, height: b.maxY - d.maxY)
-        if upper.height <= 0 || safe.maxY <= lower.minY { return l }
-        l.game = aspectFit(upper); l.controls = lower; l.separated = true
+        if upper.height <= 0 || safe.maxY <= lower.minY {
+            if pictureFill && !portrait {
+                l.gameClip = b
+                l.game = aspectFill(b, aspect: aspect)
+            }
+            return l
+        }
+        let slot = portrait ? portraitPictureSlot(upper) : upper
+        l.upper = upper
+        l.gameClip = portrait ? slot : aspectFit(upper, aspect: aspect)
+        l.game = (portrait && pictureFill) ? aspectFill(slot, aspect: aspect) : aspectFit(slot, aspect: aspect)
+        l.controls = lower; l.separated = true
         return l
     }
 

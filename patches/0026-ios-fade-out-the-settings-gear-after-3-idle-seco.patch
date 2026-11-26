@@ -19,7 +19,7 @@ Issue: LNPANDY/NX2Apple#809
  4 files changed, 168 insertions(+), 8 deletions(-)
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 985140a..b65b280 100644
+index d2ac6e8..cc60b1a 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -1,6 +1,6 @@
@@ -39,8 +39,8 @@ index 985140a..b65b280 100644
 +    K_MENU_IDLE = 3.0;                              // seconds a connected controller leaves the menu gear visible before fading it out
  static const int k_btns[] = {B_ZL, B_L, B_ZR, B_R, B_MINUS, B_PLUS, B_LS, B_RS};   // keys locked at touch-down (L3 / R3 only in the 3D layout)
  static NSString *const k_layout_key = @"DmPadLayout";   // NSUserDefaults: 0 = 2D, 1 = 3D, 2 = Tap (DM_GAME_PAD_LAYOUT's numbers)
- int dm_opmode(void);   // hle_oe.c: 0 = handheld
-@@ -135,6 +136,11 @@ static void phone_motion_start(UIView *body) {
+ static NSString *const k_layout_split_key = @"DmPadLayoutSplit";   // NSUserDefaults for portrait/split orientation
+@@ -144,6 +145,11 @@ static int parse_pad_layout_mode(const char *_Nullable v) {
  @interface DmGamepad : UIView
  - (void)arrange:(DmLayout)layout;
  - (BOOL)menuTakes:(CGPoint)p;
@@ -52,7 +52,7 @@ index 985140a..b65b280 100644
  @end
  // The menu button: a UIButton whose menu is the in-game menu (UIKit draws it and takes the touches while it is open). Its hit circle is larger than the drawn one, and a key nearer
  // to the touch wins (− / + sit beside it), so it asks the pad
-@@ -142,6 +148,13 @@ @interface DmMenuButton : UIButton
+@@ -151,6 +157,13 @@ @interface DmMenuButton : UIButton
  @end
  @implementation DmMenuButton
  - (BOOL)pointInside:(CGPoint)p withEvent:(UIEvent *)e { DmGamepad *pad = (DmGamepad *)self.superview; return [pad menuTakes:[self convertPoint:p toView:pad]]; }
@@ -66,7 +66,7 @@ index 985140a..b65b280 100644
  @end
  static __weak DmGamepad *g_view;
  static void pads_start(void);   // Physical controllers, below
-@@ -156,6 +169,8 @@ @implementation DmGamepad {
+@@ -165,6 +178,8 @@ @implementation DmGamepad {
      CAShapeLayer *_ring, *_knob;                   // the left stick (the right one is not drawn)
      CALayer *_hint; CATextLayer *_hintText; NSString *_hintWords;   // the 3D layout's right-stick hint: words only, once per launch (see "The right-stick hint")
      DmMenuButton *_menu;                           // opens the in-game menu (GameMenu.swift)
@@ -75,7 +75,7 @@ index 985140a..b65b280 100644
      UIImpactFeedbackGenerator *_touchFeedback;       // one short feedback per touch-control press edge
      unsigned _hapticSticks;
      BOOL _stickShown;                              // the left stick was held at the last refresh
-@@ -244,6 +259,7 @@ - (instancetype)initWithFrame:(CGRect)f {
+@@ -265,6 +280,7 @@ - (instancetype)initWithFrame:(CGRect)f {
          NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
          [nc addObserver:self selector:@selector(padsChanged:) name:GCControllerDidConnectNotification object:nil];
          [nc addObserver:self selector:@selector(padsChanged:) name:GCControllerDidDisconnectNotification object:nil];
@@ -83,7 +83,7 @@ index 985140a..b65b280 100644
          pads_start();
          [self padsChanged:nil];
          motion_start();
-@@ -406,11 +422,19 @@ - (BOOL)controlAt:(CGPoint)p {
+@@ -446,11 +462,19 @@ - (BOOL)controlAt:(CGPoint)p {
      if (dm_pad_hit(self.geo, _full, _layout.separated, _tap, !_stick[0], p).kind != DM_PAD_HIT_NONE) return YES;   // the geometry touchesBegan hits with (DmPadGeometry.h)
      return _full && !_stick[1] && [self inRightArea:p];
  }
@@ -104,7 +104,7 @@ index 985140a..b65b280 100644
      BOOL game = NO;
      for (UITouch *t in ts) {
          if (_padOff) { game |= [self gameBegin:t]; continue; }
-@@ -725,9 +749,38 @@ static BOOL pads_slotted(GCController *gone) {
+@@ -765,9 +789,38 @@ static BOOL pads_slotted(GCController *gone) {
      dispatch_async(dispatch_get_main_queue(), ^{ cp_poll(); });   // a controller came or went while the controller applet's prompt is up
      return waiting || pad_slot_mask(&g_slots) != 0;   // a controller waiting for its first press hides the touch gamepad too
  }
@@ -157,7 +157,7 @@ index 49a9c9a..6b9ab99 100644
  static int g_opmode;   // handheld, until a test or the in-game menu docks it
  int dm_opmode(void) { return g_opmode; }
 diff --git a/dm/ios/tests/duo/Tests/DuoHarnessTests.m b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
-index 81b0dd0..d1d912c 100644
+index 77163f8..92c4025 100644
 --- a/dm/ios/tests/duo/Tests/DuoHarnessTests.m
 +++ b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
 @@ -113,6 +113,13 @@ - (GCExtendedGamepad *)extendedGamepad { return nil; }
@@ -210,7 +210,7 @@ index 81b0dd0..d1d912c 100644
  @interface DuoHarnessTests : XCTestCase
  @property (nonatomic, strong) id savedLayout;
  @property (nonatomic) BOOL controllerListOverridden;
-@@ -1320,7 +1356,8 @@ - (void)testMenuButtonFollowsTheGameViewAndTheController {
+@@ -1346,7 +1382,8 @@ - (void)testMenuButtonFollowsTheGameViewAndTheController {
      GCController *controller = [GCController controllerWithExtendedGamepad];
      @try {
          // The TV scene moves the same game view into its own view hierarchy.
@@ -220,7 +220,7 @@ index 81b0dd0..d1d912c 100644
          XCTAssertEqual([pad hitTest:menu.center withEvent:nil], menu, @"A touch-only player still has the menu on TV");
          [self setHarnessControllers:@[controller] notification:GCControllerDidConnectNotification];
          [self waitForView:menu hidden:YES];
-@@ -1328,10 +1365,79 @@ - (void)testMenuButtonFollowsTheGameViewAndTheController {
+@@ -1354,10 +1391,79 @@ - (void)testMenuButtonFollowsTheGameViewAndTheController {
          [self deliverSnapshotChangeFor:controller button:controller.extendedGamepad.buttonB value:1];
          XCTAssertEqual(duo_harness_state().players[0].buttons, DM_BTN_A);
  

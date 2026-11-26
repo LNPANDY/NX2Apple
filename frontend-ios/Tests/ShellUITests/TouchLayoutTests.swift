@@ -244,23 +244,8 @@ import Testing
         #expect(source.contains("let traits: AccessibilityTraits ="))
     }
 
-    @Test func optionsButtonClampsInsideShortLandscapeAndSafeArea() {
-        let shortCanvas = CGSize(width: 568, height: 320)
-        let pos = TouchLayoutEditorView.optionsButtonPosition(
-            swap: CGPoint(x: 284, y: 10),
-            screenInsets: .init(top: 12, left: 44, bottom: 21, right: 44),
-            canvasSize: shortCanvas,
-            scale: 1
-        )
-        // 22pt half-height + 6pt margin + 12pt top inset = 40pt minimum Y
-        #expect(pos.y >= 40)
-        #expect(pos.y <= shortCanvas.height - 21 - 28)
-        #expect(pos.x >= 44 + 28 && pos.x <= shortCanvas.width - 44 - 28)
-    }
-
-    @Test func selectionToolbarAvoidsOptionsButton() {
+    @Test func selectionToolbarPositionsAboveOrBelowControl() {
         let canvas = CGSize(width: 852, height: 393)
-        let optionsCenter = CGPoint(x: 426, y: 34)
         let box = CGRect(x: 396, y: 74, width: 60, height: 60)
         let bounds = CGRect(x: 0, y: 0, width: 852, height: 393)
         let toolbarWidth: CGFloat = 108
@@ -269,13 +254,44 @@ import Testing
             box: box,
             bounds: bounds,
             division: nil,
-            optionsCenter: optionsCenter,
+            optionsCenter: nil,
             canvasSize: canvas,
             scale: 1
         )
-        let toolbarRect = CGRect(x: pos.x - toolbarWidth / 2, y: pos.y - 30, width: toolbarWidth, height: 60)
-        let optionsRect = CGRect(x: optionsCenter.x - 22, y: optionsCenter.y - 22, width: 44, height: 44)
-        #expect(!toolbarRect.intersects(optionsRect), "floating toolbar \(toolbarRect) must not overlap options button \(optionsRect)")
+        #expect(pos.x >= toolbarWidth / 2 && pos.x <= canvas.width - toolbarWidth / 2)
+        #expect(pos.y >= 30 && pos.y <= canvas.height - 30)
+    }
+
+    @MainActor @Test func editorDraftResetOnlyAffectsActiveOrientation() {
+        let store = ShellSettingsStore(defaults: TestDefaults.make("t-editor-reset"))
+        store.storeTouchSize("large", for: .landscape)
+        store.storeTouchStick("inward", for: .landscape)
+        store.storeTouchMode("2d", for: .landscape)
+        store.storeTouchSize("small", for: .portrait)
+        store.storeTouchStick("higher", for: .portrait)
+        store.storeTouchMode("2d", for: .portrait)
+        var layout = TouchLayout()
+        layout[.twoD, .stick] = Offset(dx: 2, dy: -1)
+        layout[.twoDSplit, .stick] = Offset(dx: -2, dy: 1)
+        store.storeTouchLayout(layout)
+
+        let model = TouchLayoutEditorModel(store: store, sideways: .proMax, upright: .proMaxPortrait, kind: .twoDSplit)
+        #expect(model.activeOrientation == .portrait)
+        #expect(model.isCustomized(for: .landscape) && model.isCustomized(for: .portrait))
+        model.reset()
+        model.commit()
+
+        #expect(!store.isTouchCustomized(for: .portrait))
+        #expect(store.touchSize(for: .portrait) == "medium")
+        #expect(store.touchStick(for: .portrait) == "corner")
+        #expect(store.touchMode(for: .portrait) == "3d")
+        #expect(store.touchLayout.isEmpty(for: .portrait))
+
+        #expect(store.isTouchCustomized(for: .landscape))
+        #expect(store.touchSize(for: .landscape) == "large")
+        #expect(store.touchStick(for: .landscape) == "inward")
+        #expect(store.touchMode(for: .landscape) == "2d")
+        #expect(store.touchLayout[.twoD, .stick] == Offset(dx: 2, dy: -1))
     }
 }
 

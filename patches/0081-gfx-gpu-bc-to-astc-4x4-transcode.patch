@@ -65,7 +65,7 @@ index ca3920a..26d54c5 100644
  void mtl_pool_add(const void *mem, uint64_t size);
  void mtl_pool_addressed(const void *mem, uint64_t size);   // the game holds a GPU address in this range, so raw global memory may reach it
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 0e70006..1b8652b 100644
+index 9d1fdeb..d805452 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
 @@ -30,7 +30,10 @@
@@ -785,7 +785,7 @@ index 0e70006..1b8652b 100644
          if (stv) pf = MTLPixelFormatX32_Stencil8;
          if (r.v.set_format && nvn_fmt_bc(rp->t.d.format) && !nvn_fmt_bc(r.v.format)) {   // the raw blocks of a BC texture through an uncompressed view (see rt_view_fmt): Metal has no such view
              RED_ONCE(86, "Metal cannot create the raw-block view of a compressed texture (NVN format %#x → view %#x): treated as an empty slot", rp->t.d.format, r.v.format);
-@@ -19842,8 +20137,8 @@ static void copy_t2b(const p_copy_b2t *c, uint32_t size) {
+@@ -19849,8 +20144,8 @@ static void copy_t2b(const p_copy_b2t *c, uint32_t size) {
      int is3d = c->tex->d.target == 2, nz = c->r.depth ? c->r.depth : 1;
      void *mb; uint64_t mo;
      if (!mtl_addr(c->src, img * nz, &mb, &mo)) { RED_ONCE(31, "texture→buffer copy destination is in no memory pool"); return; }
@@ -796,7 +796,7 @@ index 0e70006..1b8652b 100644
          return;
      }
      sbw_note(c->src, img * nz, SBW_GPU);
-@@ -19922,8 +20217,8 @@ void mtl_read_texels(const tex_t *t, unsigned level, unsigned layer0, const NVNc
+@@ -19929,8 +20224,8 @@ void mtl_read_texels(const tex_t *t, unsigned level, unsigned layer0, const NVNc
      int in_storage = 0; AP_B;
      id<MTLTexture> mt = tex_mtl_(t, &in_storage); AP_E(4);
      if (in_storage) { read_texels_storage(t, level, layer0, r, dst, row, img); return; }
@@ -807,7 +807,7 @@ index 0e70006..1b8652b 100644
          memset(dst, 0, img * nz); return;
      }
      mtl_finish_gpu_at(WS_READTEX);
-@@ -20001,8 +20296,9 @@ static void copy_b2t(const p_copy_b2t *c, uint32_t size) {
+@@ -20008,8 +20303,9 @@ static void copy_b2t(const p_copy_b2t *c, uint32_t size) {
      int shift = rb_copy_shift(c->tex, t);
      uint64_t gsrc = sb.gpuAddress + mo; size_t grow = row, gimg = img;   // the guest's bytes, the storage's order (gsb_store_buf)
      uint32_t bc_pf = 0; int bc_bpp = 0;
@@ -819,7 +819,7 @@ index 0e70006..1b8652b 100644
          if (!(c->flags & DM_COPY_SNAPSHOT)) {
              if (g_cb && (pend_hits(c->src, img * nz) || sbw_hits(c->src, c->src + img * nz) || g_sbw_over)) {
                  uint64_t fence = mtl_sub_commit();
-@@ -20016,11 +20312,21 @@ static void copy_b2t(const p_copy_b2t *c, uint32_t size) {
+@@ -20023,11 +20319,21 @@ static void copy_b2t(const p_copy_b2t *c, uint32_t size) {
                  mtl_finish_gpu_at(WS_FINISH);
              }
          }
@@ -846,7 +846,7 @@ index 0e70006..1b8652b 100644
      } else if (shift) {
          size_t wb = (size_t)((c->r.width + bw - 1) / bw) * bpb; id<MTLBuffer> ab; size_t ao = arena_alloc(wb * rows * nz, &ab);
          if (rb_swap_gpu(sb.gpuAddress + mo, row, img, ab.gpuAddress + ao, wb, wb * rows, wb, rows, nz, shift)) { sb = ab; mo = ao; row = wb; img = wb * rows; }
-@@ -20042,6 +20348,52 @@ static void copy_b2t(const p_copy_b2t *c, uint32_t size) {
+@@ -20049,6 +20355,52 @@ static void copy_b2t(const p_copy_b2t *c, uint32_t size) {
      if (level == 0) ua_note_write(c->tex, t, 0, 0);
  }
  
@@ -899,7 +899,7 @@ index 0e70006..1b8652b 100644
  // Texture copies a blit cannot do -- a format change, a scaled region or a mirrored one (MIRROR_X / MIRROR_Y) (Link's Awakening converts its 1408x792 RG11B10F scene to RGBA16F every frame; Super Mario 3D World scales 1920x1080 to 1280x720
  // when leaving the title): one render pass per layer that draws the source region into the destination region, nearest or (LINEAR_FILTER) bilinear. Float, unorm and sRGB formats only, 2D / 2D array,
  // destinations that can be render targets; anything else returns 0 and keeps the red line. Depth (Depth32Float / Depth32Float_Stencil8 / Depth16Unorm into the same format; Kirby Air Riders halves a 4096x4096 Depth16Unorm shadow map) is drawn by writing depth from the fragment shader,
-@@ -20220,10 +20572,14 @@ static void draw_tex(const p_draw_tex *c) {
+@@ -20227,10 +20579,14 @@ static void draw_tex(const p_draw_tex *c) {
  // writes 320x270 RGBA32UI blocks through an image over a 1280x1080 BC3 character portrait, which showed colourful static (PR #2802). The fills in the upload batch take the other
  // side as the segments before left it: a side made and only read in the segment that wrote the other side reads the write before it (docs/reference/rendering.md). DM_NVN_BC_ALIAS=0
  // turns pairs off, for an A/B test
@@ -917,7 +917,7 @@ index 0e70006..1b8652b 100644
  }
  // A texture's side of a pair: its bytes a texel or a block (8 or 16), negated for a BC format; 0 for none (a 2D, single-sample, block-linear texture with storage only)
  static int bcp_kind(const tex_t *t) {
-@@ -20998,6 +21354,17 @@ static void ua_prepare_shader(NvShader *sh, int st) {
+@@ -21005,6 +21361,17 @@ static void ua_prepare_shader(NvShader *sh, int st) {
      PD("t src=%llu lv%u sl%u xyz=%d,%d,%d dst=%llu lv%u sl%u xyz=%d,%d,%d size=%d,%d,%d", c->src->serial, sl, sz0, c->sr.xoffset, c->sr.yoffset, c->sr.zoffset,
         c->dst->serial, dl, dz0, c->dr.xoffset, c->dr.yoffset, c->dr.zoffset, c->sr.width, c->sr.height, c->sr.depth);
      int s3 = c->src->d.target == 2, d3 = c->dst->d.target == 2, nz = c->sr.depth ? c->sr.depth : 1;
@@ -935,7 +935,7 @@ index 0e70006..1b8652b 100644
      // The draw path renders into the destination: one made without render-target use (packaged) gets it first, as a whole-level clear does (Paper Mario: The Thousand-Year Door copies a
      // 128x128 RGBA8 render target into an RG8 texture, mirrored in Y)
      if ((c->sr.width != c->dr.width || c->sr.height != c->dr.height || s.pixelFormat != d.pixelFormat || (c->flags & (NVN_COPY_FLAGS_MIRROR_X_BIT | NVN_COPY_FLAGS_MIRROR_Y_BIT))) && !s3 && !d3
-@@ -21321,7 +21688,9 @@ static void clear_tex(const p_clear_tex *c) {
+@@ -21328,7 +21695,9 @@ static void clear_tex(const p_clear_tex *c) {
          t = tex_upgrade(c->tex, t, MTLTextureUsageRenderTarget, t.pixelFormat);   // a clear of a texture made without render-target use (packaged): give it that use
      if (c->has_view && c->view.set_format) {   // View with changed format: the clear value is interpreted in the view format (all 5 of the game's calls are the ui version with an integer view), and the clear is done on a view of the same format
          uint32_t vpf = 0; uint8_t swz[4];
@@ -946,7 +946,7 @@ index 0e70006..1b8652b 100644
          if (tex_need_pfv(t.pixelFormat, (MTLPixelFormat)vpf) && !(t.usage & MTLTextureUsagePixelFormatView)) t = tex_upgrade_pfv(c->tex, t, (MTLPixelFormat)vpf);
          if (tex_need_pfv(t.pixelFormat, (MTLPixelFormat)vpf)) {
              id<MTLTexture> v = [t newTextureViewWithPixelFormat:(MTLPixelFormat)vpf];
-@@ -24224,6 +24593,18 @@ void dm_gfx_teardown(void) { @autoreleasepool {
+@@ -24282,6 +24651,18 @@ void dm_gfx_teardown(void) { @autoreleasepool {
      for (int i = 0; i < POST_RING; i++) { free(g_postr[i].ops); g_postr[i].ops = NULL; g_postr[i].n = 0; }
      for (int i = 0; i < g_nup_blits; i++) { g_up_blits[i].src = nil; g_up_blits[i].dst = nil; }
      free(g_up_blits); g_up_blits = NULL; g_nup_blits = g_up_blitcap = 0;
@@ -965,7 +965,7 @@ index 0e70006..1b8652b 100644
      free(g_sp_free); g_sp_free = NULL; g_sp_nfree = g_sp_freecap = 0;
      free(g_sp_late); g_sp_late = NULL; g_sp_nlate = g_sp_latecap = 0;
      free(g_sp_tl); g_sp_tl = NULL; g_sp_ntl = 0;
-@@ -24447,7 +24828,7 @@ void dm_gfx_teardown(void) { @autoreleasepool {
+@@ -24505,7 +24886,7 @@ void dm_gfx_teardown(void) { @autoreleasepool {
      g_arch_seq = 0; g_prewarm_open = nil; g_prewarm_files = 0;
      atomic_store(&g_pre_running, 0); atomic_store(&g_pre_flushing, 0); atomic_store(&g_pre_next, 0); atomic_store(&g_pre_done, 0);
      atomic_store(&g_pre_built, 0); atomic_store(&g_pre_archived, 0); atomic_store(&g_pre_skipped, 0); atomic_store(&g_pre_failed, 0);
@@ -975,10 +975,10 @@ index 0e70006..1b8652b 100644
      g_line_fence = 0; g_line_end = 0; g_sub_serial = 0;
      g_sub_ready = 0; g_sub_drain = -1; g_fb_mode = -1;
 diff --git a/dm/gfx/tests/Makefile b/dm/gfx/tests/Makefile
-index 80d7674..2e6e4ab 100644
+index aa3e271..0ba41c9 100644
 --- a/dm/gfx/tests/Makefile
 +++ b/dm/gfx/tests/Makefile
-@@ -891,6 +891,12 @@ check_t_vk_conv_upload: RUN_ENV = MTL_DEBUG_LAYER=1
+@@ -896,6 +896,12 @@ check_t_vk_conv_upload: RUN_ENV = MTL_DEBUG_LAYER=1
  t_vk_clear_attachments: t_vk_clear_attachments.m ../vk/hle_vk.m $(MTL_T_DEP)
  	clang $(CFLAGS) -I../../third_party/vulkan-headers/include -fobjc-arc -o $@ t_vk_clear_attachments.m $(MTL_T_SRC) ../nvn/nvn_mtl.m $(FW)
  check_t_vk_clear_attachments: RUN_ENV = MTL_DEBUG_LAYER=1 MTL_DEBUG_LAYER_VALIDATE_LOAD_ACTIONS=1
@@ -991,7 +991,7 @@ index 80d7674..2e6e4ab 100644
  check_t_vk_cmds: RUN_ENV = MTL_DEBUG_LAYER=1
  check_t_vk_compute: RUN_ENV = MTL_DEBUG_LAYER=1 MTL_SHADER_VALIDATION=1
  check_t_vk_argbuf: RUN_ENV = MTL_DEBUG_LAYER=1 MTL_SHADER_VALIDATION=1
-@@ -1079,9 +1085,20 @@ check_t_cpuprof: t_cpuprof
+@@ -1084,9 +1090,20 @@ check_t_cpuprof: t_cpuprof
  	MTL_DEBUG_LAYER=1 DM_NVN_CPUPROF=1 DM_NVN_ENC_THREAD=0 ./t_cpuprof
  	MTL_DEBUG_LAYER=1 DM_NVN_CPUPROF=1 DM_NVN_ENC_THREAD=1 ./t_cpuprof
  

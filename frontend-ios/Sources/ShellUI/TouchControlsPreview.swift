@@ -21,8 +21,9 @@ struct TouchPadPreviewGeometry: Equatable {
 
     let geo: PadGeo
     var u: CGFloat { geo.u }
-    init(size: String, stick: String = "corner", layout: TouchLayout = TouchLayout()) {
-        geo = PadGeo.make(.proMax, full: true, size: size, stick: stick, layout: layout)
+    init(size: String, stick: String = "corner", layout: TouchLayout = TouchLayout(),
+         screen: PadScreen = .proMax, full: Bool = true) {
+        geo = PadGeo.make(screen, full: full, size: size, stick: stick, layout: layout)
     }
 
     var stick: CGPoint { geo.stick }
@@ -168,6 +169,106 @@ enum PadDrawing {
         case .dpad(let c, let r):
             key(dpadPath(c, r))
         }
+    }
+}
+
+/// Side-by-side Landscape and Portrait overview cards shown in Shell Settings with mini PadGeo previews and custom state badges.
+struct TouchOrientationOverviewCards: View {
+    var store: ShellSettingsStore
+    @Environment(\.shellOpenTouchLayout) private var open
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        let cards = Group {
+            orientationCard(.landscape)
+            orientationCard(.portrait)
+        }
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(spacing: 10) { cards }
+                .padding(.vertical, 4)
+        } else {
+            HStack(spacing: 10) { cards }
+                .padding(.vertical, 4)
+        }
+    }
+
+    private func orientationCard(_ orientation: ShellSettingsStore.TouchOrientation) -> some View {
+        let cfg = store.touchConfiguration(for: orientation)
+        let layout = store.touchLayout
+        let customized = store.isTouchCustomized(for: orientation)
+        let screen: PadScreen = orientation == .portrait ? .proMaxPortrait : .proMax
+        let preview = TouchPadPreviewGeometry(size: cfg.size, stick: cfg.stick, layout: layout, screen: screen, full: cfg.mode == "3d")
+        let title = orientation == .landscape ? ShellStrings.text("Landscape") : ShellStrings.text("Portrait")
+
+        return Button { open?() } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Text(verbatim: title)
+                        .shellText(13, .semibold, relativeTo: .subheadline)
+                        .foregroundStyle(.white)
+                    if customized {
+                        Circle()
+                            .fill(ShellPalette.ready)
+                            .frame(width: 7, height: 7)
+                            .accessibilityHidden(true)
+                    }
+                    Spacer(minLength: 4)
+                    if customized {
+                        Text(ShellStrings.text("Custom"))
+                            .shellText(10, .medium, relativeTo: .caption2)
+                            .foregroundStyle(ShellPalette.ready)
+                            .lineLimit(1)
+                    }
+                }
+                miniCanvas(preview: preview, screen: screen, portrait: orientation == .portrait)
+                    .frame(height: 68)
+                    .frame(maxWidth: .infinity)
+                    .background(PadDrawing.backdrop)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.white.opacity(0.14), lineWidth: 1))
+                Text(verbatim: summaryText(for: cfg))
+                    .shellText(11, .regular, relativeTo: .caption)
+                    .foregroundStyle(.white.opacity(0.68))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(ShellPalette.hairline, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("shellSettings.touchCard.\(orientation.rawValue)")
+        .accessibilityLabel("\(title), \(summaryText(for: cfg))")
+        .shellTarget("shs.touchCard.\(orientation.rawValue)") { open?() }
+    }
+
+    private func miniCanvas(preview: TouchPadPreviewGeometry, screen: PadScreen, portrait: Bool) -> some View {
+        Canvas { context, canvas in
+            let sx = canvas.width / screen.size.width
+            let sy = canvas.height / screen.size.height
+            let k = min(sx, sy)
+            let dx = (canvas.width - screen.size.width * k) / 2
+            let dy = (canvas.height - screen.size.height * k) / 2
+            context.translateBy(x: dx, y: dy)
+            context.scaleBy(x: k, y: k)
+            let frameRect = CGRect(origin: .zero, size: screen.size)
+            context.stroke(Path(roundedRect: frameRect, cornerRadius: 16), with: .color(.white.opacity(0.16)), lineWidth: 1.5 / max(k, 0.01))
+            if portrait {
+                let slot = preview.geo.region.gameClip
+                context.fill(Path(roundedRect: slot, cornerRadius: 8), with: .color(.white.opacity(0.08)))
+                context.stroke(Path(roundedRect: slot, cornerRadius: 8), with: .color(ShellPalette.cream.opacity(0.32)), lineWidth: 1 / max(k, 0.01))
+            }
+            let style = PadDrawing.Style(fill: .white.opacity(0.22), line: .white.opacity(0.55), text: .white.opacity(0.75), ring: .white.opacity(0.1), lineWidth: 1.2 / max(k, 0.01))
+            for shape in preview.shapes { PadDrawing.draw(shape, in: &context, style: style) }
+        }
+    }
+
+    private func summaryText(for cfg: ShellSettingsStore.TouchOrientationConfig) -> String {
+        let modeText = cfg.mode == "3d" ? "3D" : "2D"
+        let sizeText = ShellStrings.text(cfg.size == "small" ? "Small" : cfg.size == "large" ? "Large" : "Medium")
+        let stickText = ShellStrings.text(cfg.stick == "higher" ? "Higher" : cfg.stick == "inward" ? "Inward" : "Corner")
+        return "\(modeText) · \(sizeText) · \(stickText)"
     }
 }
 

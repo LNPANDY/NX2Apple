@@ -145,7 +145,7 @@ import Testing
     @Test func everyTextOfTheLayoutEditorHasEveryLanguage() throws {
         let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("Sources/ShellUI")
-        let source = try ["TouchLayoutEditorView.swift"].map {
+        let source = try ["TouchLayoutEditorView.swift", "TouchLayoutEditorBars.swift", "TouchControlsPreview.swift", "ShellSettingsView.swift"].map {
             try String(contentsOf: directory.appendingPathComponent($0), encoding: .utf8)
         }.joined(separator: "\n")
         let literal = try Regex(#"ShellStrings\.text\("((?:[^"\\]|\\\([^)]*\))*)"\)"#)
