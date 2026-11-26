@@ -342,11 +342,11 @@ package struct ShellInstaller {
     /// Enabled by default; set `NX_DISABLE_HOT_INSTALL=1` to force full `xcodebuild` reinstalls.
     package var allowHotInstall = ProcessInfo.processInfo.environment["NX_DISABLE_HOT_INSTALL"] != "1"
     package var now: () -> Date = { Date() }
+    package var home: String = NSHomeDirectory()
 
     package init(xcrun: String = "/usr/bin/xcrun", repo: String, python: String, root: String, device: String, team: String) {
         self.xcrun = xcrun; self.repo = repo; self.python = python; self.root = root; self.device = device; self.team = team
     }
-
     package struct Outcome {
         package var ok: Bool
         package var message: String
@@ -373,8 +373,7 @@ package struct ShellInstaller {
         package var shellUpdated = false
 
         package init(ok: Bool, message: String, step: BuildFailureClassifier.InstallStep? = nil, appPath: String = "", bundleID: String = "", copied: Int = 0, copySkipped: Bool = false, failure: BuildFailureKind? = nil, noMemoryCapability: Bool = false, shellUpdated: Bool = false) {
-            self.ok = ok; self.message = message; self.step = step; self.appPath = appPath; self.bundleID = bundleID; self.copied = copied
-            self.copySkipped = copySkipped; self.failure = failure; self.noMemoryCapability = noMemoryCapability; self.shellUpdated = shellUpdated
+            self.ok = ok; self.message = message; self.step = step; self.appPath = appPath; self.bundleID = bundleID; self.copied = copied; self.copySkipped = copySkipped; self.failure = failure; self.noMemoryCapability = noMemoryCapability; self.shellUpdated = shellUpdated
         }
     }
 
@@ -382,7 +381,6 @@ package struct ShellInstaller {
 
     func t(_ key: String) -> String { L10n.string(key, lang) }
     func fmt(_ key: String, _ args: CVarArg...) -> String { String(format: t(key), arguments: args) }
-
     struct ToolResult { var status: Int32; var output: String; var lastError: String? }
 
     /// The mirror in the shell folder is the primary copy of a game's framework: shell.json points there. A game whose
@@ -462,18 +460,21 @@ package struct ShellInstaller {
         let projectName = t("shell.projectStage")
 
         // 5: sign and build, with one retry under this team's own identifier
-        let signName = fmt("dev.signStage", deviceName)
+        let signName = fmt("dev.signStage", deviceName), app = ShellInstall.appPath(root: root)
+        var stagedProfiles: [AppSignature.StagedProfiles] = []
         func sign(_ bundleID: String) -> ToolResult {
             begin(Self.signStageID, signName)
             return run(ShellInstall.buildCommand(xcrun: xcrun, root: root, device: device, team: team, bundleID: bundleID),
                        env: nil, label: signName, stageID: Self.signStageID, step: BuildProgress.xcodeStep)
         }
         var bundleID = library.bundleID
+        if let staged = stageFreshProfiles(app: app, bundleID: bundleID) { stagedProfiles.append(staged) }
         var built = sign(bundleID)
         let variant = ShellLibrary.teamVariant(team: team)
         if built.status != 0, ShellInstall.retryUnderTeamVariant(built.output, attempted: bundleID, variant: variant) {
             log("signing: \(bundleID) is registered to another team, retrying as \(variant)\n")
             bundleID = variant
+            if let staged = stageFreshProfiles(app: app, bundleID: bundleID) { stagedProfiles.append(staged) }
             built = sign(bundleID)
         }
         // A team whose profiles cannot carry the Increased Memory Limit (a free Apple ID, or a paid one whose holder has not yet
@@ -493,6 +494,7 @@ package struct ShellInstaller {
             }
         }
         if built.status != 0 {
+            stagedProfiles.reversed().forEach { $0.rollback() }
             if let devModeLine = BuildFailureClassifier.developerModeLine(in: built.output, deviceID: device) {
                 end(Self.signStageID, signName, ok: false, detail: devModeLine)
                 return (Outcome(ok: false, message: fmt("dev.signFailed", devModeLine), step: .sign, failure: .developerMode), [])
@@ -518,6 +520,7 @@ package struct ShellInstaller {
             let message = destinationUnavailable ? t("shell.destinationUnavailableNext") : fmt("dev.signFailed", why)
             return (Outcome(ok: false, message: message, step: .sign), [])
         }
+        stagedProfiles.forEach { $0.commit() }
         end(Self.signStageID, signName, ok: true)
         // The identifier that signed is the one the device's app gets: stored once the signing passed, also when the sign without the
         // Increased Memory Limit is what passed under the team's variant, so the next install starts with it
@@ -527,7 +530,6 @@ package struct ShellInstaller {
         }
 
         // 6: install over the existing app, which keeps its Documents
-        let app = ShellInstall.appPath(root: root)
         guard FileManager.default.fileExists(atPath: app) else {
             return (Outcome(ok: false, message: fmt("dev.noProject", app), step: .install), [])
         }
@@ -766,7 +768,6 @@ package struct ShellInstaller {
     func end(_ id: Int, _ name: String, ok: Bool, detail: String = "") {
         stage(ShellStage(id: id, name: name, state: ok ? .done : .failed, detail: detail, percent: ok ? 100 : nil))
     }
-
     /// One tool, blocking: its output lines go to `log`, the last error line is kept, and parsed step progress updates `stage`.
     /// `env` nil is the plain tool environment of the per-game install (xcodebuild, devicectl).
     func run(_ command: [String], env: [String: String]?, label: String, stageID: Int? = nil,
@@ -775,7 +776,7 @@ package struct ShellInstaller {
         var output = "", lastError: String?
         let launch = ProcessLaunch(
             executable: command[0], arguments: Array(command.dropFirst()),
-            environment: env ?? ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": NSHomeDirectory(), "USER": NSUserName(), "LANG": "en_US.UTF-8"],
+            environment: env ?? ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": home, "USER": NSUserName(), "LANG": "en_US.UTF-8"],
             groupPython: ownGroup ? python : nil)
         let result = withoutActuallyEscaping(step) { escapingStep in
             runner.streamLines(launch, started: processStarted) { line in

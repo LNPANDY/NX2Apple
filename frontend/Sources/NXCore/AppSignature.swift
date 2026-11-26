@@ -7,6 +7,8 @@ import Foundation
 /// An App Store or paid-team profile lives a year, so the date is usually far away and nothing is shown as urgent.
 package enum AppSignature {
     package static let profileName = "embedded.mobileprovision"
+    /// Re-request a fresh 7-day provisioning profile when the newest matching valid profile is at least 24 hours old.
+    package static let freshProfileThreshold: TimeInterval = 24 * 3600
 
     /// `ExpirationDate` of the app's embedded.mobileprovision, read from the profile's embedded XML plist (or through
     /// `security cms -D` as a fallback); nil when the app carries no profile or it cannot be read.
@@ -185,6 +187,74 @@ package enum AppSignature {
             }
         }
         return StagedProfiles(app: app, directory: staging, moved: moved)
+    }
+
+    /// Returns the newest `CreationDate` among unexpired provisioning profiles matching `bundleID` and `team` in `app` and Xcode's
+    /// local profile directories, or `nil` when no matching valid profile with a `CreationDate` exists.
+    package static func latestValidProfileCreationDate(
+        app: String,
+        bundleID: String,
+        team: String,
+        home: String = NSHomeDirectory(),
+        now: Date = Date(),
+        runner: ProcessRunner = SystemProcessRunner()
+    ) -> Date? {
+        let fm = FileManager.default
+        var candidatePaths = [app + "/" + profileName]
+        for dir in profileDirectories(home: home) {
+            guard let names = try? fm.contentsOfDirectory(atPath: dir) else { continue }
+            for name in names where name.hasSuffix(".mobileprovision") || name.hasSuffix(".provisionprofile") {
+                candidatePaths.append(dir + "/" + name)
+            }
+        }
+        var latestCreated: Date?
+        for path in candidatePaths {
+            guard let dict = plist(ofProfile: path, runner: runner),
+                  profileMatches(dict, bundleID: bundleID, team: team),
+                  let exp = dict["ExpirationDate"] as? Date,
+                  exp.timeIntervalSince(now) > 0,
+                  let created = dict["CreationDate"] as? Date else { continue }
+            if let current = latestCreated {
+                if created > current { latestCreated = created }
+            } else {
+                latestCreated = created
+            }
+        }
+        return latestCreated
+    }
+
+    /// Returns `true` when no valid matching profile is cached locally or when the newest valid matching profile was created at
+    /// least `threshold` seconds ago (default 24 hours), so `xcodebuild -allowProvisioningUpdates` should fetch a fresh 7-day profile.
+    package static func needsFreshProfile(
+        app: String,
+        bundleID: String,
+        team: String,
+        home: String = NSHomeDirectory(),
+        now: Date = Date(),
+        threshold: TimeInterval = freshProfileThreshold,
+        runner: ProcessRunner = SystemProcessRunner()
+    ) -> Bool {
+        guard let created = latestValidProfileCreationDate(
+            app: app, bundleID: bundleID, team: team, home: home, now: now, runner: runner
+        ) else { return true }
+        return now.timeIntervalSince(created) >= threshold
+    }
+
+    /// Stages matching cached profiles when `needsFreshProfile(...)` is `true`, returning `nil` when an unexpired profile created
+    /// within `threshold` can be reused as-is.
+    package static func stageProfilesIfNeeded(
+        app: String,
+        bundleID: String,
+        team: String,
+        home: String = NSHomeDirectory(),
+        now: Date = Date(),
+        threshold: TimeInterval = freshProfileThreshold,
+        runner: ProcessRunner = SystemProcessRunner()
+    ) -> StagedProfiles? {
+        guard needsFreshProfile(
+            app: app, bundleID: bundleID, team: team, home: home, now: now, threshold: threshold, runner: runner
+        ) else { return nil }
+        return stageProfilesForResign(app: app, bundleID: bundleID, team: team, home: home, runner: runner)
     }
 
     /// Whole days from today to the date, counted in calendar days (0 = today, negative = past): the day the profile

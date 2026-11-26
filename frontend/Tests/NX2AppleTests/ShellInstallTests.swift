@@ -1340,15 +1340,27 @@ import NXModel
                        "DmShell.app keeps its newly signed 7-day profile when only devicectl install fails")
         XCTAssertEqual(try String(contentsOfFile: appPath + "/_CodeSignature/CodeResources"), "new-sig")
 
-        // 3. Full re-sign + install succeeds.
-        try staleProfile.write(to: URL(fileURLWithPath: cachedProfiles + "/STALE-UUID.mobileprovision"))
+        // 3. Full re-sign + install succeeds even when the existing profile was created less than 24 hours ago.
+        let recentProfile = try PropertyListSerialization.data(
+            fromPropertyList: [
+                "UUID": "RECENT-UUID",
+                "Name": "iOS Team Provisioning Profile: org.nxnative.shell",
+                "TeamIdentifier": [team],
+                "Entitlements": ["application-identifier": "\(team).org.nxnative.shell"],
+                "CreationDate": Date().addingTimeInterval(-3600),
+                "ExpirationDate": freshExpiry
+            ],
+            format: .xml,
+            options: 0
+        )
+        try recentProfile.write(to: URL(fileURLWithPath: cachedProfiles + "/STALE-UUID.mobileprovision"))
         let before = calls.count
         let resigned = expectation(description: "Re-signed")
         model.resignOnDevice(app: appPath, device: device) { resigned.fulfill() }
         wait(for: [resigned], timeout: 30)
         try? fm.removeItem(atPath: state + "/new-profile")
         XCTAssertFalse(fm.fileExists(atPath: cachedProfiles + "/STALE-UUID.mobileprovision"),
-                       "stale cached profile must be cleared so Xcode requests a fresh 7-day profile")
+                       "explicit re-sign must always clear cached profile regardless of 24h age")
         XCTAssertEqual(AppSignature.expiration(ofApp: appPath), freshExpiry)
         let log = Array(calls.dropFirst(before))
         let build = try XCTUnwrap(log.first { $0.hasPrefix("xcodebuild") })
@@ -1802,5 +1814,88 @@ import NXModel
         XCTAssertTrue(fm.fileExists(atPath: marker), "plain resign with matching project stamp and beacon skips regenerating project")
         XCTAssertFalse(model.shellUpdatedOnDevice)
         XCTAssertEqual(model.doneNote, "Re-signed and installed on iPhone")
+    }
+
+    func testShellInstallerAutoFreshProfileOver24Hours() throws {
+        let f = try makeFixture()
+        let home = path("fresh-home")
+        let cachedProfiles = home + "/Library/Developer/Xcode/UserData/Provisioning Profiles"
+        try fm.createDirectory(atPath: cachedProfiles, withIntermediateDirectories: true)
+
+        let app = ShellInstall.appPath(root: f.root)
+        let bundleID = ShellLibrary.defaultBundleID
+        let now = Date(timeIntervalSince1970: 1_900_000_000)
+        let validExpiry = now.addingTimeInterval(6 * 86_400)
+        let freshExpiry = now.addingTimeInterval(7 * 86_400)
+
+        let recentData = try PropertyListSerialization.data(
+            fromPropertyList: [
+                "UUID": "RECENT-2H",
+                "Name": "iOS Team Provisioning Profile: \(bundleID)",
+                "TeamIdentifier": [team],
+                "Entitlements": ["application-identifier": "\(team).\(bundleID)"],
+                "CreationDate": now.addingTimeInterval(-2 * 3600),
+                "ExpirationDate": validExpiry
+            ],
+            format: .xml, options: 0
+        )
+        let old25hData = try PropertyListSerialization.data(
+            fromPropertyList: [
+                "UUID": "OLD-25H",
+                "Name": "iOS Team Provisioning Profile: \(bundleID)",
+                "TeamIdentifier": [team],
+                "Entitlements": ["application-identifier": "\(team).\(bundleID)"],
+                "CreationDate": now.addingTimeInterval(-25 * 3600),
+                "ExpirationDate": validExpiry
+            ],
+            format: .xml, options: 0
+        )
+        let renewedData = try PropertyListSerialization.data(
+            fromPropertyList: [
+                "UUID": "RENEWED-7D",
+                "Name": "iOS Team Provisioning Profile: \(bundleID)",
+                "TeamIdentifier": [team],
+                "Entitlements": ["application-identifier": "\(team).\(bundleID)"],
+                "CreationDate": now,
+                "ExpirationDate": freshExpiry
+            ],
+            format: .xml, options: 0
+        )
+
+        var i = installer(f)
+        i.home = home
+        i.now = { now }
+        i.allowHotInstall = false
+        i.decideCopy = { _ in .skip }
+
+        // 1. Profile created < 24h ago -> cached profile stays untouched on install.
+        let recentCached = cachedProfiles + "/RECENT-2H.mobileprovision"
+        try recentData.write(to: URL(fileURLWithPath: recentCached))
+        let reuseResult = install(i, f)
+        XCTAssertTrue(reuseResult.ok, reuseResult.message)
+        XCTAssertTrue(fm.fileExists(atPath: recentCached), "profile < 24h old must not be staged/removed")
+
+        // 2. Profile >= 24h old + xcodebuild failure -> staged profile and _CodeSignature roll back intact.
+        try fm.removeItem(atPath: recentCached)
+        let oldCached = cachedProfiles + "/OLD-25H.mobileprovision"
+        try old25hData.write(to: URL(fileURLWithPath: oldCached))
+        try old25hData.write(to: URL(fileURLWithPath: app + "/embedded.mobileprovision"))
+        try fm.createDirectory(atPath: app + "/_CodeSignature", withIntermediateDirectories: true)
+        try write(app + "/_CodeSignature/CodeResources", "old-sig")
+        try write(state + "/fail-xcodebuild", "")
+        let failedSign = install(i, f)
+        try fm.removeItem(atPath: state + "/fail-xcodebuild")
+        XCTAssertFalse(failedSign.ok)
+        XCTAssertTrue(fm.fileExists(atPath: oldCached), "failed xcodebuild must restore staged cached profile")
+        XCTAssertEqual(AppSignature.expiration(ofApp: app), validExpiry)
+        XCTAssertEqual(try String(contentsOfFile: app + "/_CodeSignature/CodeResources"), "old-sig")
+
+        // 3. Profile >= 24h old + xcodebuild success -> old cache committed/removed and renewed 7-day profile wins.
+        try renewedData.write(to: URL(fileURLWithPath: state + "/new-profile"))
+        let okFresh = i.installBuilt(framework: f.framework, titleID: titleID, name: "Test Game")
+        try? fm.removeItem(atPath: state + "/new-profile")
+        XCTAssertTrue(okFresh.ok, okFresh.message)
+        XCTAssertFalse(fm.fileExists(atPath: oldCached), "successful xcodebuild must commit and discard >= 24h cached profile")
+        XCTAssertEqual(AppSignature.expiration(ofApp: app), freshExpiry)
     }
 }
