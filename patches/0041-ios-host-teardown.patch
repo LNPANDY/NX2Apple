@@ -5334,7 +5334,7 @@ diff --git a/dm/host/hle_lifecycle.c b/dm/host/hle_lifecycle.c
 index 59e61f1..3841197 100644
 --- a/dm/host/hle_lifecycle.c
 +++ b/dm/host/hle_lifecycle.c
-@@ -40,10 +40,78 @@ void dm_host_shutdown_then(const char *why, void (*then)(void *), void *arg) {
+@@ -40,10 +40,80 @@ void dm_host_shutdown_then(const char *why, void (*then)(void *), void *arg) {
      exit_end(then, arg);
  }
  void dm_host_shutdown(const char *why) { dm_host_shutdown_then(why, NULL, NULL); }
@@ -5383,6 +5383,8 @@ index 59e61f1..3841197 100644
 +__attribute__((weak)) void dm_exl_teardown(void) {}
 +__attribute__((weak)) void dm_account_teardown(void) {}
 +__attribute__((weak)) void dm_stack_alloc_teardown(void) {}
++__attribute__((weak)) void dm_thread_sig_teardown(void) {}
++__attribute__((weak)) void dm_crash_teardown(void) {}
 +void dm_host_teardown_for_shell(void) {
 +    if (g_term_src) { dispatch_source_cancel(g_term_src); g_term_src = NULL; }
 +    if (g_prev_term_valid) { sigaction(SIGTERM, &g_prev_term_sa, NULL); g_prev_term_valid = 0; }
