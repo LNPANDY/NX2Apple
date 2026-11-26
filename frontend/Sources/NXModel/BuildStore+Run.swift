@@ -151,6 +151,11 @@ extension BuildStore {
                 fail(problem)
                 return
             }
+            if buildUpstream == .kidWithSword && target == BuildTarget.mac {
+                if KidWithSwordCompat.ensureMacPackCompatibility(in: engineRoot) {
+                    say("Applied macOS launcher compatibility guard for Kid with Sword (MicTesterView)")
+                }
+            }
         } else {
             guard repo.isRepo else {
                 fail(repo.path.isEmpty ? t("msg.repoInvalidEmpty") : String(format: t("msg.repoInvalid"), shortPath(repo.path)))
