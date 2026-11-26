@@ -1625,6 +1625,7 @@
   "ios.ui.coverLoadFailed": "Não foi possível abrir esta imagem. Escolha outra foto.",
   "ios.ui.dataFolder.removeConfirmMessage": "Jogos que usam esta pasta compartilhada não encontrarão seus dados até você escolher outra pasta. Seus arquivos no dispositivo não são apagados.",
   "ios.ui.dataFolder.removeConfirmTitle": "Remover pasta de dados dos jogos?",
+  "ios.ui.dataUpdateExplanation": "Os shaders nos dados do jogo estão ausentes ou não correspondem a esta versão do app. Compile o jogo de novo e copie o novo romfs.img para este dispositivo.",
   "ios.ui.dataUpdateNeeded": "É preciso atualizar os dados",
   "ios.ui.decrease": "Diminuir",
   "ios.ui.deleteGame": "Excluir jogo",

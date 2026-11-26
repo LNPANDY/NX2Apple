@@ -1625,6 +1625,7 @@
   "ios.ui.coverLoadFailed": "无法打开这张图片，请更换其他照片。",
   "ios.ui.dataFolder.removeConfirmMessage": "使用此共享目录的游戏在重新选择目录前将无法找到数据。磁盘上的文件不会被删除。",
   "ios.ui.dataFolder.removeConfirmTitle": "移除游戏数据目录？",
+  "ios.ui.dataUpdateExplanation": "游戏数据中的着色器缺失，或与此版本的 App 不匹配。请重新构建游戏，然后把新的 romfs.img 复制到此设备。",
   "ios.ui.dataUpdateNeeded": "需要更新数据",
   "ios.ui.decrease": "减小",
   "ios.ui.deleteGame": "删除游戏",

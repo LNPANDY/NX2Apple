@@ -15,6 +15,14 @@ import Testing
         #expect(state.explanation.contains("5.1 GB"))
     }
 
+    @Test func dataUpdateStatesSayWhatToDo() {
+        for stale in [false, true] {
+            let text = GameState.needsDataUpdate(staleChain: stale).explanation
+            #expect(text.contains("romfs.img"))
+        }
+        #expect(GameState.playable.explanation.isEmpty)
+    }
+
     @Test func padMergePersistsInShellSettingsStoreAndProducesDMPadMerge() {
         let defaults = TestDefaults.make("shellui-padmerge")
 
