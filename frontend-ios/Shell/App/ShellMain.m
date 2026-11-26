@@ -365,6 +365,9 @@ void dm_shell_return_to_library(void) {
         g_boot_ok = 0;
         g_engine_level = 0;
         if (fbase) restore_framework_data(fbase);
+        NSString *slog = [documents() stringByAppendingPathComponent:@"shell-log.txt"];
+        fflush(stderr);
+        if (freopen(slog.fileSystemRepresentation, "a", stderr)) setvbuf(stderr, NULL, _IOLBF, 0);
         [ShellLibrary gameDidEnd];
         UIWindow *window = shell_key_window();
         if (window && g_library_vc) {
@@ -380,9 +383,6 @@ void dm_shell_return_to_library(void) {
             }
         }
         [NSNotificationCenter.defaultCenter postNotificationName:@"DMShellDidReturnToLibrary" object:nil];
-        NSString *slog = [documents() stringByAppendingPathComponent:@"shell-log.txt"];
-        fflush(stderr);
-        if (freopen(slog.fileSystemRepresentation, "a", stderr)) setvbuf(stderr, NULL, _IOLBF, 0);
         fprintf(stderr, "shell: returned to library from %s\n", finished_exe);
     };
     if ([NSThread isMainThread]) work();
