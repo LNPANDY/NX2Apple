@@ -29,6 +29,8 @@ public enum BookmarkResolution: Equatable, Sendable {
     private let key: String
     private let scope: ScopeAccess
     nonisolated(unsafe) private var held: URL?
+    private var failedScopeData: Data?
+    private var failedScopePath: String?
 
     public convenience init(defaults: UserDefaults, key: String) {
         self.init(defaults: defaults, key: key, scope: .system)
@@ -57,6 +59,8 @@ public enum BookmarkResolution: Equatable, Sendable {
     /// Stores a bookmark for a URL the player just picked. False when the system refuses one or it does not resolve back.
     @discardableResult public func store(_ url: URL) -> Bool {
         releaseScope()
+        failedScopeData = nil
+        failedScopePath = nil
         // The scope the picker granted lasts while it is held, and a bookmark written without it stops resolving
         // from the next launch on. Keep the new scope open on success, or close it right away when storing fails.
         let accessed = scope.start(url)
@@ -65,11 +69,16 @@ public enum BookmarkResolution: Equatable, Sendable {
             return false
         }
         var stale = false
-        guard (try? URL(resolvingBookmarkData: data, options: Self.resolveOptions, relativeTo: nil, bookmarkDataIsStale: &stale)) != nil else {
+        guard let resolved = try? URL(resolvingBookmarkData: data, options: Self.resolveOptions, relativeTo: nil, bookmarkDataIsStale: &stale) else {
             if accessed { scope.stop(url) }
             return false
         }
-        if accessed { held = url }
+        if accessed {
+            held = url
+        } else {
+            failedScopeData = data
+            failedScopePath = resolved.path
+        }
         defaults.set(data, forKey: key)
         return true
     }
@@ -77,20 +86,35 @@ public enum BookmarkResolution: Equatable, Sendable {
     public func resolve() -> BookmarkResolution {
         guard let data = defaults.data(forKey: key), !data.isEmpty else {
             releaseScope()
+            failedScopeData = nil
+            failedScopePath = nil
             return .none
         }
         var stale = false
         guard let url = try? URL(resolvingBookmarkData: data, options: Self.resolveOptions, relativeTo: nil, bookmarkDataIsStale: &stale) else {
             releaseScope()
+            failedScopeData = nil
+            failedScopePath = nil
             return .stale
         }
         if held?.path != url.path { releaseScope() }
-        if held == nil {
+        let alreadyFailed = failedScopeData == data && failedScopePath == url.path
+        if held == nil && !alreadyFailed {
             let accessed = scope.start(url)
-            if accessed { held = url }
+            if accessed {
+                held = url
+                failedScopeData = nil
+                failedScopePath = nil
+            } else {
+                failedScopeData = data
+                failedScopePath = url.path
+            }
         }
         if stale, let again = try? url.bookmarkData(options: Self.createOptions, includingResourceValuesForKeys: nil, relativeTo: nil) {
             defaults.set(again, forKey: key)
+            if !alreadyFailed && held == nil {
+                failedScopeData = again
+            }
         }
         return .url(url)
     }
@@ -98,6 +122,8 @@ public enum BookmarkResolution: Equatable, Sendable {
     /// Forgets the choice.
     public func clear() {
         releaseScope()
+        failedScopeData = nil
+        failedScopePath = nil
         defaults.removeObject(forKey: key)
     }
 

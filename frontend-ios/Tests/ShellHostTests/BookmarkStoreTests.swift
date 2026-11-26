@@ -180,4 +180,64 @@ import Testing
         plainStore = nil
         #expect(unscoped.stops == 0, "must never call stopAccessingSecurityScopedResource when start returned false")
     }
+
+    @Test func repeatedResolveAfterFailedScopeStartDoesNotRetryStart() throws {
+        let box = try Sandbox()
+        let folderA = box.root.appendingPathComponent("Alpha", isDirectory: true)
+        let folderB = box.root.appendingPathComponent("Beta", isDirectory: true)
+        try FileManager.default.createDirectory(at: folderA, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: folderB, withIntermediateDirectories: true)
+
+        final class Counter: @unchecked Sendable {
+            var starts = 0
+            var stops = 0
+        }
+
+        let defaults = box.defaults(Fixtures.orbit)
+        let calls = Counter()
+        let store = BookmarkStore(
+            defaults: defaults,
+            key: BookmarkStore.gameDataKey,
+            scope: BookmarkStore.ScopeAccess(
+                start: { _ in
+                    calls.starts += 1
+                    return false
+                },
+                stop: { _ in
+                    calls.stops += 1
+                }
+            )
+        )
+
+        #expect(store.store(folderA))
+        #expect(calls.starts == 1)
+        for _ in 0..<5 {
+            guard case .url(let url) = store.resolve() else {
+                Issue.record("expected resolved URL even without security scope")
+                return
+            }
+            #expect(url.resolvingSymlinksInPath().path == folderA.resolvingSymlinksInPath().path)
+        }
+        #expect(calls.starts == 1, "repeated resolves of an unchanged unscoped bookmark must not spam scope.start")
+
+        #expect(store.store(folderB))
+        #expect(calls.starts == 2, "storing a new URL must retry scope.start")
+        for _ in 0..<3 {
+            _ = store.resolve()
+        }
+        #expect(calls.starts == 2)
+
+        store.clear()
+        #if os(macOS)
+        let createOptions: URL.BookmarkCreationOptions = [.withSecurityScope]
+        #else
+        let createOptions: URL.BookmarkCreationOptions = []
+        #endif
+        let externalData = try folderA.bookmarkData(options: createOptions, includingResourceValuesForKeys: nil, relativeTo: nil)
+        defaults.set(externalData, forKey: BookmarkStore.gameDataKey)
+        _ = store.resolve()
+        _ = store.resolve()
+        #expect(calls.starts == 3, "replacing bookmark data after clear must attempt scope.start once")
+        #expect(calls.stops == 0)
+    }
 }
