@@ -105,6 +105,7 @@ package struct CardGroup<Content: View>: View {
                 .onPreferenceChange(DSRowLeadingSlotKey.self) { reservesSlot = $0 }
                 .transformPreference(DSRowLeadingSlotKey.self) { $0 = false }   // the group's own, not the one around it
                 .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: DS.Radius.card))
+                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card))
                 .overlay(RoundedRectangle(cornerRadius: DS.Radius.card).strokeBorder(LauncherPalette.cardBorder))
             if !footnote.isEmpty {
                 Text(footnote).font(DS.Font.footnote).foregroundStyle(DS.Color.textSecondary).padding(.horizontal, DS.Space.xxs)
@@ -220,27 +221,60 @@ package struct CardDivider: View {
     }
 }
 
-/// A row that opens the rows under it.
+/// A row that opens the content under it: the whole row is the button, with a trailing chevron that rotates on open.
 package struct CardDisclosure: View {
+    @EnvironmentObject private var loc: Localizer
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let title: String
     let detail: String
     let isOpen: Bool
+    let hoverRadius: CGFloat
     let toggle: () -> Void
 
-    package init(_ title: String, detail: String = "", isOpen: Bool, toggle: @escaping () -> Void) {
+    package init(_ title: String, detail: String = "", isOpen: Bool, hoverRadius: CGFloat = 0, toggle: @escaping () -> Void) {
         self.title = title
         self.detail = detail
         self.isOpen = isOpen
+        self.hoverRadius = hoverRadius
         self.toggle = toggle
     }
 
     package var body: some View {
         Button(action: { withAnimation(LauncherMotion.animation(.easeInOut(duration: 0.18), reduceMotion: reduceMotion)) { toggle() } }) {
-            CardRow(title, detail: detail, open: isOpen) { EmptyView() }
-                .contentShape(Rectangle())
+            CardRow(title, detail: detail) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(DS.Color.symbolDefault)
+                    .rotationEffect(.degrees(isOpen ? 90 : 0))
+                    .accessibilityHidden(true)
+            }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .dsRowHover(radius: hoverRadius)
+        .launcherHover()
+        .accessibilityLabel(title)
+        .accessibilityValue([detail, loc.t(isOpen ? "onboarding.expanded" : "onboarding.collapsed")]
+            .filter { !$0.isEmpty }.joined(separator: ", "))
+    }
+}
+
+/// Expanded content under a `CardDisclosure`: shares the row's leading inset (`DSRowInset.title` when the group reserves a dot slot, else `DS.Space.m`).
+package struct CardDisclosureBody<Content: View>: View {
+    @Environment(\.dsRowReservesSlot) private var reservesSlot
+    let content: Content
+
+    package init(@ViewBuilder _ content: () -> Content) {
+        self.content = content()
+    }
+
+    package var body: some View {
+        content
+            .padding(.leading, reservesSlot ? DSRowInset.title : DS.Space.m)
+            .padding(.trailing, DS.Space.m)
+            .padding(.top, DS.Space.s)
+            .padding(.bottom, DS.Space.m)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

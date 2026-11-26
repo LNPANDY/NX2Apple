@@ -550,7 +550,7 @@ package struct ShellInstaller {
         outcome.shellUpdated = shellOutdated
         var notes = prepared.notes
         if shellOutdated {
-            notes.append(fmt("shell.updatedShell", deviceName))
+            notes.append(t("shell.updatedShell"))
         }
         return (outcome, notes)
     }

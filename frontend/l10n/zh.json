@@ -2799,7 +2799,7 @@
   "shell.step2Title": "用你自己的工具安装",
   "shell.step3Sub": "把游戏复制到设备上的应用，或复制到供 iPhone 使用的磁盘。",
   "shell.step3Title": "发送游戏数据",
-  "shell.updatedShell": "已为 %@ 更新游戏壳",
+  "shell.updatedShell": "已更新游戏壳",
   "shell.whereDevice": "设备",
   "shell.whereDrive": "磁盘或文件夹",
   "shellCache.busy": "正在构建或安装。完成后再移动缓存。",

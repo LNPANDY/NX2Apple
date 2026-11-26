@@ -2799,7 +2799,7 @@
   "shell.step2Title": "自分のツールでインストール",
   "shell.step3Sub": "デバイス上のアプリ、または iPhone 用のドライブにゲームをコピーします。",
   "shell.step3Title": "ゲームデータを送信",
-  "shell.updatedShell": "%@ のゲームシェルを更新しました",
+  "shell.updatedShell": "ゲームシェルを更新しました",
   "shell.whereDevice": "デバイス",
   "shell.whereDrive": "ドライブまたはフォルダ",
   "shellCache.busy": "ビルドかインストールを実行中です。完了してからキャッシュを移動してください。",

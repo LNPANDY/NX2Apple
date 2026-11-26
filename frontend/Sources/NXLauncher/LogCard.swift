@@ -30,11 +30,14 @@ package struct LogCard: View {
                 // The log below is the build's own output; the data transfer is driven by the app, so
                 // its questions and errors (a locked device, a failed listing) answer here, not in it.
                 Text(loc.t("log.transferNote")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 14).padding(.top, 2)
+                    .fixedSize(horizontal: false, vertical: true).padding(.horizontal, DS.Space.m).padding(.top, DS.Space.s)
             }
             CardDisclosure(loc.t("build.log"), isOpen: logOpen) { logOpen.toggle() }
-                .padTarget("set.build.log", scope: "main", radius: 0) { logOpen.toggle() }
-            if logOpen { BuildLogView(log: log, placeholder: loc.t("log.placeholder")).padding(.horizontal, 14).padding(.bottom, 14) }
+                .padTarget("set.build.log", scope: "main", radius: logOpen ? 0 : DS.Radius.card) { logOpen.toggle() }
+            if logOpen {
+                BuildLogView(log: log, placeholder: loc.t("log.placeholder"))
+                    .padding(.horizontal, DS.Space.m).padding(.bottom, DS.Space.m)
+            }
         }
         .onReceive(showRequests) { show in
             if show { logOpen = true; DispatchQueue.main.async { didShow() } }

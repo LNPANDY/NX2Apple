@@ -45,23 +45,16 @@ package struct OutcomeCard: View {
                         }
                     }
                 }
-                if build.needsReplaceOldImgReminder || status == .installed || status == .needsData {
-                    DSCard {
-                        VStack(alignment: .leading, spacing: DS.Space.s) {
-                            if build.needsReplaceOldImgReminder { replaceOldImgRow }
-                            if status == .installed || status == .needsData { guide }
-                        }
-                    }
+                if build.needsReplaceOldImgReminder {
+                    DSCard { replaceOldImgRow }
+                }
+                if status == .installed || status == .needsData {
+                    CardGroup("") { guide }
                 }
             }
         }
         if build.completionStatus == nil && build.done && build.runningTarget != BuildTarget.mac && build.needsReplaceOldImgReminder && build.installedOn.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                replaceOldImgRow
-            }
-            .padding(20).frame(maxWidth: .infinity, alignment: .leading)
-            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
+            DSCard { replaceOldImgRow }
         }
     }
 
@@ -70,15 +63,15 @@ package struct OutcomeCard: View {
         let imgName = build.updatedImgPath.isEmpty ? "romfs.img" : (build.updatedImgPath as NSString).lastPathComponent
         let titleText = isMSL ? loc.t("imgGuide.mslUpdateTitle") : loc.t("imgGuide.replaceOldImgTitle")
         let bodyText = isMSL ? loc.t("imgGuide.mslUpdateBody") : String(format: loc.t("imgGuide.replaceOldImgBody"), imgName)
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: DS.Space.s) {
             Circle().fill(LauncherPalette.building).frame(width: 7, height: 7).padding(.top, 5)
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: DS.Space.xxs) {
                 Text(titleText).font(DS.Font.bodyStrong)
                 Text(bodyText)
                     .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer(minLength: 8)
+            Spacer(minLength: DS.Space.xs)
             if !build.updatedImgPath.isEmpty {
                 Button(loc.t("install.reveal")) { revealInFinder(build.updatedImgPath) }
                     .buttonStyle(LauncherSecondaryButtonStyle())
@@ -94,7 +87,7 @@ package struct OutcomeCard: View {
         case .installed:
             let base = String(format: loc.t("dev.installed"), devices.deviceName(build.installedOn))
             let detail = build.shellUpdatedOnDevice
-                ? base + "\n" + String(format: loc.t("shell.updatedShell"), devices.deviceName(build.installedOn))
+                ? base + "\n" + loc.t("shell.updatedShell")
                 : base
             return .success(detail)
         case .exported:
@@ -136,20 +129,21 @@ package struct OutcomeCard: View {
     private func openDevice() {
         build.openOnDevice(udid: build.installedOn, app: build.installedAppPath) { if let error = $0 { openError = error } }
     }
-    private var guide: some View {
-        VStack(spacing: 14) {
-            CardDisclosure(loc.t("dev.firstInstallGuide.title"), isOpen: trustGuideOpen) { trustGuideOpen.toggle() }
-                .padTarget("set.build.done.guide", scope: "main") { trustGuideOpen.toggle() }
-            if trustGuideOpen {
-                VStack(alignment: .leading, spacing: 14) {
+    @ViewBuilder private var guide: some View {
+        CardDisclosure(loc.t("dev.firstInstallGuide.title"), isOpen: trustGuideOpen) { trustGuideOpen.toggle() }
+            .padTarget("set.build.done.guide", scope: "main", radius: trustGuideOpen ? 0 : DS.Radius.card) { trustGuideOpen.toggle() }
+        if trustGuideOpen {
+            CardDivider()
+            CardDisclosureBody {
+                VStack(alignment: .leading, spacing: DS.Space.s) {
                     guideStep("dev.firstInstallGuide.devModeTitle", "dev.firstInstallGuide.devModeBody")
                     guideStep("dev.firstInstallGuide.trustTitle", "dev.firstInstallGuide.trustBody")
-                }.padding(.horizontal, 18)
+                }
             }
         }
     }
     private func guideStep(_ title: String, _ body: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: DS.Space.xxs) {
             Text(loc.t(title)).font(DS.Font.bodyStrong)
             Text(loc.t(body)).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
         }.frame(maxWidth: .infinity, alignment: .leading)

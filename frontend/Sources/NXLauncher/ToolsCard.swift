@@ -149,7 +149,7 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View, Ups
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain).dsRowHover(radius: 0)
+            .buttonStyle(.plain).dsRowHover(radius: 0).launcherHover()
             .accessibilityValue(loc.t(dependencies.open ? "onboarding.expanded" : "onboarding.collapsed"))
             .padTarget("set.deps.expand", scope: "main", radius: 0) { dependencies.toggle() }
             if dependencies.open {

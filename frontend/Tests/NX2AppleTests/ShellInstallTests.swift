@@ -1738,7 +1738,7 @@ import NXModel
         XCTAssertEqual(recordedCalls.filter { $0.hasPrefix("xcodebuild") }.count, 1, "fast refresh with incompatible beacon must rebuild full shell")
         XCTAssertEqual(recordedCalls.filter { $0.hasPrefix("devicectl device install app") }.count, 1)
         XCTAssertTrue(model.shellUpdatedOnDevice)
-        XCTAssertTrue(model.doneNote.contains("已为 iPhone 更新游戏壳"), model.doneNote)
+        XCTAssertEqual(model.doneNote, "已安装到 iPhone，游戏文件未传输\n已更新游戏壳")
     }
 
     @MainActor func testResignWithOutdatedDeviceBeaconOrStaleProjectStampUpgradesShellAndReportsNote() throws {
@@ -1772,8 +1772,7 @@ import NXModel
 
         XCTAssertFalse(fm.fileExists(atPath: marker), "resign with outdated device shell must regenerate shell project")
         XCTAssertTrue(model.shellUpdatedOnDevice)
-        XCTAssertTrue(model.doneNote.contains("已续签并安装到 iPhone"), model.doneNote)
-        XCTAssertTrue(model.doneNote.contains("已为 iPhone 更新游戏壳"), model.doneNote)
+        XCTAssertEqual(model.doneNote, "已续签并安装到 iPhone\n已更新游戏壳")
         let callsA = try String(contentsOfFile: state + "/calls.txt", encoding: .utf8).split(separator: "\n").map(String.init)
         XCTAssertEqual(callsA.filter { $0.hasPrefix("xcodebuild") }.count, 1)
         XCTAssertEqual(callsA.filter { $0.hasPrefix("devicectl device install app") }.count, 1)
@@ -1788,8 +1787,7 @@ import NXModel
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: ShellHotInstall.projectStampFile(root: f.root)))
         XCTAssertTrue(model.shellUpdatedOnDevice)
-        XCTAssertTrue(model.doneNote.contains("Re-signed and installed on iPhone"), model.doneNote)
-        XCTAssertTrue(model.doneNote.contains("Updated the game shell on iPhone"), model.doneNote)
+        XCTAssertEqual(model.doneNote, "Re-signed and installed on iPhone\nGame shell updated")
 
         // Scenario C: up-to-date stamp and matching device beacon -> plain resign without regenerating project or showing shell-updated note.
         let currentBeacon = """

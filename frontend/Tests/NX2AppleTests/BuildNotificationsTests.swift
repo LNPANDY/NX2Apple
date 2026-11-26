@@ -38,9 +38,11 @@ import NXModel
         let zh = BuildNotice.text(.failed(reason: ""), game: "Hades", target: "mac-app", device: nil) { L10n.string($0, .zh) }
         XCTAssertTrue(zh.title.contains("Hades") && !zh.title.contains("notify.") && !zh.body.contains("notify."), zh.title)
         let updatedEn = BuildNotice.text(.finished, game: "Hades", target: "ios", device: "iPhone", en, shellUpdated: true)
-        XCTAssertEqual(updatedEn.body, "Installed on iPhone\nUpdated the game shell on iPhone")
+        XCTAssertEqual(updatedEn.body, "Installed on iPhone\nGame shell updated")
+        let updatedNoDevice = BuildNotice.text(.finished, game: "Hades", target: "ios", device: nil, en, shellUpdated: true)
+        XCTAssertEqual(updatedNoDevice.body, "For iOS\nGame shell updated")
         let updatedZh = BuildNotice.text(.finished, game: "Hades", target: "ios", device: "iPhone", { L10n.string($0, .zh) }, shellUpdated: true)
-        XCTAssertTrue(updatedZh.body.contains("已为 iPhone 更新游戏壳"), updatedZh.body)
+        XCTAssertEqual(updatedZh.body, "已安装到 iPhone\n已更新游戏壳")
     }
 
     func testAFailedBuildEndsWithAFailureNotice() {

@@ -99,10 +99,7 @@ struct BuildPage: View {
                 if !standaloneOperationActive {
                     CardGroup("") {
                         CardDisclosure(loc.t("section.setup"), detail: build.gameName, isOpen: showRunningSetup) { showRunningSetup.toggle() }
-                            .accessibilityLabel(loc.t("section.setup"))
-                            .accessibilityValue([build.gameName, loc.t(showRunningSetup ? "onboarding.expanded" : "onboarding.collapsed")]
-                                .filter { !$0.isEmpty }.joined(separator: ", "))
-                            .padTarget("set.build.runningSetup", scope: "main") { showRunningSetup.toggle() }
+                            .padTarget("set.build.runningSetup", scope: "main", radius: DS.Radius.card) { showRunningSetup.toggle() }
                     }
                     .onDisappear { showRunningSetup = false }
                 }

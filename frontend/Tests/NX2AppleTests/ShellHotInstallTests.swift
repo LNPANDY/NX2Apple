@@ -464,7 +464,8 @@ import XCTest
         XCTAssertTrue(singleOut.shellUpdated)
         XCTAssertEqual(calls.filter { $0.hasPrefix("xcodebuild") }.count, 1)
         XCTAssertEqual(calls.filter { $0.hasPrefix("devicectl device install app") }.count, 1)
-        XCTAssertTrue(singleOut.message.contains("已为 iPhone 更新游戏壳"), singleOut.message)
+        XCTAssertTrue(singleOut.message.contains("已更新游戏壳"), singleOut.message)
+        XCTAssertEqual(singleOut.message.components(separatedBy: "iPhone").count - 1, 1, singleOut.message)
 
         // Multi-game installBatch with mismatched chain beacon -> full xcodebuild + devicectl install app, single beacon check, EN update note.
         inst.lang = .en
@@ -480,7 +481,8 @@ import XCTest
         XCTAssertEqual(calls.filter { $0.hasPrefix("devicectl device install app") }.count, 1)
         XCTAssertEqual(calls.filter { $0.contains(ShellHotInstall.beaconRemotePath) }.count, 1,
                        "installBatch must check device beacon once before falling back to full build")
-        XCTAssertTrue(batchOut.message.contains("Updated the game shell on iPhone"), batchOut.message)
+        XCTAssertTrue(batchOut.message.contains("Game shell updated"), batchOut.message)
+        XCTAssertEqual(batchOut.message.components(separatedBy: "iPhone").count - 1, 1, batchOut.message)
 
         // Disallowed or missing hot-push privilege (e.g. non-dev .p12/distribution shell without get-task-allow) must also
         // forbid pushing into Documents/Frameworks and fall back to a full app bundle install across single & batch paths.
