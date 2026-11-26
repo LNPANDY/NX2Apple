@@ -126,4 +126,60 @@ import ShellUI
         #expect(try fpsValue() == "1")
         #expect(try !detail().hasModifiedSettings)
     }
+
+    @Test func cheatsMenuTextEncodesEveryFieldAcrossLocales() throws {
+        for code in ["en", "zh-Hans", "ja", "de"] {
+            let lprojURL = try #require(HostStrings.bundle.url(forResource: code, withExtension: "lproj"))
+            let bundle = try #require(Bundle(url: lprojURL))
+            let encoded = try #require(ShellCheatsMenuText.encode(bundle: bundle))
+            let decoded = try JSONDecoder().decode(ShellCheatsMenuText.self, from: Data(encoded.utf8))
+            let mirror = Mirror(reflecting: decoded)
+            #expect(mirror.children.count == 38)
+            for child in mirror.children {
+                let value = try #require(child.value as? String)
+                #expect(!value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            if code == "zh-Hans" {
+                #expect(decoded.cheatsTitle == "金手指")
+                #expect(decoded.scannerTitle == "内存数值搜索")
+            } else if code == "en" {
+                #expect(decoded.cheatsTitle == "Cheats")
+                #expect(decoded.scannerTitle == "Memory Scanner")
+            }
+        }
+    }
+
+    @Test func returnToLibraryRefreshesCheatsSummarySavedInGame() async throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        let shell = ShellSettingsStore(defaults: TestDefaults.make("t-cheats-menu"))
+        let launcher = RecordingLauncher()
+        let model = ShellHostModel(config: box.config(), launcher: launcher, shellSettings: shell)
+        await model.waitForDataChecks()
+
+        await model.playNow(Fixtures.orbit)
+        let launch = try #require(launcher.launched.last)
+        let encoded = try #require(launch.environment["DM_CHEATS_MENU_TEXT"])
+        let decoded = try JSONDecoder().decode(ShellCheatsMenuText.self, from: Data(encoded.utf8))
+        #expect(!decoded.cheatsTitle.isEmpty)
+
+        // Simulate the in-game scanner appending a cheat file while running.
+        let cheatsDir = box.appData.appendingPathComponent(Fixtures.orbit).appendingPathComponent("cheats")
+        try FileManager.default.createDirectory(at: cheatsDir, withIntermediateDirectories: true)
+        try "[Scan 999]\n04100000 00001234 000003E7\n".write(
+            to: cheatsDir.appendingPathComponent("0123456789ABCDEF.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        NotificationCenter.default.post(name: ShellHostModel.didReturnToLibraryNotification, object: nil)
+        func detail() throws -> GameDetail {
+            try #require(model.details.first { $0.id == Fixtures.orbit })
+        }
+        for _ in 0..<50 where (try? detail().cheatsSummary?.totalCount) != 1 {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let summary = try #require(try detail().cheatsSummary)
+        #expect(summary.totalCount == 1)
+    }
 }

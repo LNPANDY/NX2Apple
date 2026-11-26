@@ -1780,6 +1780,7 @@ public struct ShellHostConfig: Sendable {
         stoppingRunningGame = false
         refreshSettingsAfterGameReturn()
         startBackupScan()
+        startCheatsSummaryScan()
         if let queued = queuedDeepLinkRequest {
             queuedDeepLinkRequest = nil
             pendingDeepLinkSuccessURL = nil
@@ -2232,6 +2233,9 @@ public struct ShellHostConfig: Sendable {
         env["DM_HOME_QUIT_TEXT"] = Self.quitPromptText(gameName: entry(id)?.title ?? id)
         // The in-game menu's own words (patch 0124), as the Mac's build bakes them into a game's own app.
         env["DM_GAME_MENU_TEXT"] = Self.gameMenuText
+        if let cheatsMenuText = ShellCheatsMenuText.encode() {
+            env["DM_CHEATS_MENU_TEXT"] = cheatsMenuText
+        }
         if let shellMenu = ShellInGameMenu.encode(profile: profile, titleID: id, shellDefaults: shellSettings.gameDefaults, envFileOverrides: envOverrides) {
             env["DM_SHELL_MENU"] = shellMenu
         }

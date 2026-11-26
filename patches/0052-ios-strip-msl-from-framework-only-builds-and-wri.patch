@@ -13,7 +13,7 @@ Issue: LNPANDY/NX2Apple
  2 files changed, 229 insertions(+), 29 deletions(-)
 
 diff --git a/dm/ios/tests/test_framework_build.py b/dm/ios/tests/test_framework_build.py
-index e86c3e9..00995f7 100644
+index e86c3e9..da83230 100644
 --- a/dm/ios/tests/test_framework_build.py
 +++ b/dm/ios/tests/test_framework_build.py
 @@ -7,19 +7,22 @@ Four parts, each on synthetic inputs, no game files or Xcode:
@@ -88,7 +88,7 @@ index e86c3e9..00995f7 100644
 +                    (root / rel).mkdir(parents=True, exist_ok=True)
 +                for stub in ('Gen/dm.xcconfig', 'Gen/framework.xcconfig', 'Gen/embed.S', 'Gen/main/main.c',
 +                             'framework/DmGameMarker.m', 'framework/ShellGlue.m', 'Sources/front_ios.m', 'Sources/DmGamepad.m',
-+                             'Sources/GameMenu.swift', 'Sources/LauncherSettings.swift', 'Sources/CloudSaves.m',
++                             'Sources/GameMenu.swift', 'Sources/GameMenuCheats.swift', 'Sources/LauncherSettings.swift', 'Sources/CloudSaves.m',
 +                             'Sources/DataBookmark.m', 'Gen/framework/profile.tsv',
 +                             'Gen/framework/game.manifest.json', 'Gen/framework/objc_namespace.h', 'Gen/framework/exported_symbols.txt'):
 +                    (root / stub).write_text('')
@@ -357,3 +357,6 @@ index a7e3cc5..daf3ddc 100755
    "${DM_PYTHON:-python3}" -c 'import json, sys; m = json.load(open(sys.argv[1])); sys.exit(m["framework_executable"] != sys.argv[2])' "$OUTFW/game.manifest.json" "$FW_NAME" \
      || die "$OUTFW/game.manifest.json does not name $FW_NAME"
    t "done: $OUTFW ($(du -sh "$OUTFW" | cut -f1); build_shell.sh embeds it in the shell)"
+-- 
+2.54.0 (Apple Git-157)
+
