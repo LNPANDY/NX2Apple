@@ -34,17 +34,52 @@ package struct NxkitFeedbackPrompt: Equatable, Identifiable, Sendable {
     package var engineBuild: String
     package var exitCode: Int32?
     package var log: String
+    package var appPath: String
+    package var since: Date?
 
     package init(buildID: String, moment: Moment, titleID: String, gameName: String, gameVersion: String, nxkitVersion: String,
-                 engineBuild: String, exitCode: Int32? = nil, log: String = "") {
+                 engineBuild: String, exitCode: Int32? = nil, log: String = "", appPath: String = "", since: Date? = nil) {
         self.buildID = buildID; self.moment = moment; self.titleID = titleID; self.gameName = gameName; self.gameVersion = gameVersion
         self.nxkitVersion = nxkitVersion; self.engineBuild = engineBuild; self.exitCode = exitCode; self.log = log
+        self.appPath = appPath; self.since = since
     }
 
     /// The report the answer opens. A failed build is always "Does not start".
-    package func report(_ result: NxkitFeedback.Result) -> NxkitFeedback.Report {
-        NxkitFeedback.Report(gameName: gameName, titleID: titleID, gameVersion: gameVersion.isEmpty ? "unknown" : gameVersion, nxkitVersion: nxkitVersion,
-                             engineBuild: engineBuild, result: moment == .failed ? .doesNotStart : result, exitCode: exitCode, log: log)
+    /// When the build log is empty or when reporting a post-build runtime failure, attaches runtime logs (`last-error.log`,
+    /// per-game host log, and newest matching `.ips` crash summary) if available.
+    package func report(
+        _ result: NxkitFeedback.Result,
+        runtimeLog: (_ titleID: String, _ appPath: String, _ since: Date?) -> String = { titleID, appPath, since in
+            NxkitRuntimeLog.collect(titleID: titleID, appPath: appPath, since: since)
+        }
+    ) -> NxkitFeedback.Report {
+        let effectiveResult: NxkitFeedback.Result = moment == .failed ? .doesNotStart : result
+        let resolvedLog = resolvedReportLog(for: effectiveResult, runtimeLog: runtimeLog)
+        return NxkitFeedback.Report(
+            gameName: gameName,
+            titleID: titleID,
+            gameVersion: gameVersion.isEmpty ? "unknown" : gameVersion,
+            nxkitVersion: nxkitVersion,
+            engineBuild: engineBuild,
+            result: effectiveResult,
+            exitCode: exitCode,
+            log: resolvedLog
+        )
+    }
+
+    private func resolvedReportLog(
+        for effectiveResult: NxkitFeedback.Result,
+        runtimeLog: (_ titleID: String, _ appPath: String, _ since: Date?) -> String
+    ) -> String {
+        let hasBuildLog = !log.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if !hasBuildLog {
+            guard moment == .failed || effectiveResult != .works else { return log }
+            return runtimeLog(titleID, appPath, since)
+        }
+        guard moment == .built, effectiveResult != .works else { return log }
+        let runtime = runtimeLog(titleID, appPath, since)
+        guard !runtime.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return log }
+        return log + "\n" + runtime
     }
 }
 
@@ -280,19 +315,21 @@ extension BuildStore {
 
     /// The Mac app is in place: the game remembers that nxkit built it, and the question is asked.
     func finishNxkitBuild(app: URL) {
+        let builtAt = Date()
         let version = (try? MacGameBundle.read(app))?.version ?? ""
         if let tid = gameTitleID ?? (try? MacGameBundle.read(app))?.titleID, let sel = nxkitRunSelection {
             var records = nxkitRecords
-            records[tid.uppercased()] = NxkitBuildRecord(version: sel.version, hostBuild: sel.hostBuild, buildID: nxkitBuildID, date: Date())
+            records[tid.uppercased()] = NxkitBuildRecord(version: sel.version, hostBuild: sel.hostBuild, buildID: nxkitBuildID, date: builtAt)
             nxkitRecords = records
         }
-        askNxkitFeedback(.built, gameVersion: version, exitCode: 0)
+        askNxkitFeedback(.built, gameVersion: version, exitCode: 0, appPath: app.path, since: builtAt)
     }
 
-    func askNxkitFeedback(_ moment: NxkitFeedbackPrompt.Moment, gameVersion: String, exitCode: Int32?) {
+    func askNxkitFeedback(_ moment: NxkitFeedbackPrompt.Moment, gameVersion: String, exitCode: Int32?, appPath: String = "", since: Date? = nil) {
         guard let sel = nxkitRunSelection, !nxkitBuildID.isEmpty, !nxkitFeedbackAsked(nxkitBuildID + "." + moment.rawValue) else { return }
         nxkitFeedback = NxkitFeedbackPrompt(buildID: nxkitBuildID, moment: moment, titleID: (gameTitleID ?? buildKey).uppercased(), gameName: gameName,
-                                            gameVersion: gameVersion, nxkitVersion: sel.version, engineBuild: sel.hostBuild, exitCode: exitCode, log: logTail)
+                                            gameVersion: gameVersion, nxkitVersion: sel.version, engineBuild: sel.hostBuild, exitCode: exitCode, log: logTail,
+                                            appPath: appPath, since: since)
     }
 
     // MARK: What the launcher keeps

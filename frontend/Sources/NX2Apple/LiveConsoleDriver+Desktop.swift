@@ -157,6 +157,19 @@ extension LiveConsoleDriver {
 
     /// Report for a game nxkit built without a game profile: the prefilled issue in the browser, nothing is sent by itself.
     func openGenericBuildReport(_ gameID: String) {
+        if let game = libraryGame(gameID), game.isReady, let app = game.playableMacBundle, app.upstream == .nxkit,
+           let profile = NxkitBuildProfile.read(app: game.appPath) {
+            let runtimeLog = NxkitRuntimeLog.collect(titleID: game.titleID, appPath: game.appPath)
+            let url = NxkitFeedback.genericBuildReportURL(
+                gameName: game.displayName(lang()),
+                titleID: game.titleID,
+                gameVersion: app.version ?? "",
+                nxkitVersion: profile.nxkitVersion ?? nxkitVersion(game.titleID) ?? "",
+                log: runtimeLog
+            )
+            openURL(url)
+            return
+        }
         guard let url = state.games.first(where: { $0.id == gameID })?.genericReport else { return }
         openURL(url)
     }
