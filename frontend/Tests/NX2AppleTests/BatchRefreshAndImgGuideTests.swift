@@ -154,7 +154,10 @@ import XCTest
             settle()
             XCTAssertNotNil(pad.frame(of: entrypoint))
             pad.show(default: entrypoint); pad.activate(); settle()
-            if entrypoint == "hero.rebuildAll" {
+            if entrypoint == "hero.rebuild" {
+                XCTAssertEqual(pad.scope, "dropdown")
+                pad.activate(); settle()
+            } else if entrypoint == "hero.rebuildAll" {
                 XCTAssertEqual(pad.scope, "batchRefresh")
                 pad.focused = "batchRefresh.confirm"
                 XCTAssertNotNil(pad.frame(of: "batchRefresh.confirm"))
@@ -761,5 +764,399 @@ import XCTest
         XCTAssertEqual(stores.queue.entries.count, 1)
         XCTAssertTrue(stores.queue.entries[0].fastRefresh)
         XCTAssertTrue(stores.queue.entries[0].rebuildsShaders)
+    }
+
+    private func makeValidRomfsImage(at path: String, titleID: String = "0100A00100001000", payload: String = "mac-ios-shared-romfs-payload") throws -> String {
+        let payloadData = Data(payload.utf8)
+        let ioff: UInt64 = 32
+        let isz = UInt64(payloadData.count)
+        var bytes = Data("DMROMFS1".utf8)
+        bytes.append(contentsOf: withUnsafeBytes(of: ioff.littleEndian, Array.init))
+        bytes.append(contentsOf: withUnsafeBytes(of: isz.littleEndian, Array.init))
+        bytes.append(contentsOf: withUnsafeBytes(of: UInt64(0).littleEndian, Array.init))
+        bytes.append(payloadData)
+        let url = URL(fileURLWithPath: path)
+        try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try bytes.write(to: url)
+        let ident = try XCTUnwrap(RomfsImageIdentity.computeIdentity(of: path))
+        return "DMROMFSID1 title=\(titleID) size=\(ident.size) index=\(String(format: "%016llx", ident.index))"
+    }
+
+    @MainActor func testBatchRefreshRecoverOnlyIOSNeverEnqueuesMacAndValidatesMacAppImg() throws {
+        let stores = makeStores()
+        let tid = "0100A00100001000"
+        let outDir = temporary.appendingPathComponent("batch-ios-only-out")
+        try fm.createDirectory(at: outDir, withIntermediateDirectories: true)
+
+        var game = LibraryGame(titleID: tid, name: "SharedRomfsGame")
+        game.appPath = try makeMacApp(titleID: tid, name: "SharedRomfsGame")
+        game.hasShellFramework = true
+        game.outputDirectory = outDir.path
+        let macImgPath = (game.appPath as NSString).appendingPathComponent("Contents/Resources/romfs.img")
+        let expectedIdentity = try makeValidRomfsImage(at: macImgPath, titleID: tid)
+
+        // Verify direct Mac romfs.img discovery & identity match without DMMSLTR1 trailer
+        XCTAssertEqual(
+            MissingImgGuideSheet.matchingMacAppRomfsPath(for: game, expectedIdentity: expectedIdentity),
+            macImgPath
+        )
+
+        let assess = GameRefreshAssessment(
+            heroState: .specificFull(version: "1.5.1"),
+            hasSpecificUpdate: true,
+            versionLabel: "1.5.1",
+            canFastRefreshMac: true,
+            canFastRefreshIOS: false,
+            needsMissingImgGuideIOS: true,
+            missingOriginalPackage: true,
+            hasUsableSeed: true,
+            expectedRomfsIdentity: expectedIdentity
+        )
+        let library = GameLibrary(file: temporary.appendingPathComponent("lib-ios-only.json"))
+        library.upsert(game)
+        let toolsAge = ToolsAge(older: [game.id], assessments: [game.id: assess])
+        let pad = PadFocus()
+        var recoveredContext: MissingImgGuideContext?
+
+        let sheet = BatchRefreshSheet(
+            library: library,
+            toolsAge: toolsAge,
+            stores: stores,
+            appVersion: "1.5.1",
+            onConfirmed: {},
+            close: {},
+            recoverImage: { recoveredContext = $0 }
+        )
+        let host = NSHostingView(rootView: sheet.environmentObject(stores.localizer).environmentObject(pad))
+        let win = OffscreenWindow(size: NSSize(width: 680, height: 600))
+        win.contentView = host
+        win.orderFront(nil)
+        defer { win.orderOut(nil); win.contentView = nil; win.close() }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        host.layoutSubtreeIfNeeded()
+
+        // Uncheck Mac, keep only iOS checked, then click "Choose existing .img…"
+        let macPillID = "batchRefresh.platform.mac.\(game.id.uuidString)"
+        let recoverID = "batchRefresh.recover.\(game.id.uuidString)"
+        XCTAssertNotNil(pad.frame(of: macPillID))
+        XCTAssertNotNil(pad.frame(of: recoverID))
+        pad.focused = macPillID
+        pad.activate()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+
+        pad.focused = recoverID
+        pad.activate()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+
+        let ctx = try XCTUnwrap(recoveredContext)
+        XCTAssertEqual(ctx.targets, [BuildTarget.ios], "Only iOS checked must not carry .mac target into MissingImgGuideContext")
+        XCTAssertEqual(BatchRefreshSheet.recoverTargets(macChecked: false, iosChecked: false), [BuildTarget.ios])
+
+        // Mount MissingImgGuideSheet, click the Mac app .img reuse button, and verify only iOS is enqueued
+        var resolvedPath: String?
+        let guideView = MissingImgGuideSheet(
+            context: ctx,
+            stores: stores,
+            devices: stores.deviceStore,
+            libraryFolder: library.folder,
+            onResolvedImg: { resolvedPath = $0 },
+            onFallbackFullRebuild: {},
+            close: {}
+        )
+        let guideHost = NSHostingView(rootView: guideView.environmentObject(stores.localizer).environmentObject(pad))
+        let guideWin = OffscreenWindow(size: NSSize(width: 680, height: 600))
+        guideWin.contentView = guideHost
+        guideWin.orderFront(nil)
+        defer { guideWin.orderOut(nil); guideWin.contentView = nil; guideWin.close() }
+        let deadline = Date().addingTimeInterval(2.5)
+        while pad.frame(of: "imgGuide.useMacAppImg") == nil && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+            guideHost.layoutSubtreeIfNeeded()
+        }
+
+        XCTAssertNotNil(pad.frame(of: "imgGuide.useMacAppImg"))
+        pad.focused = "imgGuide.useMacAppImg"
+        pad.activate()
+        let resolveDeadline = Date().addingTimeInterval(2.5)
+        while resolvedPath == nil && Date() < resolveDeadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+        XCTAssertEqual(resolvedPath, macImgPath)
+
+        var page = LauncherPage.library
+        var editorOpen = false
+        var editingResult = false
+        var step = 0
+        enqueueSingleFromImgGuide(
+            context: ctx,
+            externalIOSImgPath: resolvedPath,
+            forceFullIOSRebuild: false,
+            stores: stores,
+            libraryFolder: library.folder,
+            page: Binding(get: { page }, set: { page = $0 }),
+            buildEditorOpen: Binding(get: { editorOpen }, set: { editorOpen = $0 }),
+            editingBuildResult: Binding(get: { editingResult }, set: { editingResult = $0 }),
+            buildStep: Binding(get: { step }, set: { step = $0 })
+        )
+        XCTAssertEqual(stores.queue.entries.map(\.target), [BuildTarget.ios])
+        XCTAssertEqual(stores.queue.entries.first?.externalImgPath, macImgPath)
+    }
+
+    @MainActor func testHeroDualPlatformDropdownRoutesMacOnlyIOSOnlyAndSingleDirect() throws {
+        let stores = makeStores()
+        let repo = temporary.appendingPathComponent(UUID().uuidString)
+        let marker = repo.appendingPathComponent(EngineLayout.marker)
+        try fm.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: marker)
+        stores.repo.path = repo.path
+        stores.dependencies.checked = true
+        stores.dependencies.deps = [Dep(id: "xcode", name: "dep.xcode", hint: "", present: true, installCmd: [])]
+
+        let tidDual = "0100B00200001000"
+        var dualGame = LibraryGame(titleID: tidDual, name: "Dual Hero Game")
+        dualGame.appPath = try makeMacApp(titleID: tidDual, name: "Dual Hero Game")
+        dualGame.hasShellFramework = true
+        let assess = GameRefreshAssessment(
+            heroState: .specificFull(version: "1.5.1"),
+            hasSpecificUpdate: true,
+            versionLabel: "1.5.1",
+            canFastRefreshMac: true,
+            canFastRefreshIOS: false,
+            needsMissingImgGuideIOS: true,
+            missingOriginalPackage: true,
+            hasUsableSeed: true
+        )
+
+        let library = GameLibrary(file: repo.appendingPathComponent("library-dual.json"))
+        library.upsert(dualGame)
+        library.selectedID = dualGame.id
+        let pad = PadFocus()
+        let dropdowns = LauncherDropdownState()
+        let host = NSHostingView(rootView: LauncherView(
+            stores: stores,
+            library: library,
+            performStartupChecks: false,
+            olderTools: [dualGame.id],
+            toolsAssessments: [dualGame.id: assess],
+            padFocus: pad,
+            dropdowns: dropdowns,
+            artworkStore: makeArtworkStore()
+        ))
+        let win = OffscreenWindow(size: .init(width: 1400, height: 900))
+        win.contentView = host
+        win.orderFront(nil)
+        defer { win.orderOut(nil); win.contentView = nil; win.close() }
+        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.25)) }
+        settle()
+
+        // 1. Clicking hero.rebuild on dual-platform opens platform dropdown instead of immediate queue
+        XCTAssertNotNil(pad.frame(of: "hero.rebuild"))
+        pad.show(default: "hero.rebuild"); pad.activate(); settle()
+        let req = try XCTUnwrap(dropdowns.request)
+        XCTAssertEqual(req.options.map(\.value), ["both", "macOnly", "iosOnly"])
+        XCTAssertTrue(stores.queue.entries.isEmpty)
+
+        // 2. Selecting "macOnly" skips MissingImgGuideSheet and enqueues only Mac
+        req.choose("macOnly"); settle()
+        XCTAssertEqual(stores.queue.entries.map(\.target), [BuildTarget.mac])
+        stores.queue.prepareForRefreshBatch()
+
+        // 3. Single-platform Mac game goes directly without opening dropdown
+        let tidMac = "0100B00200002000"
+        var macOnlyGame = LibraryGame(titleID: tidMac, name: "Mac Only Game")
+        macOnlyGame.appPath = try makeMacApp(titleID: tidMac, name: "Mac Only Game")
+        let singleAssess = GameRefreshAssessment(
+            heroState: .specificFast(version: "1.5.1"),
+            hasSpecificUpdate: true,
+            versionLabel: "1.5.1",
+            canFastRefreshMac: true,
+            canFastRefreshIOS: false,
+            needsMissingImgGuideIOS: false,
+            missingOriginalPackage: true,
+            hasUsableSeed: true
+        )
+        let singleLib = GameLibrary(file: repo.appendingPathComponent("library-single.json"))
+        singleLib.upsert(macOnlyGame)
+        singleLib.selectedID = macOnlyGame.id
+        let singleDropdowns = LauncherDropdownState()
+        let singlePad = PadFocus()
+        let singleHost = NSHostingView(rootView: LauncherView(
+            stores: stores,
+            library: singleLib,
+            performStartupChecks: false,
+            olderTools: [macOnlyGame.id],
+            toolsAssessments: [macOnlyGame.id: singleAssess],
+            padFocus: singlePad,
+            dropdowns: singleDropdowns,
+            artworkStore: makeArtworkStore()
+        ))
+        let singleWin = OffscreenWindow(size: .init(width: 1400, height: 900))
+        singleWin.contentView = singleHost
+        singleWin.orderFront(nil)
+        defer { singleWin.orderOut(nil); singleWin.contentView = nil; singleWin.close() }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.25))
+        singlePad.show(default: "hero.rebuild"); singlePad.activate()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.25))
+        XCTAssertNil(singleDropdowns.request, "Single-platform hero refresh must go straight without dropdown")
+        XCTAssertEqual(stores.queue.entries.map(\.target), [BuildTarget.mac])
+        stores.queue.prepareForRefreshBatch()
+
+        // 4. Dual-platform iOS-only queue builder filters out Mac strictly
+        let entriesIOS: [QueueEntry] = RefreshQueueBuilder.singleGameEntries(
+            for: dualGame,
+            assessment: assess,
+            externalIOSImgPath: "/tmp/manual.img",
+            stores: stores,
+            libraryFolder: library.folder,
+            targets: [BuildTarget.ios]
+        )
+        XCTAssertEqual(entriesIOS.map { $0.target }, [BuildTarget.ios])
+        XCTAssertEqual(entriesIOS.first?.externalImgPath, "/tmp/manual.img")
+    }
+
+    @MainActor func testManageMenuAndRebuildModeSupportSeedAndMacImgWithoutOriginalPackage() throws {
+        let stores = makeStores()
+        let tid = "0100C00300001000"
+        let outDir = temporary.appendingPathComponent("rebuild-mode-out")
+        try fm.createDirectory(at: outDir, withIntermediateDirectories: true)
+
+        var game = LibraryGame(titleID: tid, name: "NoNSPRebuildGame")
+        game.appPath = try makeMacApp(titleID: tid, name: "NoNSPRebuildGame")
+        game.hasShellFramework = true
+        game.outputDirectory = outDir.path
+        let macImgPath = (game.appPath as NSString).appendingPathComponent("Contents/Resources/romfs.img")
+        let expectedIdentity = try makeValidRomfsImage(at: macImgPath, titleID: tid)
+
+        // Create complete usable seed on disk matching BuildSeedCache.inspect
+        let seedDir = BuildSeedCache.seedDirectory(for: tid, seedRoot: stores.build.seedCacheRoot)
+        try fm.createDirectory(atPath: seedDir + "/ExeFS", withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: seedDir + "/shader/pkg", withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: seedDir + "/shader/ios", withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: seedDir + "/shader/tables", withIntermediateDirectories: true)
+        try Data("main".utf8).write(to: URL(fileURLWithPath: seedDir + "/ExeFS/main"))
+        try Data().write(to: URL(fileURLWithPath: seedDir + "/shader/tables/c1_full.tsv"))
+        try Data().write(to: URL(fileURLWithPath: seedDir + "/shader/tables/cb_extent.tsv"))
+        try """
+        {"schema_version": 2, "title_id": "\(tid)", "build_flags": {}, "romfs_identity": "\(expectedIdentity)", "key_files": []}
+        """.write(toFile: seedDir + "/seed.json", atomically: true, encoding: .utf8)
+
+        let assess = GameRefreshAssessment(
+            heroState: .upToDate,
+            hasSpecificUpdate: false,
+            versionLabel: "1.5.1",
+            canFastRefreshMac: false,
+            canFastRefreshIOS: false,
+            needsMissingImgGuideIOS: true,
+            missingOriginalPackage: true,
+            hasUsableSeed: true,
+            expectedRomfsIdentity: expectedIdentity
+        )
+
+        // ManageItem.list must enable rebuild when canRebuildFromSeed is true even without NSP/base inputs
+        let disabledWithoutSeed = ManageItem.list(
+            game: game,
+            labels: { $0 },
+            running: false,
+            olderTools: false,
+            activeBuildID: nil,
+            hasBuildFolder: false,
+            deviceName: "iPhone",
+            canRebuildFromSeed: false,
+            actions: ManageActions(
+                rebuild: {}, openOnDevice: {}, launchWithEngine: { _ in }, setDefaultEngine: { _ in },
+                options: {}, saves: {}, cheats: {}, changeArtwork: {}, rename: {}, reveal: {},
+                showLog: {}, removeBuildFiles: {}, remove: {}, delete: {}
+            )
+        )
+        XCTAssertFalse(disabledWithoutSeed.first(where: { $0.id == "rebuild" })?.enabled ?? true)
+
+        let enabledWithSeed = ManageItem.list(
+            game: game,
+            labels: { $0 },
+            running: false,
+            olderTools: false,
+            activeBuildID: nil,
+            hasBuildFolder: false,
+            deviceName: "iPhone",
+            canRebuildFromSeed: true,
+            actions: ManageActions(
+                rebuild: {}, openOnDevice: {}, launchWithEngine: { _ in }, setDefaultEngine: { _ in },
+                options: {}, saves: {}, cheats: {}, changeArtwork: {}, rename: {}, reveal: {},
+                showLog: {}, removeBuildFiles: {}, remove: {}, delete: {}
+            )
+        )
+        XCTAssertTrue(enabledWithSeed.first(where: { $0.id == "rebuild" })?.enabled ?? false)
+
+        // RebuildModeSheet probes Mac app romfs.img + seed and supports seed/chooseImg/package routes
+        let library = GameLibrary(file: temporary.appendingPathComponent("lib-rebuild-mode.json"))
+        library.upsert(game)
+        let pad = PadFocus()
+        var seedResult: (Set<String>, String?)?
+        var chooseImgTargets: Set<String>?
+        var packageTarget: String?
+
+        let sheet = RebuildModeSheet(
+            game: game,
+            assessment: assess,
+            stores: stores,
+            libraryFolder: library.folder,
+            onRebuildWithSeed: { seedResult = ($0, $1) },
+            onChooseImg: { chooseImgTargets = $0 },
+            onRebuildFromPackage: { packageTarget = $0 },
+            close: {}
+        )
+        let host = NSHostingView(rootView: sheet.environmentObject(stores.localizer).environmentObject(pad))
+        let win = OffscreenWindow(size: NSSize(width: 620, height: 600))
+        win.contentView = host
+        win.orderFront(nil)
+        defer { win.orderOut(nil); win.contentView = nil; win.close() }
+        let probeDeadline = Date().addingTimeInterval(2.5)
+        while (pad.frame(of: "rebuildMode.seedPrimary") == nil || pad.frame(of: "rebuildMode.pickImg") == nil) && Date() < probeDeadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+            host.layoutSubtreeIfNeeded()
+        }
+
+        XCTAssertNotNil(pad.frame(of: "rebuildMode.target"))
+        XCTAssertNotNil(pad.frame(of: "rebuildMode.seedPrimary"))
+        XCTAssertNotNil(pad.frame(of: "rebuildMode.pickImg"))
+        XCTAssertNotNil(pad.frame(of: "rebuildMode.package"))
+
+        // Switch segmented target twice: both -> macOnly -> iosOnly
+        pad.focused = "rebuildMode.target"
+        pad.horizontal(1); RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        pad.horizontal(1); RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        pad.focused = "rebuildMode.seedPrimary"
+        pad.activate()
+        let seedDeadline = Date().addingTimeInterval(2.5)
+        while seedResult == nil && Date() < seedDeadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+        XCTAssertEqual(seedResult?.0, [BuildTarget.ios])
+        XCTAssertEqual(seedResult?.1, macImgPath)
+
+        pad.focused = "rebuildMode.pickImg"
+        pad.activate()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(chooseImgTargets, [BuildTarget.ios])
+
+        pad.focused = "rebuildMode.package"
+        pad.activate()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(packageTarget, BuildTarget.ios)
+
+        // End-to-end handler enqueue check with iOS target + Mac img
+        let launcher = LauncherView(
+            stores: stores,
+            library: library,
+            performStartupChecks: false,
+            olderTools: [],
+            toolsAssessments: [game.id: assess],
+            artworkStore: makeArtworkStore()
+        )
+        XCTAssertTrue(launcher.canRebuildGameFromSeedOrImg(game))
+        launcher.handleRebuildWithSeed(game, targets: [BuildTarget.ios], reusedImgPath: macImgPath)
+        XCTAssertEqual(stores.queue.entries.map(\.target), [BuildTarget.ios])
+        XCTAssertEqual(stores.queue.entries.first?.externalImgPath, macImgPath)
     }
 }

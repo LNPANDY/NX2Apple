@@ -84,4 +84,48 @@ final class RomFSImageReuseTests: XCTestCase {
         try write("engine/scripts/build_ipa_from_nsp.py", "ap.add_argument('--romfs-from', action='append')\n")
         XCTAssertTrue(RepoLayout.supportsRomfsFrom(root + "/engine"))
     }
+
+    func testExtractDirectoryAndOutOfRootMacAppImagesRequireIdentityAndTitleMatch() throws {
+        let key = "0100AAAA00000000"
+        let outDir = root + "/out"
+        let workDir = root + "/work"
+        let macApp = root + "/external/MyGame.app"
+        try FileManager.default.createDirectory(atPath: outDir, withIntermediateDirectories: true)
+
+        // extract/v1 without .id must be excluded
+        try write("work/extract/v1/RomFS.img", "DMROMFS1-v1")
+        // extract/v2 with matching titleID must be included
+        try write("work/extract/v2/RomFS.img", "DMROMFS1-v2")
+        try write("work/extract/v2/RomFS.img.id", "{\"title\": \"\(key.lowercased())\"}\n")
+        // extract/v3 belonging to another title must be excluded
+        try write("work/extract/v3/RomFS.img", "DMROMFS1-v3")
+        try write("work/extract/v3/RomFS.img.id", "{\"title\": \"0100bbbb00000000\"}\n")
+        // extract/v4 newest matching must appear before v2
+        try write("work/extract/v4/RomFS.img", "DMROMFS1-v4")
+        try write("work/extract/v4/RomFS.img.id", "{\"title\": \"\(key)\"}\n")
+        // out-of-root Mac .app matching titleID
+        try write("external/MyGame.app/Contents/Resources/romfs.img", "DMROMFS1-app")
+        try write("external/MyGame.app/Contents/Resources/romfs.img.id", "{\"title\": \"\(key)\"}\n")
+
+        let found = RomFSArchive.reusableImages(root: outDir, key: key, workDir: workDir, macAppPath: macApp)
+        XCTAssertEqual(found, [
+            workDir + "/extract/v4/RomFS.img",
+            workDir + "/extract/v2/RomFS.img",
+            macApp + "/Contents/Resources/romfs.img",
+        ])
+
+        // Mismatched macAppPath must be excluded
+        try write("external/OtherGame.app/Contents/Resources/romfs.img", "DMROMFS1-other")
+        try write("external/OtherGame.app/Contents/Resources/romfs.img.id", "{\"title\": \"0100cccc00000000\"}\n")
+        let withOtherApp = RomFSArchive.reusableImages(
+            root: outDir,
+            key: key,
+            workDir: workDir,
+            macAppPath: root + "/external/OtherGame.app"
+        )
+        XCTAssertEqual(withOtherApp, [
+            workDir + "/extract/v4/RomFS.img",
+            workDir + "/extract/v2/RomFS.img",
+        ])
+    }
 }

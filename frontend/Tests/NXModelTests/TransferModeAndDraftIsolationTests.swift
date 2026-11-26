@@ -491,4 +491,121 @@ import XCTest
         XCTAssertTrue(copyLog.copiedDestinations.contains("Documents/games/\(game1.titleID)/romfs.img"))
         XCTAssertTrue(copyLog.copiedDestinations.contains("Documents/games/\(game2.titleID)/romfs.img"))
     }
+
+    func testCancelCopyThenCopyEndedAndSubsequentAutoAndSendGameDataResetWaitCancelled() throws {
+        // 1. DataSend.after must distinguish wait-cancelled skip from not-connected device
+        var waitCancelledOutcome = ShellInstaller.Outcome(ok: false, message: "Skipped copying to Andy's iPhone", copySkipped: true)
+        waitCancelledOutcome.waitWasCancelled = true
+        XCTAssertEqual(
+            DataSend.after(waitCancelledOutcome, notConnected: "Andy's iPhone is not connected"),
+            .failed("Skipped copying to Andy's iPhone")
+        )
+        let absentDeviceOutcome = ShellInstaller.Outcome(ok: false, message: "Skipped copying to Andy's iPhone", copySkipped: true)
+        XCTAssertEqual(
+            DataSend.after(absentDeviceOutcome, notConnected: "Andy's iPhone is not connected"),
+            .failed("Andy's iPhone is not connected")
+        )
+
+        // 2. DeviceStore.copyEnded() clears waitCancelled immediately
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("nx-cancel-reset-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let shellRoot = tempDir.appendingPathComponent("shell-root").path
+        defaults.set(shellRoot, forKey: "shellRoot")
+        try FileManager.default.createDirectory(atPath: shellRoot + "/derived-data/Build/Products/Release-iphoneos/DmShell.app", withIntermediateDirectories: true)
+        var lib = ShellLibrary()
+        lib.bundleID = "org.nxnative.shell.test"
+        try lib.save(root: shellRoot)
+
+        let fw = tempDir.appendingPathComponent("DmGame.framework").path
+        try FileManager.default.createDirectory(atPath: fw, withIntermediateDirectories: true)
+        let archive = tempDir.appendingPathComponent("games/0100999900001111")
+        try FileManager.default.createDirectory(at: archive, withIntermediateDirectories: true)
+        try Data("DMROMFS1-romfs-payload".utf8).write(to: archive.appendingPathComponent("romfs.img"))
+
+        final class CopyRecorder: @unchecked Sendable {
+            private let lock = NSLock()
+            var copiedCount = 0
+            func record() { lock.lock(); copiedCount += 1; lock.unlock() }
+        }
+        let recorder = CopyRecorder()
+
+        let bundleID = ShellLibrary.defaultBundleID
+        let wiredAndAppsJSON = """
+        {"result":{"devices":[{"hardwareProperties":{"reality":"physical","platform":"iOS","udid":"UDID-1","marketingName":"iPhone 17 Pro Max"},"deviceProperties":{"name":"Andy's iPhone","osVersionNumber":"27.0"},"connectionProperties":{"pairingState":"paired","transportType":"wired"}}],"apps":[{"bundleIdentifier":"\(bundleID)","name":"NXShell","url":"file:///var/mobile/Containers/Bundle/Application/1/NXShell.app/"}]}}
+        """
+
+        let runner = FakeProcessRunner()
+        runner.answer = { launch in
+            if let idx = launch.arguments.firstIndex(of: "--json-output"), idx + 1 < launch.arguments.count {
+                try? Data(wiredAndAppsJSON.utf8).write(to: URL(fileURLWithPath: launch.arguments[idx + 1]))
+            }
+            return ProcessResult(status: 0, out: "")
+        }
+        runner.streamAnswer = { launch in
+            if let idx = launch.arguments.firstIndex(of: "--json-output"), idx + 1 < launch.arguments.count {
+                try? Data(wiredAndAppsJSON.utf8).write(to: URL(fileURLWithPath: launch.arguments[idx + 1]))
+            }
+            if launch.arguments.contains("copy"), launch.arguments.contains("to") {
+                recorder.record()
+            }
+            return ([], true)
+        }
+
+        let deviceStore = DeviceStore(
+            runner: runner,
+            defaults: defaults,
+            listDevices: { _ in [AppleDevice(id: "UDID-1", name: "Andy's iPhone", model: "iPhone 17 Pro Max", os: "27.0", reachable: true, transport: "wired")] },
+            readTeams: { [] },
+            usbSpeedLookup: { _ in 10_000_000_000 }
+        )
+        deviceStore.installDevice = "UDID-1"
+        deviceStore.signingTeam = "ABCDE12345"
+
+        deviceStore.cancelCopy()
+        XCTAssertTrue(deviceStore.waitCancelled)
+        deviceStore.copyEnded()
+        XCTAssertFalse(deviceStore.waitCancelled, "copyEnded() must clear waitCancel so future auto/manual transfers are not skipped")
+
+        let build = BuildStore(
+            localizer: Localizer(.en),
+            runner: runner,
+            repo: FakeRepo(path: tempDir.path),
+            deps: FakeDeps(),
+            engine: FakeEngine(),
+            devices: deviceStore,
+            defaults: defaults
+        )
+        build.archivePath = archive.path
+        build.exportedIPAPath = tempDir.appendingPathComponent("NXShell.ipa").path
+        try Data("ipa".utf8).write(to: URL(fileURLWithPath: build.exportedIPAPath))
+
+        // 3. Even if waitCancel was left true before sendGameData(), sendGameData() must reset it and succeed (never report notConnected)
+        deviceStore.cancelWait()
+        XCTAssertTrue(deviceStore.waitCancelled)
+        build.sendGameData()
+        XCTAssertFalse(deviceStore.waitCancelled, "sendGameData() must reset any stale waitCancel before starting")
+        let sendDeadline = Date().addingTimeInterval(5)
+        while build.running && Date() < sendDeadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        XCTAssertEqual(build.send, .sent(app: "NXShell"))
+        XCTAssertEqual(recorder.copiedCount, 1)
+
+        // 4. Same guarantee for subsequent .auto batch installData even if waitCancel was left true
+        deviceStore.postBuildTransferMode = .auto
+        deviceStore.cancelWait()
+        XCTAssertTrue(deviceStore.waitCancelled)
+        let game = DeferredShellGame(framework: fw, titleID: "0100999900001111", name: "Test", archive: archive.path)
+        build.installShellBatch([game], dataOnly: true)
+        XCTAssertFalse(deviceStore.waitCancelled, "installShellBatch() must reset stale waitCancel before starting")
+        let batchDeadline = Date().addingTimeInterval(5)
+        while build.running && Date() < batchDeadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        XCTAssertTrue(build.done)
+        XCTAssertEqual(build.installedDataComplete, true)
+        XCTAssertEqual(recorder.copiedCount, 2)
+    }
 }

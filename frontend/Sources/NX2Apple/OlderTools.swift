@@ -199,7 +199,7 @@ final class ToolsAge: ObservableObject {
         game.hasIOSBuild(shellRoot: shellRoot, fm: fm)
     }
 
-    nonisolated private static func hasReadableSourceInputs(_ game: LibraryGame, fm: FileManager) -> Bool {
+    nonisolated static func hasReadableSourceInputs(_ game: LibraryGame, fm: FileManager = .default) -> Bool {
         if let folder = game.inputs[GameLibrary.folderInput]?.first, !folder.isEmpty {
             return fm.isReadableFile(atPath: folder)
         }

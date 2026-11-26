@@ -773,4 +773,91 @@ import XCTest
         let launch = try XCTUnwrap(runner.launches.first { $0.arguments.contains("--from-seed") })
         XCTAssertFalse(launch.arguments.contains("--cheat-dir"))
     }
+
+    func testMacAppExternalImgClonesToCanonicalArchiveWithoutMutatingBundle() throws {
+        let runner = FakeProcessRunner()
+        runner.answer = { launch in
+            if launch.arguments.contains("--inspect-msl") {
+                return ProcessResult(status: 0, out: "{\"has_trailer\": false}")
+            }
+            return ProcessResult(status: 0, out: "appended DMMSLTR1")
+        }
+        let store = makeStore(runner: runner)
+        let repoDir = temporary.appendingPathComponent("repo-mac-clone").path
+        try setupMockRepo(in: repoDir)
+        self.repo.path = repoDir
+
+        let out = temporary.appendingPathComponent("out-mac-clone").path
+        let work = temporary.appendingPathComponent("work-mac-clone").path
+        let tid = "0100777700007777"
+        try fm.createDirectory(atPath: out, withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: work + "/shader/ios/b-a5e7fb6e4fa4", withIntermediateDirectories: true)
+        try Data("msl-payload".utf8).write(to: URL(fileURLWithPath: work + "/shader/ios/b-a5e7fb6e4fa4/shaders.metallib"))
+
+        let macResources = temporary.appendingPathComponent("SignedGame.app/Contents/Resources")
+        try fm.createDirectory(at: macResources, withIntermediateDirectories: true)
+        let macImg = macResources.appendingPathComponent("romfs.img").path
+        let originalBytes = Data("DMROMFS1-mac-bundle".utf8)
+        try originalBytes.write(to: URL(fileURLWithPath: macImg))
+        try "{\"title\": \"\(tid)\"}\n".write(toFile: macImg + ".id", atomically: true, encoding: .utf8)
+
+        store.outDir = out
+        store.selectedTitleID = tid
+        store.fastRefreshGameName = "SignedGame"
+        store.fastRefreshExternalImgPath = macImg
+        store.activeQueuedRebuildsShaders = true
+
+        let exp = expectation(description: "clone Mac bundle romfs.img safely")
+        var returnedDest = ""
+        store.packArchive(workDir: work, titleID: tid, isFastRefresh: true) { path in
+            returnedDest = path
+            exp.fulfill()
+        }
+        wait(for: [exp], timeout: 5.0)
+
+        XCTAssertFalse(returnedDest.isEmpty)
+        XCTAssertFalse(returnedDest.contains(".app/"))
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: macImg)), originalBytes, "Mac .app romfs.img must stay intact")
+        let clonedImg = RomFSArchive.primaryImagePath(in: returnedDest)
+        let unwrappedCloned = try XCTUnwrap(clonedImg)
+        XCTAssertTrue(fm.fileExists(atPath: unwrappedCloned + ".id"))
+        XCTAssertTrue(runner.launches.contains { $0.arguments.contains(unwrappedCloned) }, "iOS trailer injection must target the cloned copy, never the Mac .app")
+    }
+
+    func testMacFastRefreshIncludesWorkDirExtractRomfsInRomfsFrom() throws {
+        let runner = StartRecordingRunner()
+        let store = makeStore(runner: runner)
+        let repoDir = temporary.appendingPathComponent("repo-mac-extract").path
+        try setupMockRepo(in: repoDir)
+        let buildScript = repoDir + "/scripts/build_ipa_from_nsp.py"
+        let originalScript = try String(contentsOfFile: buildScript, encoding: .utf8)
+        try (originalScript + "\nap.add_argument('--romfs-from', action='append')\n").write(toFile: buildScript, atomically: true, encoding: .utf8)
+        self.repo.path = repoDir
+
+        let tid = "0100777700008888"
+        let seedDir = BuildSeedCache.seedDirectory(for: tid, seedRoot: store.seedCacheRoot)
+        try fm.createDirectory(atPath: seedDir + "/ExeFS", withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: seedDir + "/shader/pkg", withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: seedDir + "/shader/ios", withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: seedDir + "/shader/tables", withIntermediateDirectories: true)
+        try Data("main".utf8).write(to: URL(fileURLWithPath: seedDir + "/ExeFS/main"))
+        try Data().write(to: URL(fileURLWithPath: seedDir + "/shader/tables/c1_full.tsv"))
+        try Data().write(to: URL(fileURLWithPath: seedDir + "/shader/tables/cb_extent.tsv"))
+        try "{\"schema_version\": 2, \"title_id\": \"\(tid)\", \"build_flags\": {}, \"key_files\": []}".write(
+            toFile: seedDir + "/seed.json", atomically: true, encoding: .utf8
+        )
+        let outDir = temporary.appendingPathComponent("out-mac-extract").path
+        let workDir = outDir + "/" + tid + "_build"
+        let extractDir = workDir + "/extract/v0"
+        try fm.createDirectory(atPath: extractDir, withIntermediateDirectories: true)
+        let extractImg = extractDir + "/RomFS.img"
+        try Data("DMROMFS1-extract".utf8).write(to: URL(fileURLWithPath: extractImg))
+        try "{\"title\": \"\(tid)\"}\n".write(toFile: extractImg + ".id", atomically: true, encoding: .utf8)
+
+        store.startFastRefresh(titleID: tid, targetName: BuildTarget.mac, outDir: outDir)
+
+        let launch = try XCTUnwrap(runner.launches.first { $0.arguments.contains("--from-seed") })
+        let romfsIdx = try XCTUnwrap(launch.arguments.firstIndex(of: "--romfs-from"))
+        XCTAssertEqual(launch.arguments[romfsIdx + 1], extractImg)
+    }
 }

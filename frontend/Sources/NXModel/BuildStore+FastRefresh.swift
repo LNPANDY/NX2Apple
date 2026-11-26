@@ -282,7 +282,12 @@ extension BuildStore {
             if let existingApp = prefillApp {
                 addRomfs(existingApp + "/Contents/Resources/romfs.img")
             }
-            for img in RomFSArchive.reusableImages(root: resolvedOutDir, key: tid) {
+            for img in RomFSArchive.reusableImages(
+                root: resolvedOutDir,
+                key: tid,
+                workDir: workDir,
+                macAppPath: nxnativeExistingApp.isEmpty ? nil : nxnativeExistingApp
+            ) {
                 addRomfs(img)
             }
             if let extImg = validExternalImg {
@@ -481,6 +486,10 @@ extension BuildStore {
             fastRefreshExternalImgPath = extImg
             if !syncCandidates.contains(extImg) {
                 args += ["--prefill-msl", extImg]
+            }
+            if initialInspection.record?.romfsIdentity?.isEmpty != false,
+               RepoLayout.supportsRomfsFrom(repoPath) {
+                args += ["--romfs-from", extImg]
             }
         }
 

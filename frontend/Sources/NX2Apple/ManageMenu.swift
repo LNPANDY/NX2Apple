@@ -37,9 +37,11 @@ struct ManageItem: Identifiable {
     static func list(game: LibraryGame, labels t: (String) -> String, running: Bool, olderTools: Bool, activeBuildID: UUID?,
                      hasBuildFolder: Bool, buildFilesTitle: String? = nil, hasLog: Bool = false, deviceName: String, launching: Bool = false,
                      activeUpstream: EngineUpstreamKind? = nil, builtUpstreams: [EngineUpstreamKind] = [],
+                     canRebuildFromSeed: Bool = false,
                      actions a: ManageActions) -> [ManageItem] {
+        let hasInputs = !game.inputs["base", default: []].isEmpty || game.inputs[GameLibrary.folderInput] != nil
         var items = [ManageItem(id: "rebuild", symbol: "arrow.clockwise", title: t(olderTools ? "library.rebuild" : "library.buildAgain"),
-                                enabled: !running && !game.inputs["base", default: []].isEmpty, run: a.rebuild)]
+                                enabled: !running && (hasInputs || canRebuildFromSeed), run: a.rebuild)]
         if builtUpstreams.count > 1 {
             let current = activeUpstream ?? builtUpstreams.first
             for upstream in builtUpstreams where upstream != current {

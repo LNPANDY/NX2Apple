@@ -31,7 +31,9 @@ extension DataSend {
     /// copied. A refusal and an app the device does not list are their own states, which offer the Finder way (#491). Every other failure
     /// shows the copy's own sentence (no space, the app list could not be read).
     package static func after(_ result: ShellInstaller.Outcome, notConnected: String) -> DataSend {
-        if result.copySkipped { return .failed(notConnected) }
+        if result.copySkipped {
+            return (result.waitWasCancelled && !result.message.isEmpty) ? .failed(result.message) : .failed(notConnected)
+        }
         if result.ok { return .sent(app: result.appName) }
         if !result.apps.isEmpty { return .chooseApp(result.apps) }
         switch result.dataFailure {
@@ -153,7 +155,7 @@ extension BuildStore {
         buildingGame = false; runningTarget = BuildTarget.ios
         beginOperation(.sendingGameData, game: effectivePackedGameName, titleID: packedTitleID, destination: .target)
         setInstallRecovery(.sendData(bundle: bundle))
-        stopping = false; stoppedByPlayer = false; installCancel.set(false); installPhaseActive = true
+        stopping = false; stoppedByPlayer = false; installCancel.set(false); devices.resetCopyCancel(); installPhaseActive = true
         running = true; done = false; doneNote = ""; failure = nil; stages = []
         send = .sending(done: 0, total: 0, note: "")
         var installer = makeInstaller()

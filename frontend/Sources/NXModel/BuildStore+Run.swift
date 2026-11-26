@@ -324,10 +324,24 @@ extension BuildStore {
             }
         }
         if hasWorkDir { args += ["--work-dir", workDir] }
-        // The image of this game the other platform's build left (the iPhone build's games/<id>/romfs.img, the Mac app's): the
-        // script takes it in place of extracting the RomFS again once it checks out as this version's (#708). A game folder is packed, not extracted.
+        // The image of this game the other platform's build left (the iPhone build's games/<id>/romfs.img, the Mac app's, or
+        // an existing extract/v*/RomFS.img): the script takes it in place of extracting the RomFS again once it checks out as
+        // this version's (#708). A game folder is packed, not extracted.
         if folder == nil, RepoLayout.supportsRomfsFrom(capabilityDir) {
-            var reusable = RomFSArchive.reusableImages(root: outDir.isEmpty ? baseDir : outDir, key: tidHex)
+            let effectiveExtractWork = hasWorkDir ? workDir : (inputDir as NSString).appendingPathComponent(tidHex + "_build")
+            var reusable = RomFSArchive.reusableImages(
+                root: outDir.isEmpty ? baseDir : outDir,
+                key: tidHex,
+                workDir: effectiveExtractWork,
+                macAppPath: macAppPath.isEmpty ? nil : macAppPath
+            )
+            if let queuedArchive = activeQueuedArchivePath, !queuedArchive.isEmpty,
+               let primary = RomFSArchive.primaryImagePath(in: queuedArchive),
+               FileManager.default.fileExists(atPath: primary),
+               FileManager.default.fileExists(atPath: primary + ".id"),
+               !reusable.contains(primary) {
+                reusable.append(primary)
+            }
             if let extImg = fastRefreshExternalImgPath, !reusable.contains(extImg), FileManager.default.fileExists(atPath: extImg) {
                 reusable.append(extImg)
             }

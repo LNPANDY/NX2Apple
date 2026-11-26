@@ -304,6 +304,7 @@ extension ShellInstaller {
         }
         guard decision == .copy else {
             outcome.copySkipped = true
+            outcome.waitWasCancelled = waitCancelled()
             let skippedMsg = fmt("dev.copySkipped", deviceName)
             outcome.message = skippedMsg
             outcome.batchGameResults = buildBatchResults(games: games, completedIndices: alreadyCurrentIndices, failureReason: skippedMsg)
@@ -322,6 +323,7 @@ extension ShellInstaller {
                 if waitCancelled() {
                     end(Self.copyStageID, copyName, ok: false, detail: "")
                     outcome.copySkipped = true
+                    outcome.waitWasCancelled = true
                     let skippedMsg = fmt("dev.copySkipped", deviceName)
                     outcome.message = skippedMsg
                     outcome.batchGameResults = buildBatchResults(games: games, completedIndices: completedIndices, failureReason: skippedMsg)
