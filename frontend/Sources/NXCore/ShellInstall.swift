@@ -362,7 +362,7 @@ package struct ShellInstaller {
         package var appName = ""
         package var bundleID = ""
         package var copied = 0
-        package var copySkipped = false
+        package var copySkipped = false, waitWasCancelled = false
         /// The card the launcher shows for the failure, when it has words for it.
         package var failure: BuildFailureKind? = nil
         /// Signed without the Increased Memory Limit, because the team's profile cannot carry it yet.
@@ -687,6 +687,7 @@ package struct ShellInstaller {
         }
         guard decision == .copy else {
             outcome.copySkipped = true
+            outcome.waitWasCancelled = waitCancelled()
             outcome.message = fmt("dev.copySkipped", deviceName)
             return outcome
         }
@@ -696,7 +697,7 @@ package struct ShellInstaller {
         for (i, item) in missing.enumerated() {
             if waitCancelled() {
                 end(Self.copyStageID, copyName, ok: false, detail: "")
-                outcome.copySkipped = true
+                outcome.copySkipped = true; outcome.waitWasCancelled = true
                 outcome.message = fmt("dev.copySkipped", deviceName)
                 return outcome
             }

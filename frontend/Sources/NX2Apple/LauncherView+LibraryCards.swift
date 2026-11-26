@@ -69,7 +69,7 @@ extension LauncherView {
                 activateLibraryCard(game)
             }
         ]
-        let canRebuild = !m.running && (!game.inputs["base", default: []].isEmpty || game.inputs[GameLibrary.folderInput] != nil)
+        let canRebuild = !m.running && (!game.inputs["base", default: []].isEmpty || game.inputs[GameLibrary.folderInput] != nil || canRebuildGameFromSeedOrImg(game))
         items.append(ManageItem(
             id: "ctx.rebuild",
             symbol: "arrow.clockwise",
@@ -77,7 +77,7 @@ extension LauncherView {
             enabled: canRebuild,
             separatorBefore: true
         ) {
-            configureBuild(game)
+            triggerLibraryRebuild(game)
         })
         items.append(ManageItem(id: "ctx.options", symbol: "slider.horizontal.3", title: loc.t("launch.title")) {
             optionsFor = game.id

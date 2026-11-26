@@ -78,10 +78,13 @@ extension LauncherView {
         .padTarget("hero.rebuildAll", scope: "main", radius: 100, activate: openBatchRefresh)
     }
 
+    private static let heroRefreshDropdownID = UUID(uuidString: "A5E7FB6E-4FA4-4B1C-8001-000000000001")!
+
     /// Scheme A: high-contrast platform-aware single-game refresh CTA next to heroPrimary.
     @ViewBuilder func heroSingleRefreshButton(_ game: LibraryGame, compact: Bool) -> some View {
         let assessment = toolsAge.assessments[game.id]
         let (hasMac, hasIOS) = resolvedRefreshTargets(for: game)
+        let isDual = hasMac && hasIOS
         let hasAnyFast = assessment.map {
             (hasMac && $0.canFastRefreshMac) || (hasIOS && $0.canFastRefreshIOS)
         } ?? false
@@ -95,7 +98,11 @@ extension LauncherView {
         let isProbingThis = toolsAge.singleRefreshProbingGameID == game.id
         let perform = {
             guard !m.running, !isProbing else { return }
-            triggerSingleRefresh(game)
+            if isDual {
+                openHeroRefreshPlatformDropdown(for: game, title: title)
+            } else {
+                triggerSingleRefresh(game, targets: resolvedTargetSet(hasMac: hasMac, hasIOS: hasIOS))
+            }
         }
 
         Button(action: perform) {
@@ -109,14 +116,42 @@ extension LauncherView {
                 Text(title)
                     .font(.manrope(16, .semibold))
                     .lineLimit(1)
-
+                if isDual {
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 10.5, weight: .bold))
+                        .opacity(0.8)
+                }
             }
         }
         .buttonStyle(LauncherSecondaryButtonStyle(height: LauncherHeroAction.height))
+        .anchorPreference(key: LauncherDropdownAnchorKey.self, value: .bounds) {
+            isDual ? [Self.heroRefreshDropdownID: $0] : [:]
+        }
         .disabled(m.running || isProbing)
         .help(loc.t("library.olderToolsHelp"))
         .accessibilityLabel(title)
         .padTarget("hero.rebuild", scope: "main", radius: 24, activate: perform)
+    }
+
+    private func resolvedTargetSet(hasMac: Bool, hasIOS: Bool) -> Set<String>? {
+        var targets: Set<String> = []
+        if hasMac { targets.insert(BuildTarget.mac) }
+        if hasIOS { targets.insert(BuildTarget.ios) }
+        return targets.isEmpty ? nil : targets
+    }
+
+    private func openHeroRefreshPlatformDropdown(for game: LibraryGame, title: String) {
+        dropdowns.request = LauncherDropdownRequest(
+            id: Self.heroRefreshDropdownID,
+            options: RefreshTargetScope.dropdownOptions(labels: loc.t),
+            selection: RefreshTargetScope.both.rawValue,
+            label: title
+        ) { raw in
+            dropdowns.close()
+            padFocus.scope = currentPadScope
+            let scope = RefreshTargetScope(rawValue: raw) ?? .both
+            triggerSingleRefresh(game, targets: scope.targets)
+        }
     }
 
     func resolvedRefreshTargets(for game: LibraryGame) -> (hasMac: Bool, hasIOS: Bool) {
@@ -171,14 +206,23 @@ extension LauncherView {
         return nil
     }
 
-    func triggerSingleRefresh(_ game: LibraryGame) {
+    func triggerSingleRefresh(_ game: LibraryGame, targets: Set<String>? = nil) {
         guard !stores.build.running else {
             page = .builds; buildEditorOpen = true
             return
         }
         guard toolsAge.singleRefreshProbingGameID == nil else { return }
+        let normalizedTargets = targets.map { Set($0.map(BuildTarget.normalized)) }
+        let wantsIOS = normalizedTargets?.contains(BuildTarget.ios) ?? true
         let assessment = toolsAge.assessments[game.id]
-        if game.hasIOSBuild(shellRoot: stores.build.shellCachePath), let assessment, assessment.needsMissingImgGuideIOS {
+        if wantsIOS,
+           game.hasIOSBuild(shellRoot: stores.build.shellCachePath) || normalizedTargets?.contains(BuildTarget.ios) == true,
+           let assessment,
+           assessment.needsMissingImgGuideIOS {
+            let guideTargets = normalizedTargets ?? resolvedTargetSet(
+                hasMac: game.nxnativeMacBuildForRefresh != nil,
+                hasIOS: true
+            ) ?? [BuildTarget.ios]
             let driveFolder = devices.driveFolder
             if !driveFolder.isEmpty {
                 toolsAge.singleRefreshProbeGeneration &+= 1
@@ -205,27 +249,50 @@ extension LauncherView {
                               missingImgGuideFor == nil,
                               !batchRefreshOpen else { return }
                         if let foundImg {
-                            enqueueSingleGameRefresh(game, assessment: assessment, externalIOSImgPath: foundImg)
+                            enqueueSingleGameRefresh(
+                                game,
+                                assessment: assessment,
+                                externalIOSImgPath: foundImg,
+                                targets: normalizedTargets
+                            )
                         } else {
-                            missingImgGuideFor = MissingImgGuideContext(game: game, assessment: assessment)
+                            missingImgGuideFor = MissingImgGuideContext(
+                                game: game,
+                                assessment: assessment,
+                                targets: guideTargets
+                            )
                         }
                     }
                 }
             } else {
-                missingImgGuideFor = MissingImgGuideContext(game: game, assessment: assessment)
+                missingImgGuideFor = MissingImgGuideContext(
+                    game: game,
+                    assessment: assessment,
+                    targets: guideTargets
+                )
             }
             return
         }
-        enqueueSingleGameRefresh(game, assessment: assessment, externalIOSImgPath: nil)
+        enqueueSingleGameRefresh(game, assessment: assessment, externalIOSImgPath: nil, targets: normalizedTargets)
     }
 
-    func enqueueSingleGameRefresh(_ game: LibraryGame, assessment: GameRefreshAssessment?, externalIOSImgPath: String?) {
+    func enqueueSingleGameRefresh(
+        _ game: LibraryGame,
+        assessment: GameRefreshAssessment?,
+        externalIOSImgPath: String?,
+        targets: Set<String>? = nil,
+        externalMacImgPath: String? = nil,
+        allowTargetsWithoutExistingBuild: Bool = false
+    ) {
         let ordered = RefreshQueueBuilder.singleGameEntries(
             for: game,
             assessment: assessment,
             externalIOSImgPath: externalIOSImgPath,
             stores: stores,
-            libraryFolder: library.folder
+            libraryFolder: library.folder,
+            targets: targets,
+            externalMacImgPath: externalMacImgPath,
+            allowTargetsWithoutExistingBuild: allowTargetsWithoutExistingBuild
         )
         guard !ordered.isEmpty else {
             configureBuild(game)
@@ -239,6 +306,96 @@ extension LauncherView {
         page = .builds; buildEditorOpen = false; editingBuildResult = false; buildStep = 0
         if !m.running && m.canStartBuildOrQueue {
             m.startBuildOrQueue()
+        }
+    }
+
+    /// True when the game can be rebuilt via a cached build seed or an existing `.img` archive.
+    func canRebuildGameFromSeedOrImg(_ game: LibraryGame) -> Bool {
+        if toolsAge.assessments[game.id]?.hasUsableSeed == true {
+            return true
+        }
+        if BuildSeedCache.inspect(titleID: game.titleID, seedRoot: m.seedCacheRoot, repoPath: m.repo.path).isUsable {
+            return true
+        }
+        if let macApp = game.nxnativeMacBuildForRefresh?.appPath,
+           FileManager.default.fileExists(atPath: (macApp as NSString).appendingPathComponent("Contents/Resources/romfs.img")) {
+            return true
+        }
+        if !game.archivePath.isEmpty, RomFSArchive.primaryImagePath(in: game.archivePath) != nil {
+            return true
+        }
+        let outDir = ToolsAge.resolvedOutputDirectory(for: game, libraryFolder: library.folder)
+        let effectiveOutDir = !outDir.isEmpty ? outDir : (!m.outDir.isEmpty ? m.outDir : m.refreshBuildsRoot)
+        return !RomFSArchive.reusableImages(
+            root: effectiveOutDir,
+            key: game.titleID,
+            workDir: nil,
+            macAppPath: game.nxnativeMacBuildForRefresh?.appPath
+        ).isEmpty
+    }
+
+    /// Entry point for "Rebuild with current tools…": routes to the seed/`.img` mode sheet when usable seed or `.img` exists.
+    func triggerLibraryRebuild(_ game: LibraryGame) {
+        guard !m.running else {
+            configureBuild(game)
+            return
+        }
+        if canRebuildGameFromSeedOrImg(game) {
+            rebuildSheetGame = game
+        } else {
+            configureBuild(game)
+        }
+    }
+
+    func fallbackRebuildAssessment(for game: LibraryGame) -> GameRefreshAssessment {
+        if let cached = toolsAge.assessments[game.id] {
+            return cached
+        }
+        let outDir = ToolsAge.resolvedOutputDirectory(for: game, libraryFolder: library.folder)
+        let effectiveOutDir = !outDir.isEmpty ? outDir : (!m.outDir.isEmpty ? m.outDir : m.refreshBuildsRoot)
+        let hasReadable = ToolsAge.hasReadableSourceInputs(game)
+        let macBuild = game.nxnativeMacBuildForRefresh
+        return GameUpdateCatalog.assess(
+            titleID: game.titleID,
+            isMarkedOlder: toolsAge.older.contains(game.id),
+            hasMacBuild: macBuild != nil,
+            macAppPath: macBuild?.appPath ?? "",
+            hasIOSBuild: game.hasIOSBuild(shellRoot: m.shellCachePath),
+            hasReadableSourceInputs: hasReadable,
+            outDir: effectiveOutDir,
+            gameName: game.name,
+            appVersion: AppUpdateStore.appVersion,
+            gitSpecificChanged: false,
+            seedRoot: m.seedCacheRoot,
+            repoPath: m.repo.path
+        )
+    }
+
+    func handleRebuildWithSeed(_ game: LibraryGame, targets: Set<String>, reusedImgPath: String?) {
+        let assessment = fallbackRebuildAssessment(for: game)
+        if targets.contains(BuildTarget.ios), reusedImgPath == nil, assessment.needsMissingImgGuideIOS {
+            triggerSingleRefresh(game, targets: targets)
+            return
+        }
+        enqueueSingleGameRefresh(
+            game,
+            assessment: assessment,
+            externalIOSImgPath: reusedImgPath,
+            targets: targets,
+            externalMacImgPath: reusedImgPath,
+            allowTargetsWithoutExistingBuild: true
+        )
+    }
+
+    func handleRebuildChooseImg(_ game: LibraryGame, targets: Set<String>) {
+        let assessment = fallbackRebuildAssessment(for: game)
+        missingImgGuideFor = MissingImgGuideContext(game: game, assessment: assessment, targets: targets)
+    }
+
+    func handleRebuildFromPackage(_ game: LibraryGame, preferredTarget: String?) {
+        configureBuild(game)
+        if let preferredTarget, !m.isMacOnlyUpstreamSelected {
+            m.target = BuildTarget.normalized(preferredTarget)
         }
     }
 }

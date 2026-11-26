@@ -47,6 +47,7 @@ struct LauncherView: View {
     @State private var selectingGames = false   // the Build selected games sheet (BuildSelectedSheet.swift)
     @State var batchRefreshOpen = false
     @State var missingImgGuideFor: MissingImgGuideContext?
+    @State var rebuildSheetGame: LibraryGame?
     @State var deleting: LibraryGame?   // the game whose Delete sheet is open (DeleteGameSheet.swift)
     @State var supportedGames: [SupportedGame]?   // the Supported games sheet is open when this is set (SupportedGamesSheet.swift)
     @State var activityLogOpen = false
@@ -461,14 +462,14 @@ struct LauncherView: View {
                 added: { target in m.target = target; buildEditorOpen = true; page = .builds }) { selectingGames = false }
                 .environmentObject(loc).environmentObject(padFocus)
         }
-        .refreshSheetsWiring(batchOpen: $batchRefreshOpen, imgGuide: $missingImgGuideFor, stores: stores, library: library, toolsAge: toolsAge, page: $page, buildEditorOpen: $buildEditorOpen, editingBuildResult: $editingBuildResult, buildStep: $buildStep, pad: padFocus, scope: { currentPadScope })
+        .refreshSheetsWiring(batchOpen: $batchRefreshOpen, imgGuide: $missingImgGuideFor, rebuildGame: $rebuildSheetGame, stores: stores, library: library, toolsAge: toolsAge, page: $page, buildEditorOpen: $buildEditorOpen, editingBuildResult: $editingBuildResult, buildStep: $buildStep, pad: padFocus, scope: { currentPadScope }, onRebuildWithSeed: handleRebuildWithSeed, onRebuildChooseImg: handleRebuildChooseImg, onRebuildFromPackage: handleRebuildFromPackage)
         .shellCopySheetWiring(devices: devices, loc: loc, pad: padFocus, scope: { currentPadScope }).deviceFrameworkSyncWiring(devices: devices, library: library, build: m, performStartupChecks: performStartupChecks, checkTools: checkTools)
         .onChange(of: selectingGames) { _ in padFocus.scope = currentPadScope }
         .sheet(isPresented: Binding(get: { supportedGames != nil }, set: { if !$0 { supportedGames = nil } })) {
             SupportedGamesSheet(games: supportedGames ?? [], owned: { id in library.games.first { $0.titleID.uppercased() == id } },
                                 covers: .live(store: artworkStore, directory: library.artworkDirectory, language: loc.lang.code, maxPixel: SupportedGamesSheet.coverPixels),
                                 showInLibrary: showInLibrary, olderBuild: { toolsAge.older.contains($0) },
-                                rebuild: { id in if let game = library.games.first(where: { $0.id == id }) { DispatchQueue.main.async { configureBuild(game) } } })
+                                rebuild: { id in if let game = library.games.first(where: { $0.id == id }) { DispatchQueue.main.async { triggerLibraryRebuild(game) } } })
                 .environmentObject(padFocus)
         }
         .onChange(of: supportedGames == nil) { closed in padFocus.scope = closed ? currentPadScope : "supported" }
@@ -696,7 +697,7 @@ struct LauncherView: View {
             }
             return
         }
-        let sheetOpen = padFocus.scope != "main" || stores.seedCompression.phase != nil || devices.shellCopy != nil || devices.shellWaiting || selectingGames || batchRefreshOpen || missingImgGuideFor != nil || controllerSheet || supportedGames != nil || activityLogOpen || skippedItemsOpen || optionsFor != nil || controlsOpen || savesFor != nil || cheatsFor != nil || freeSpaceFor != nil || stores.buildFiles.confirming != nil || deleting != nil || removing != nil || renaming != nil || artworkEditor != nil || cloudGate.isActive || mngMigration.isActive
+        let sheetOpen = padFocus.scope != "main" || stores.seedCompression.phase != nil || devices.shellCopy != nil || devices.shellWaiting || selectingGames || batchRefreshOpen || missingImgGuideFor != nil || rebuildSheetGame != nil || controllerSheet || supportedGames != nil || activityLogOpen || skippedItemsOpen || optionsFor != nil || controlsOpen || savesFor != nil || cheatsFor != nil || freeSpaceFor != nil || stores.buildFiles.confirming != nil || deleting != nil || removing != nil || renaming != nil || artworkEditor != nil || cloudGate.isActive || mngMigration.isActive
         switch ManagePad.route(action, menuOpen: manageOpenFor != nil, sheetOpen: sheetOpen, hasGame: library.selected != nil && page == .library) {
         case .close: manageOpenFor = nil; return
         case .swallow: return
@@ -725,7 +726,7 @@ struct LauncherView: View {
         if skippedItemsOpen && [.b, .x, .l, .r].contains(action) { if action == .b { skippedItemsOpen = false }; return }
         if renaming != nil && [.b, .x, .l, .r].contains(action) { if action == .b { renaming = nil }; return }
         if action == .b {
-            if devices.shellCopy != nil { devices.answerCopy(.skip) } else if devices.shellWaiting { devices.cancelWait() } else if batchRefreshOpen { batchRefreshOpen = false } else if missingImgGuideFor != nil { missingImgGuideFor = nil } else if optionsFor != nil { optionsFor = nil } else if controlsOpen { controlsCancelRequest += 1 }
+            if devices.shellCopy != nil { devices.answerCopy(.skip) } else if devices.shellWaiting { devices.cancelWait() } else if batchRefreshOpen { batchRefreshOpen = false } else if missingImgGuideFor != nil { missingImgGuideFor = nil } else if rebuildSheetGame != nil { rebuildSheetGame = nil } else if optionsFor != nil { optionsFor = nil } else if controlsOpen { controlsCancelRequest += 1 }
             else if searching { searching = false; search = "" } else if page == .library && allGamesOpen { closeAllGames() } else if page != .library { page = .library }
             return
         }
@@ -768,8 +769,8 @@ struct LauncherView: View {
     }
 
     /// The scope a controller acts in when no menu is open: the innermost sheet, else the window.
-    private var currentPadScope: String {
-        dropdowns.custom != nil ? "engineDropdown" : stores.seedCompression.phase != nil ? "seedCompress" : (devices.shellCopy != nil || devices.shellWaiting) ? "shellCopy" : updates.showUpdateSheet ? "update" : updates.uninstallPlan != nil ? "uninstall" : mngMigration.isActive ? "mngmigration" : cloudGate.isActive ? "cloudsave" : selectingGames ? "batch" : controllerSheet ? "console.controllers" : controllerMappingOpen ? "controls" : batchRefreshOpen ? "batchRefresh" : missingImgGuideFor != nil ? "imgGuide" : artworkEditor != nil ? "artwork" : savesFor != nil ? "saves" : cheatsFor != nil ? "cheats" : freeSpaceFor != nil ? "free" : stores.buildFiles.confirming != nil ? "buildfiles" : deleting != nil ? "delete" : removing != nil ? "remove" : skippedItemsOpen ? "skipped" : activityLogOpen ? "activity" : supportedGames != nil ? "supported" : renaming != nil ? "rename" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
+    var currentPadScope: String {
+        dropdowns.custom != nil ? "engineDropdown" : stores.seedCompression.phase != nil ? "seedCompress" : (devices.shellCopy != nil || devices.shellWaiting) ? "shellCopy" : updates.showUpdateSheet ? "update" : updates.uninstallPlan != nil ? "uninstall" : mngMigration.isActive ? "mngmigration" : cloudGate.isActive ? "cloudsave" : selectingGames ? "batch" : controllerSheet ? "console.controllers" : controllerMappingOpen ? "controls" : batchRefreshOpen ? "batchRefresh" : missingImgGuideFor != nil ? "imgGuide" : rebuildSheetGame != nil ? "rebuildMode" : artworkEditor != nil ? "artwork" : savesFor != nil ? "saves" : cheatsFor != nil ? "cheats" : freeSpaceFor != nil ? "free" : stores.buildFiles.confirming != nil ? "buildfiles" : deleting != nil ? "delete" : removing != nil ? "remove" : skippedItemsOpen ? "skipped" : activityLogOpen ? "activity" : supportedGames != nil ? "supported" : renaming != nil ? "rename" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
     }
 
     /// The space the collection row keeps around its cards for the focus ring (PadFocus draws it 4 pt outside a target).

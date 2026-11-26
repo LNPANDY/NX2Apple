@@ -4,9 +4,9 @@ Written by `GalleryCoverageTests` from `GalleryCoverage.swift`: every View type 
 popover and alert, every notice and every case of the state enums the views switch on, with the gallery's scenes
 (`GalleryScene.id`) that show it, or the reason none can. After a change:
 `NX_WRITE_COVERAGE=1 swift test --package-path frontend --filter GalleryCoverageTests`. The gallery has
-342 scenes.
+343 scenes.
 
-## Views: 237 of 247 in a scene
+## Views: 238 of 248 in a scene
 
 | View | Scenes |
 |---|---|
@@ -226,6 +226,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `Popped` | Reason: A popover or an alert: AppKit draws it in its own window, which a capture of the scene cannot hold. The scene shows what opens it. |
 | `ProgressCard` | `buildsRunning`, `nxkitFailed` |
 | `QueueArtworkStack` | `desktop-queueRunning`, `buildsQueued` |
+| `RebuildModeSheet` | `rebuildMode` |
 | `RefreshCompletionSheet` | `refreshCompletion` |
 | `RefreshDevicesButton` | `wizardInstall` |
 | `RenameGameSheet` | `rename` |
@@ -258,7 +259,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `UpstreamPicker` | `nxkitEngine`, `desktop-mngBlocked` |
 | `UpstreamVersionPill` | `buildsIdle`, `desktop-engineDropdown` |
 
-## Presentations: 33 of 39 in a scene
+## Presentations: 34 of 40 in a scene
 
 | Presentation | Scenes |
 |---|---|
@@ -294,6 +295,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `MissingImgGuideSheet.swift .sheet BatchRefreshSheet` | `batchRefresh` |
 | `MissingImgGuideSheet.swift .sheet MissingImgGuideSheet` | `imgGuide` |
 | `MissingImgGuideSheet.swift .sheet RefreshCompletionSheet` | `refreshCompletion` |
+| `MissingImgGuideSheet.swift .sheet RebuildModeSheet` | `rebuildMode` |
 | `OnboardingKeysContent.swift .popover VStack` | Reason: A popover or an alert: AppKit draws it in its own window, which a capture of the scene cannot hold. The scene shows what opens it. |
 | `PlayersCard.swift .sheet PlayerNameSheet` | `playerName` |
 | `PlayersCard.swift .sheet LauncherConfirmSheet` | `confirmRemovePlayer` |

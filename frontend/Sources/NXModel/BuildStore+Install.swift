@@ -34,6 +34,7 @@ import NXCore
     nonisolated func askCopy(_ plan: ShellCopyPlan, isCancelled: @escaping @Sendable () -> Bool) -> ShellCopyDecision
     nonisolated func setWaiting(_ on: Bool)
     nonisolated var waitCancelled: Bool { get }
+    func resetCopyCancel()
     func cancelCopy()
     func copyEnded()
     /// Reads the device listing again (a transfer asks it when a send failed, to tell a device that went away from a refusal).
@@ -63,6 +64,7 @@ extension InstallTarget {
     nonisolated package func askCopy(_ plan: ShellCopyPlan, isCancelled: @escaping @Sendable () -> Bool) -> ShellCopyDecision {
         isCancelled() ? .skip : askCopy(plan)
     }
+    package func resetCopyCancel() {}
     package func cancelCopy() {}
     package func refreshDevices() async {}
 }
@@ -149,7 +151,7 @@ extension BuildStore {
         buildingGame = true
         runningTarget = BuildTarget.ios
         beginOperation(dataOnly ? .sendingGameData : .installing, game: name, titleID: titleID, destination: .target)
-        stopping = false; installCancel.set(false); installPhaseActive = true
+        stopping = false; installCancel.set(false); devices.resetCopyCancel(); installPhaseActive = true
         if dataOnly { stoppedByPlayer = false }
         running = true
         finderShown = false
@@ -288,7 +290,7 @@ extension BuildStore {
         runningTarget = BuildTarget.ios
         beginOperation(dataOnly ? .sendingGameData : .installing, game: games.count == 1 ? last.name : nil,
                        titleID: games.count == 1 ? last.titleID : nil, destination: .target)
-        stopping = false; installCancel.set(false); installPhaseActive = true
+        stopping = false; installCancel.set(false); devices.resetCopyCancel(); installPhaseActive = true
         if dataOnly { stoppedByPlayer = false }
         running = true; done = false; doneNote = ""; failure = nil; shellUpdatedOnDevice = false
         if dataOnly { stages = [] }

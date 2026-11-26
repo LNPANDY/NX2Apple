@@ -279,8 +279,14 @@ package enum SendWhere {
     /// The install asks between two polls whether the player cancelled.
     nonisolated package var waitCancelled: Bool { waitCancel.value }
 
+    /// Clears any residual wait/copy cancellation flag before starting a new transfer or send flow.
+    package func resetCopyCancel() {
+        waitCancel.set(false)
+    }
+
     /// The install ended: no question and no wait stay on the screen.
     package func copyEnded() {
+        waitCancel.set(false)
         shellCopy = nil; shellWaiting = false; shellWaitingForHighSpeed = false
     }
 

@@ -8,7 +8,20 @@ import NXModel
 struct MissingImgGuideContext: Identifiable, Equatable {
     let game: LibraryGame
     let assessment: GameRefreshAssessment
+    let targets: Set<String>
     var id: UUID { game.id }
+
+    init(
+        game: LibraryGame,
+        assessment: GameRefreshAssessment,
+        targets: Set<String> = [BuildTarget.ios]
+    ) {
+        self.game = game
+        self.assessment = assessment
+        let normalized = Set(targets.map(BuildTarget.normalized))
+            .filter { $0 == BuildTarget.mac || $0 == BuildTarget.ios }
+        self.targets = normalized.isEmpty ? [BuildTarget.ios] : normalized
+    }
 }
 
 /// Guided modal shown when an iOS game needs a shader recompile (Path B) and has a build seed,
@@ -28,6 +41,9 @@ struct MissingImgGuideSheet: View {
     @State private var validatingImg = false
     @State private var imgValidationError: String?
     @State private var validationGeneration = 0
+
+    @State private var macAppImgPath: String?
+    @State private var macAppImgProbeGeneration = 0
 
     @State private var pullingDeviceName: String?
     @State private var pullError: String?
@@ -92,7 +108,7 @@ struct MissingImgGuideSheet: View {
                     .padding(.bottom, DSSheetInsets.gap)
                 }
                 .onChange(of: pad.focused) { id in
-                    if let id, ["imgGuide.choose", "imgGuide.folder", "imgGuide.pull"].contains(id) {
+                    if let id, ["imgGuide.choose", "imgGuide.useMacAppImg", "imgGuide.folder", "imgGuide.pull"].contains(id) {
                         proxy.scrollTo(id, anchor: .center)
                     }
                 }
@@ -114,6 +130,7 @@ struct MissingImgGuideSheet: View {
             sheetClosed = false
             pad.scope = "imgGuide"
             _ = devices.refresh()
+            probeMacAppRomfs()
             if pad.visible {
                 DispatchQueue.main.async { pad.show(default: "imgGuide.choose") }
             }
@@ -150,22 +167,58 @@ struct MissingImgGuideSheet: View {
 
     private var optionOneCard: some View {
         optionCard(loc.t("imgGuide.opt1Title"), note: loc.t("imgGuide.opt1Note")) {
-            Button {
-                pickExistingImg()
-            } label: {
-                HStack(spacing: DS.Space.xs) {
-                    if validatingImg { ProgressView().controlSize(.small).tint(DS.Color.accentOn) }
-                    Text(loc.t("imgGuide.chooseImgBtn"))
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: DS.Space.s) {
+                    chooseImgPrimaryButton
+                    if let macImgPath = macAppImgPath {
+                        useMacAppImgButton(path: macImgPath)
+                    }
                 }
-                .font(DS.Font.bodyStrong)
-                .padding(.horizontal, DS.Space.m)
+                VStack(alignment: .leading, spacing: DS.Space.xs) {
+                    chooseImgPrimaryButton
+                    if let macImgPath = macAppImgPath {
+                        useMacAppImgButton(path: macImgPath)
+                    }
+                }
             }
-            .buttonStyle(DSPrimaryButtonStyle())
-            .keyboardShortcut(.defaultAction)
-            .disabled(isBusy)
-            .padTarget("imgGuide.choose", scope: "imgGuide", focusColor: DS.Color.accentOn, enabled: !isBusy) { pickExistingImg() }
+            if macAppImgPath != nil {
+                Text(loc.t("imgGuide.useMacAppImgNote"))
+                    .font(DS.Font.callout)
+                    .foregroundStyle(DS.Color.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             if let error = imgValidationError { failure(error) }
+        }
+    }
+
+    private var chooseImgPrimaryButton: some View {
+        Button {
+            pickExistingImg()
+        } label: {
+            HStack(spacing: DS.Space.xs) {
+                if validatingImg { ProgressView().controlSize(.small).tint(DS.Color.accentOn) }
+                Text(loc.t("imgGuide.chooseImgBtn"))
+            }
+            .font(DS.Font.bodyStrong)
+            .padding(.horizontal, DS.Space.m)
+        }
+        .buttonStyle(DSPrimaryButtonStyle())
+        .keyboardShortcut(.defaultAction)
+        .disabled(isBusy)
+        .padTarget("imgGuide.choose", scope: "imgGuide", focusColor: DS.Color.accentOn, enabled: !isBusy) { pickExistingImg() }
+    }
+
+    private func useMacAppImgButton(path: String) -> some View {
+        Button {
+            validateAndResolveImg(atPath: path)
+        } label: {
+            Label(loc.t("imgGuide.useMacAppImgBtn"), systemImage: "desktopcomputer")
+        }
+        .buttonStyle(DSRowButtonStyle())
+        .disabled(isBusy)
+        .padTarget("imgGuide.useMacAppImg", scope: "imgGuide", enabled: !isBusy) {
+            validateAndResolveImg(atPath: path)
         }
     }
 
@@ -259,6 +312,39 @@ struct MissingImgGuideSheet: View {
         }
     }
 
+    /// Resolves a matching `romfs.img` inside the game's existing Mac `.app` bundle when available.
+    static func matchingMacAppRomfsPath(
+        for game: LibraryGame,
+        expectedIdentity: String?
+    ) -> String? {
+        guard let macApp = game.nxnativeMacBuildForRefresh?.appPath, !macApp.isEmpty else { return nil }
+        let candidate = (macApp as NSString).appendingPathComponent("Contents/Resources/romfs.img")
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: candidate, isDirectory: &isDir), !isDir.boolValue else {
+            return nil
+        }
+        if let expectedIdentity, !expectedIdentity.isEmpty {
+            return RomfsImageIdentity.matches(imagePath: candidate, expectedIdentityLine: expectedIdentity)
+                ? candidate
+                : nil
+        }
+        return RomfsImageIdentity.computeIdentity(of: candidate) != nil ? candidate : nil
+    }
+
+    private func probeMacAppRomfs() {
+        macAppImgProbeGeneration &+= 1
+        let gen = macAppImgProbeGeneration
+        let gameSnapshot = game
+        let expectedIdentity = assessment.expectedRomfsIdentity
+        DispatchQueue.global(qos: .userInitiated).async {
+            let candidate = Self.matchingMacAppRomfsPath(for: gameSnapshot, expectedIdentity: expectedIdentity)
+            DispatchQueue.main.async {
+                guard gen == macAppImgProbeGeneration, !sheetClosed else { return }
+                macAppImgPath = candidate
+            }
+        }
+    }
+
     private func pickExistingImg() {
         let pickedURL: URL?
         if let chooseImgURL {
@@ -268,6 +354,7 @@ struct MissingImgGuideSheet: View {
             panel.canChooseDirectories = false
             panel.canChooseFiles = true
             panel.allowsMultipleSelection = false
+            panel.treatsFilePackagesAsDirectories = true
             panel.allowedFileTypes = ["img"]
             if !devices.driveFolder.isEmpty {
                 panel.directoryURL = URL(fileURLWithPath: devices.driveFolder)
@@ -275,7 +362,10 @@ struct MissingImgGuideSheet: View {
             pickedURL = panel.runModal() == .OK ? panel.url : nil
         }
         guard let url = pickedURL else { return }
+        validateAndResolveImg(atPath: url.path)
+    }
 
+    private func validateAndResolveImg(atPath chosenPath: String) {
         pullCancelFlag?.set(true)
         pullCancelFlag = nil
         pullGeneration &+= 1
@@ -286,7 +376,6 @@ struct MissingImgGuideSheet: View {
         validatingImg = true
         imgValidationError = nil
 
-        let chosenPath = url.path
         let expectedIdentity = assessment.expectedRomfsIdentity
         let displayName = gameDisplayName
 
@@ -391,6 +480,7 @@ extension View {
     func refreshSheetsWiring(
         batchOpen: Binding<Bool>,
         imgGuide: Binding<MissingImgGuideContext?>,
+        rebuildGame: Binding<LibraryGame?> = .constant(nil),
         stores: LauncherStores,
         library: GameLibrary,
         toolsAge: ToolsAge,
@@ -399,7 +489,10 @@ extension View {
         editingBuildResult: Binding<Bool>,
         buildStep: Binding<Int>,
         pad: PadFocus,
-        scope: @escaping () -> String
+        scope: @escaping () -> String,
+        onRebuildWithSeed: @escaping (LibraryGame, Set<String>, String?) -> Void = { _, _, _ in },
+        onRebuildChooseImg: @escaping (LibraryGame, Set<String>) -> Void = { _, _ in },
+        onRebuildFromPackage: @escaping (LibraryGame, String?) -> Void = { _, _ in }
     ) -> some View {
         self
             .sheet(isPresented: batchOpen) {
@@ -492,10 +585,36 @@ extension View {
             .onChange(of: stores.build.refreshCompletionSummary?.id) { id in
                 pad.scope = id != nil ? "refreshDone" : scope()
             }
+            .sheet(item: rebuildGame) { game in
+                RebuildModeSheet(
+                    game: game,
+                    assessment: toolsAge.assessments[game.id],
+                    stores: stores,
+                    libraryFolder: library.folder,
+                    onRebuildWithSeed: { targets, reusedImgPath in
+                        rebuildGame.wrappedValue = nil
+                        onRebuildWithSeed(game, targets, reusedImgPath)
+                    },
+                    onChooseImg: { targets in
+                        rebuildGame.wrappedValue = nil
+                        onRebuildChooseImg(game, targets)
+                    },
+                    onRebuildFromPackage: { target in
+                        rebuildGame.wrappedValue = nil
+                        onRebuildFromPackage(game, target)
+                    },
+                    close: { rebuildGame.wrappedValue = nil }
+                )
+                .environmentObject(stores.localizer)
+                .environmentObject(pad)
+            }
+            .onChange(of: rebuildGame.wrappedValue?.id) { id in
+                pad.scope = id != nil ? "rebuildMode" : scope()
+            }
     }
 }
 
-@MainActor private func enqueueSingleFromImgGuide(
+@MainActor func enqueueSingleFromImgGuide(
     context: MissingImgGuideContext,
     externalIOSImgPath: String?,
     forceFullIOSRebuild: Bool,
@@ -506,50 +625,24 @@ extension View {
     editingBuildResult: Binding<Bool>,
     buildStep: Binding<Int>
 ) {
-    let game = context.game
-    let assessment = context.assessment
-    let batch = UUID()
-    var entries: [QueueEntry] = []
+    let entries = RefreshQueueBuilder.singleGameEntries(
+        for: context.game,
+        assessment: context.assessment,
+        externalIOSImgPath: externalIOSImgPath,
+        stores: stores,
+        libraryFolder: libraryFolder,
+        targets: context.targets,
+        externalMacImgPath: externalIOSImgPath,
+        forceFullRebuildTargets: forceFullIOSRebuild ? [BuildTarget.ios] : [],
+        allowTargetsWithoutExistingBuild: true
+    )
 
-    if game.nxnativeMacBuildForRefresh != nil {
-        let useSeedMac = assessment.canSeedRefreshMac
-        let rebuildMac = assessment.needsShaderRebuildMac
-        if useSeedMac || !assessment.missingOriginalPackage {
-            entries.append(RefreshQueueBuilder.makeEntry(
-                game: game,
-                target: BuildTarget.mac,
-                fastRefresh: useSeedMac,
-                rebuildsShaders: rebuildMac,
-                externalImgPath: nil,
-                batch: batch,
-                stores: stores,
-                libraryFolder: libraryFolder
-            ))
-        }
-    }
-
-    let useSeedIOS = !forceFullIOSRebuild && (assessment.canSeedRefreshIOS || externalIOSImgPath != nil)
-    let rebuildIOS = useSeedIOS && (assessment.needsShaderRebuildIOS || !assessment.canFastRefreshIOS)
-    if useSeedIOS || !assessment.missingOriginalPackage {
-        entries.append(RefreshQueueBuilder.makeEntry(
-            game: game,
-            target: BuildTarget.ios,
-            fastRefresh: useSeedIOS,
-            rebuildsShaders: rebuildIOS,
-            externalImgPath: externalIOSImgPath,
-            batch: batch,
-            stores: stores,
-            libraryFolder: libraryFolder
-        ))
-    }
-
-    let ordered = RefreshQueueBuilder.orderedEntries(entries)
-    guard !ordered.isEmpty else { return }
+    guard !entries.isEmpty else { return }
     if !stores.build.running {
         stores.build.clearUnstartedDraft()
         stores.queue.prepareForRefreshBatch()
     }
-    stores.queue.enqueue(ordered)
+    stores.queue.enqueue(entries)
     page.wrappedValue = .builds
     buildEditorOpen.wrappedValue = false
     editingBuildResult.wrappedValue = false

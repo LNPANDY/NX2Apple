@@ -17,7 +17,7 @@ enum GallerySheet: String, CaseIterable {
     case confirmUninstall, confirmEngineChannel, confirmStaleFrameworks, confirmBuildAnyway, confirmRemovePlayer
     case confirmCancelQueue, confirmCancelDraft, confirmTestedValues
     case rename, renameCustom, buildSelected, buildSelectedEmpty, supportedGames, supportedGamesExpanded
-    case batchRefresh, batchRefreshEmpty, imgGuide, imgGuideNoPackage, refreshCompletion
+    case batchRefresh, batchRefreshEmpty, imgGuide, imgGuideNoPackage, rebuildMode, refreshCompletion
     case saves, saveImport
     case skippedItems, appUpdate, playerName, playerRename, buildSteps, sendSelectedDevice, shellCopy
     case cheats, invalidXcode
@@ -63,6 +63,7 @@ enum GallerySheet: String, CaseIterable {
         case .batchRefreshEmpty: return "Refresh games: nothing to refresh"
         case .imgGuide: return "Game data for iOS missing"
         case .imgGuideNoPackage: return "Game data for iOS missing: no package"
+        case .rebuildMode: return "Rebuild options: seed and .img"
         case .refreshCompletion: return "Refresh complete: per-game img status"
         case .saves: return "Saves: Mac and iPhone"
         case .saveImport: return "Import a save"
@@ -244,6 +245,12 @@ extension GalleryFixtures {
                                                    missingOriginalPackage: sheet == .imgGuideNoPackage)
             return AnyView(MissingImgGuideSheet(context: MissingImgGuideContext(game: game, assessment: assessment), stores: stores, devices: stores.deviceStore,
                                                 libraryFolder: library.folder, onResolvedImg: { _ in }, onFallbackFullRebuild: {}, close: {}))
+        case .rebuildMode:
+            let assessment = GameRefreshAssessment(heroState: .generalSync(fast: false), hasSpecificUpdate: false, versionLabel: "1.2.0",
+                                                   canFastRefreshMac: false, canFastRefreshIOS: false, needsMissingImgGuideIOS: true,
+                                                   missingOriginalPackage: false, hasUsableSeed: true)
+            return AnyView(RebuildModeSheet(game: game, assessment: assessment, stores: stores, libraryFolder: library.folder,
+                                            onRebuildWithSeed: { _, _ in }, onChooseImg: { _ in }, onRebuildFromPackage: { _ in }, close: {}))
         case .refreshCompletion:
             let summary = RefreshCompletionSummary(
                 isBatch: true,

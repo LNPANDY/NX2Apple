@@ -322,15 +322,23 @@ package enum RomFSArchive {
     }
 
     /// The RomFS images an earlier build of this game left outside its build folder: `games/<FolderName>/<GameName>.img`, legacy
-    /// `games/<id>/romfs.img`, and `<App>.app/Contents/Resources/romfs.img` under `root`. Only images accompanied by their `.id`
-    /// sidecar are returned so `--romfs-from` can verify them before skipping extraction (#708).
-    package nonisolated static func reusableImages(root: String, key: String) -> [String] {
+    /// `games/<id>/romfs.img`, `<workDir>/extract/<ver>/RomFS.img`, and `<App>.app/Contents/Resources/romfs.img`. Only images
+    /// accompanied by their `.id` sidecar (and matching `titleID` when applicable) are returned so `--romfs-from` can verify them
+    /// before skipping extraction (#708).
+    package nonisolated static func reusableImages(
+        root: String,
+        key: String,
+        workDir: String? = nil,
+        macAppPath: String? = nil
+    ) -> [String] {
         let fm = FileManager.default
         let isTitleID = isHexTitleID(key)
         var candidates: [String] = []
         var seen = Set<String>()
         func addCandidate(_ path: String) {
-            guard fm.fileExists(atPath: path), fm.fileExists(atPath: path + ".id") else { return }
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: path, isDirectory: &isDir), !isDir.boolValue,
+                  fm.fileExists(atPath: path + ".id") else { return }
             let canonical = URL(fileURLWithPath: path).standardizedFileURL.path
             if seen.insert(canonical).inserted {
                 candidates.append(path)
@@ -366,6 +374,10 @@ package enum RomFSArchive {
             }
         }
 
+        for image in extractDirectoryImages(root: root, key: key, isTitleID: isTitleID, workDir: workDir, fm: fm) {
+            addCandidate(image)
+        }
+
         addCandidate(joinPath(root, key + ".app/Contents/Resources/romfs.img"))
         let rootURL = URL(fileURLWithPath: root)
         let rootEntries = ((try? fm.contentsOfDirectory(at: rootURL, includingPropertiesForKeys: [.isSymbolicLinkKey], options: [.skipsHiddenFiles])) ?? [])
@@ -378,7 +390,87 @@ package enum RomFSArchive {
                 addCandidate(image)
             }
         }
+
+        if let macAppPath, !macAppPath.isEmpty {
+            let appURL = URL(fileURLWithPath: macAppPath)
+            let isLink = (try? appURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true
+            if !isLink {
+                let image = joinPath(macAppPath, "Contents/Resources/romfs.img")
+                if fm.fileExists(atPath: image), fm.fileExists(atPath: image + ".id"),
+                   !isTitleID || appImageMatchesTitleID(appURL: appURL, idPath: image + ".id", titleID: key) {
+                    addCandidate(image)
+                }
+            }
+        }
         return candidates
+    }
+
+    private nonisolated static func extractDirectoryImages(
+        root: String,
+        key: String,
+        isTitleID: Bool,
+        workDir: String?,
+        fm: FileManager
+    ) -> [String] {
+        var extractRoots: [String] = []
+        var seenRoots = Set<String>()
+        func addExtractRoot(_ path: String) {
+            guard !path.isEmpty else { return }
+            let canonical = URL(fileURLWithPath: path).standardizedFileURL.path
+            if seenRoots.insert(canonical).inserted {
+                extractRoots.append(path)
+            }
+        }
+
+        if let workDir, !workDir.isEmpty {
+            addExtractRoot(joinPath(workDir, "extract"))
+        }
+        if isTitleID, !root.isEmpty {
+            addExtractRoot(joinPath(root, key.uppercased() + "_build/extract"))
+            addExtractRoot(joinPath(root, key + "_build/extract"))
+        }
+
+        var results: [String] = []
+        for extractRoot in extractRoots {
+            var isRootDir: ObjCBool = false
+            guard fm.fileExists(atPath: extractRoot, isDirectory: &isRootDir), isRootDir.boolValue,
+                  let rawEntries = try? fm.contentsOfDirectory(atPath: extractRoot) else { continue }
+
+            let sortedEntries = rawEntries
+                .filter { !$0.hasPrefix(".") && !$0.hasSuffix(".partial") }
+                .sorted { lhs, rhs in
+                    let lNum = lhs.hasPrefix("v") ? Int(lhs.dropFirst()) : nil
+                    let rNum = rhs.hasPrefix("v") ? Int(rhs.dropFirst()) : nil
+                    switch (lNum, rNum) {
+                    case (let l?, let r?):
+                        if l != r { return l > r }
+                        return lhs < rhs
+                    case (_?, nil):
+                        return true
+                    case (nil, _?):
+                        return false
+                    case (nil, nil):
+                        return lhs < rhs
+                    }
+                }
+
+            for entry in sortedEntries {
+                let verDir = joinPath(extractRoot, entry)
+                var isVerDir: ObjCBool = false
+                guard fm.fileExists(atPath: verDir, isDirectory: &isVerDir), isVerDir.boolValue else { continue }
+                let imgPath = joinPath(verDir, "RomFS.img")
+                let idPath = imgPath + ".id"
+                var isImgDir: ObjCBool = false
+                guard fm.fileExists(atPath: imgPath, isDirectory: &isImgDir), !isImgDir.boolValue,
+                      fm.fileExists(atPath: idPath) else { continue }
+                if isTitleID {
+                    guard let owner = titleIDFromIdentityFile(idPath),
+                          owner.caseInsensitiveCompare(key) == .orderedSame else { continue }
+                }
+                results.append(imgPath)
+            }
+        }
+        return results
     }
 
     private nonisolated static func appImageMatchesTitleID(appURL: URL, idPath: String, titleID: String) -> Bool {

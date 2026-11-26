@@ -72,8 +72,9 @@ extension LauncherView {
             launching: launching,
             activeUpstream: activeUpstream,
             builtUpstreams: builtUpstreams,
+            canRebuildFromSeed: canRebuildGameFromSeedOrImg(game),
             actions: ManageActions(
-                rebuild: { configureBuild(game) },
+                rebuild: { triggerLibraryRebuild(game) },
                 openOnDevice: { openOnDevice(game) },
                 launchWithEngine: { upstream in launchWithMacEngine(game, upstream: upstream) },
                 setDefaultEngine: { upstream in setDefaultMacEngine(game, upstream: upstream) },

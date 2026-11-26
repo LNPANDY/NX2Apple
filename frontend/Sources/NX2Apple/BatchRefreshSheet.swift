@@ -50,8 +50,8 @@ import NXModel
         entry.upstream = .nxnative
         entry.locksTarget = true
         entry.existingAppPath = isMac ? game.nxnativeMacBuildForRefresh?.appPath : nil
-        entry.externalImgPath = isMac ? nil : externalImgPath
-        entry.archivePath = (isMac || game.archivePath.isEmpty) ? nil : game.archivePath
+        entry.externalImgPath = externalImgPath
+        entry.archivePath = game.archivePath.isEmpty ? nil : game.archivePath
         return entry
     }
 
@@ -79,23 +79,35 @@ import NXModel
         assessment: GameRefreshAssessment?,
         externalIOSImgPath: String?,
         stores: LauncherStores,
-        libraryFolder: String
+        libraryFolder: String,
+        targets: Set<String>? = nil,
+        externalMacImgPath: String? = nil,
+        forceFullRebuildTargets: Set<String> = [],
+        allowTargetsWithoutExistingBuild: Bool = false
     ) -> [QueueEntry] {
         let batch = UUID()
         var entries: [QueueEntry] = []
+        let normalizedTargets: Set<String>? = targets.map { Set($0.map(BuildTarget.normalized)) }
+        let normalizedForceFull = Set(forceFullRebuildTargets.map(BuildTarget.normalized))
         let hasMac = game.nxnativeMacBuildForRefresh != nil
         let hasIOS = game.hasIOSBuild(shellRoot: stores.build.shellCachePath)
+        let wantsMac = (hasMac || (allowTargetsWithoutExistingBuild && normalizedTargets != nil))
+            && (normalizedTargets?.contains(BuildTarget.mac) ?? true)
+        let wantsIOS = (hasIOS || (allowTargetsWithoutExistingBuild && normalizedTargets != nil))
+            && (normalizedTargets?.contains(BuildTarget.ios) ?? true)
 
-        if hasMac {
-            let useSeedMac = assessment?.canSeedRefreshMac == true
-            let rebuildMac = assessment?.needsShaderRebuildMac == true
+        if wantsMac {
+            let forceFullMac = normalizedForceFull.contains(BuildTarget.mac)
+            let useMacExternalImg = hasMac ? nil : externalMacImgPath
+            let useSeedMac = !forceFullMac && (assessment?.canSeedRefreshMac == true || (useMacExternalImg != nil && assessment?.hasUsableSeed == true))
+            let rebuildMac = useSeedMac && (assessment?.needsShaderRebuildMac == true || !hasMac)
             if useSeedMac || assessment?.missingOriginalPackage != true {
                 entries.append(makeEntry(
                     game: game,
                     target: BuildTarget.mac,
                     fastRefresh: useSeedMac,
                     rebuildsShaders: rebuildMac,
-                    externalImgPath: nil,
+                    externalImgPath: useMacExternalImg,
                     batch: batch,
                     stores: stores,
                     libraryFolder: libraryFolder
@@ -103,8 +115,9 @@ import NXModel
             }
         }
 
-        if hasIOS {
-            let useSeedIOS = (assessment?.canSeedRefreshIOS == true) || externalIOSImgPath != nil
+        if wantsIOS {
+            let forceFullIOS = normalizedForceFull.contains(BuildTarget.ios)
+            let useSeedIOS = !forceFullIOS && ((assessment?.canSeedRefreshIOS == true) || externalIOSImgPath != nil)
             let rebuildIOS = useSeedIOS && ((assessment?.needsShaderRebuildIOS == true) || (externalIOSImgPath != nil && assessment?.canFastRefreshIOS != true))
             if useSeedIOS || assessment?.missingOriginalPackage != true {
                 entries.append(makeEntry(
@@ -120,7 +133,7 @@ import NXModel
             }
         }
 
-        if !hasMac && !hasIOS {
+        if !hasMac && !hasIOS && entries.isEmpty && normalizedTargets == nil {
             guard game.sortedMacBuilds.isEmpty else { return [] }
             let m = stores.build
             if !game.inputs["base", default: []].isEmpty || game.inputs[GameLibrary.folderInput] != nil {
@@ -521,6 +534,8 @@ struct BatchRefreshSheet: View {
             .disabled(enabled.isEmpty)
 
 
+            let macChecked = row.hasMac && !row.disabledMac && selected.contains(PlatformSelection(gameID: row.id, target: BuildTarget.mac))
+            let iosChecked = row.hasIOS && !row.disabledIOS && selected.contains(PlatformSelection(gameID: row.id, target: BuildTarget.ios))
             VStack(alignment: .trailing, spacing: 8) {
               HStack(spacing: 8) {
                 if row.hasMac {
@@ -528,7 +543,7 @@ struct BatchRefreshSheet: View {
                         label: loc.t("batchRefresh.platformMac"),
                         symbol: "desktopcomputer",
                         id: "batchRefresh.platform.mac.\(row.id.uuidString)",
-                        isOn: !row.disabledMac && selected.contains(PlatformSelection(gameID: row.id, target: BuildTarget.mac)),
+                        isOn: macChecked,
                         isFast: row.canFastMac,
                         disabled: row.disabledMac
                     ) {
@@ -540,7 +555,7 @@ struct BatchRefreshSheet: View {
                         label: loc.t("batchRefresh.platformIOS"),
                         symbol: "iphone",
                         id: "batchRefresh.platform.ios.\(row.id.uuidString)",
-                        isOn: !row.disabledIOS && selected.contains(PlatformSelection(gameID: row.id, target: BuildTarget.ios)),
+                        isOn: iosChecked,
                         isFast: row.canFastIOS,
                         disabled: row.disabledIOS
                     ) {
@@ -549,10 +564,15 @@ struct BatchRefreshSheet: View {
                 }
               }
               if row.showsMissingImgHint {
-                Button(loc.t("imgGuide.chooseImgBtn")) { recoverImage(.init(game: row.game, assessment: row.assessment)) }
+                let guideContext = MissingImgGuideContext(
+                    game: row.game,
+                    assessment: row.assessment,
+                    targets: Self.recoverTargets(macChecked: macChecked, iosChecked: iosChecked)
+                )
+                Button(loc.t("imgGuide.chooseImgBtn")) { recoverImage(guideContext) }
                     .buttonStyle(DSRowButtonStyle())
                     .padTarget("batchRefresh.recover." + row.id.uuidString, scope: "batchRefresh") {
-                        recoverImage(.init(game: row.game, assessment: row.assessment))
+                        recoverImage(guideContext)
                     }
               }
             }
@@ -747,5 +767,13 @@ struct BatchRefreshSheet: View {
         }
         stores.queue.enqueue(ordered)
         onConfirmed()
+    }
+
+    /// Computes the explicit target set for the missing-`.img` recovery sheet based on row toggles.
+    static func recoverTargets(macChecked: Bool, iosChecked: Bool) -> Set<String> {
+        var targets: Set<String> = []
+        if macChecked { targets.insert(BuildTarget.mac) }
+        if iosChecked || !macChecked { targets.insert(BuildTarget.ios) }
+        return targets
     }
 }

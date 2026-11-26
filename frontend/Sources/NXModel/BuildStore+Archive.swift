@@ -143,6 +143,19 @@ extension BuildStore {
                 var resolvedImg = canonicalImg
                 var hasValidLocalImg = fm.fileExists(atPath: resolvedImg) && RomFSArchive.isValidPrimaryRomFSImage(atPath: resolvedImg)
                 if !hasValidLocalImg,
+                   let externalImg, !externalImg.isEmpty,
+                   externalImg.contains(".app/"),
+                   fm.fileExists(atPath: externalImg),
+                   RomFSArchive.isValidPrimaryRomFSImage(atPath: externalImg) {
+                    // Never mutate a signed Mac .app bundle's romfs.img in place: clone/copy to canonicalDest for iOS trailer injection.
+                    try? fm.createDirectory(atPath: canonicalDest, withIntermediateDirectories: true)
+                    try? fm.removeItem(atPath: canonicalImg)
+                    if (try? fm.copyItem(atPath: externalImg, toPath: canonicalImg)) != nil {
+                        RomFSArchive.copyImageIdentity(of: externalImg, to: canonicalImg)
+                        hasValidLocalImg = true
+                    }
+                }
+                if !hasValidLocalImg,
                    (externalImg?.isEmpty != false),
                    let fallback = Self.findFallbackLocalArchive(
                        tid: tid,

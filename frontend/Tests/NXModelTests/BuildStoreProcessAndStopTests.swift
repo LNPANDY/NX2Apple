@@ -403,13 +403,14 @@ import XCTest
         XCTAssertFalse(store.proc?.isRunning == true)
 
         store.stop()
+        XCTAssertTrue(deviceStore.waitCancelled, "Stop must assert waitCancelled immediately to abort cable polling")
         let stopWaitDeadline = Date().addingTimeInterval(5)
         while store.running && Date() < stopWaitDeadline {
             RunLoop.main.run(until: Date().addingTimeInterval(0.02))
         }
         XCTAssertFalse(store.running, "Stop must cancel the cable wait and end the install")
         XCTAssertTrue(store.stoppedByPlayer)
-        XCTAssertTrue(deviceStore.waitCancelled)
+        XCTAssertFalse(deviceStore.waitCancelled, "copyEnded() must clear waitCancelled once the install finishes")
         XCTAssertFalse(deviceStore.shellWaiting)
         XCTAssertEqual(store.doneNote, store.t("msg.stopped"))
         XCTAssertNil(store.failure)
