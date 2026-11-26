@@ -3,6 +3,14 @@ import Foundation
 // Installing built frameworks without rebuilding any game, and installing a queued batch of built frameworks once at the end.
 
 extension ShellInstaller {
+    func stageFreshProfiles(app: String, bundleID: String) -> AppSignature.StagedProfiles? {
+        guard let staged = AppSignature.stageProfilesIfNeeded(
+            app: app, bundleID: bundleID, team: team, home: home, now: now(), runner: runner
+        ) else { return nil }
+        log("signing: provisioning profile is missing or older than 24h, staging cached profiles for fresh 7-day profile\n")
+        return staged
+    }
+
     /// One game of a queued shared-app install batch.
     package struct BatchGame: Equatable {
         package var framework: String

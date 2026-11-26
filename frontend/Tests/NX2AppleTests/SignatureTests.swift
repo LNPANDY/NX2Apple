@@ -100,14 +100,15 @@ final class SignatureTests: IsolatedDefaultsTestCase {
         XCTAssertEqual(runner.count, 1, "games sharing one DmShell.app should invoke security cms only once")
     }
 
-    private func teamProfileData(uuid: String, name: String, appID: String, team: String, expires: Date, cmsWrapped: Bool = false) throws -> Data {
-        let plist: [String: Any] = [
+    private func teamProfileData(uuid: String, name: String, appID: String, team: String, expires: Date, created: Date? = nil, cmsWrapped: Bool = false) throws -> Data {
+        var plist: [String: Any] = [
             "UUID": uuid,
             "Name": name,
             "TeamIdentifier": [team],
             "Entitlements": ["application-identifier": appID],
             "ExpirationDate": expires,
         ]
+        if let created { plist["CreationDate"] = created }
         let xml = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
         guard cmsWrapped else { return xml }
         var wrapped = Data([0x30, 0x82, 0x01, 0x00, 0x06, 0x09])
@@ -330,5 +331,90 @@ final class SignatureTests: IsolatedDefaultsTestCase {
         releaseClearRace.signal()
         RunLoop.main.run(until: Date().addingTimeInterval(0.15))
         XCTAssertEqual(tracker.expiry, [:], "in-flight read before emptying apps must not repopulate expiry")
+    }
+
+    func testNeedsFreshProfileAndStageProfilesIfNeeded() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("fresh-profile-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let home = root.appendingPathComponent("home").path
+        let xcodeProfiles = home + "/Library/Developer/Xcode/UserData/Provisioning Profiles"
+        let legacyProfiles = home + "/Library/MobileDevice/Provisioning Profiles"
+        let app = root.appendingPathComponent("DmShell.app").path
+        try fm.createDirectory(atPath: xcodeProfiles, withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: legacyProfiles, withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: app + "/_CodeSignature", withIntermediateDirectories: true)
+        try Data("sig".utf8).write(to: URL(fileURLWithPath: app + "/_CodeSignature/CodeResources"))
+
+        let now = Date(timeIntervalSince1970: 1_794_100_000)
+        let bundleID = "org.nxnative.shell.TEAM123456"
+        let team = "TEAM123456"
+        let appID = "\(team).\(bundleID)"
+        let validExpiry = now.addingTimeInterval(5 * 86_400)
+
+        // 1. No matching valid profile -> needs fresh profile.
+        XCTAssertTrue(AppSignature.needsFreshProfile(app: app, bundleID: bundleID, team: team, home: home, now: now))
+
+        // 2. Valid matching profile missing CreationDate -> needs fresh profile.
+        let noCreatedData = try teamProfileData(
+            uuid: "NO-CREATED", name: "iOS Team", appID: appID, team: team, expires: validExpiry, created: nil, cmsWrapped: true
+        )
+        let cachedNoCreated = xcodeProfiles + "/NO-CREATED.mobileprovision"
+        try noCreatedData.write(to: URL(fileURLWithPath: cachedNoCreated))
+        XCTAssertTrue(AppSignature.needsFreshProfile(app: app, bundleID: bundleID, team: team, home: home, now: now))
+        try fm.removeItem(atPath: cachedNoCreated)
+
+        // 3. Expired profile even if created 1 hour ago -> needs fresh profile.
+        let expiredData = try teamProfileData(
+            uuid: "EXPIRED-RECENT", name: "iOS Team", appID: appID, team: team,
+            expires: now.addingTimeInterval(-60), created: now.addingTimeInterval(-3600), cmsWrapped: true
+        )
+        let cachedExpired = xcodeProfiles + "/EXPIRED-RECENT.mobileprovision"
+        try expiredData.write(to: URL(fileURLWithPath: cachedExpired))
+        XCTAssertTrue(AppSignature.needsFreshProfile(app: app, bundleID: bundleID, team: team, home: home, now: now))
+
+        // 4. Unrelated team/app created 1 minute ago must not mask stale target profile.
+        let otherTeamData = try teamProfileData(
+            uuid: "OTHER-TEAM", name: "Other", appID: "OTHER99999.\(bundleID)", team: "OTHER99999",
+            expires: validExpiry, created: now.addingTimeInterval(-60), cmsWrapped: true
+        )
+        try otherTeamData.write(to: URL(fileURLWithPath: xcodeProfiles + "/OTHER-TEAM.mobileprovision"))
+
+        // 5. Profile created exactly 24h ago -> >= 24h triggers staging.
+        let exact24hData = try teamProfileData(
+            uuid: "EXACT-24H", name: "iOS Team", appID: appID, team: team,
+            expires: validExpiry, created: now.addingTimeInterval(-24 * 3600), cmsWrapped: true
+        )
+        let cachedExact24h = xcodeProfiles + "/EXACT-24H.mobileprovision"
+        try exact24hData.write(to: URL(fileURLWithPath: cachedExact24h))
+        XCTAssertTrue(AppSignature.needsFreshProfile(app: app, bundleID: bundleID, team: team, home: home, now: now))
+        let staged24h = AppSignature.stageProfilesIfNeeded(app: app, bundleID: bundleID, team: team, home: home, now: now)
+        XCTAssertNotNil(staged24h)
+        XCTAssertFalse(fm.fileExists(atPath: cachedExact24h))
+        staged24h?.rollback()
+        XCTAssertTrue(fm.fileExists(atPath: cachedExact24h))
+
+        // 6. Multiple matching valid profiles: older 3d profile + newer 2h profile -> newest CreationDate wins (< 24h, reuse).
+        let old3dData = try teamProfileData(
+            uuid: "OLD-3D", name: "iOS Team", appID: appID, team: team,
+            expires: validExpiry, created: now.addingTimeInterval(-3 * 86_400), cmsWrapped: true
+        )
+        let fresh2hCreated = now.addingTimeInterval(-2 * 3600)
+        let fresh2hData = try teamProfileData(
+            uuid: "FRESH-2H", name: "iOS Team", appID: appID, team: team,
+            expires: validExpiry, created: fresh2hCreated, cmsWrapped: true
+        )
+        let cachedOld3d = legacyProfiles + "/OLD-3D.mobileprovision"
+        let cachedFresh2h = xcodeProfiles + "/FRESH-2H.mobileprovision"
+        try old3dData.write(to: URL(fileURLWithPath: cachedOld3d))
+        try fresh2hData.write(to: URL(fileURLWithPath: cachedFresh2h))
+        XCTAssertEqual(
+            AppSignature.latestValidProfileCreationDate(app: app, bundleID: bundleID, team: team, home: home, now: now),
+            fresh2hCreated
+        )
+        XCTAssertFalse(AppSignature.needsFreshProfile(app: app, bundleID: bundleID, team: team, home: home, now: now))
+        XCTAssertNil(AppSignature.stageProfilesIfNeeded(app: app, bundleID: bundleID, team: team, home: home, now: now))
+        XCTAssertTrue(fm.fileExists(atPath: cachedFresh2h), "profile < 24h old must stay in cache")
+        XCTAssertTrue(fm.fileExists(atPath: cachedOld3d))
     }
 }
