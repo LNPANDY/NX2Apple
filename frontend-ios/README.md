@@ -41,6 +41,18 @@ The launchers do every step. Without one, a game takes three steps (#1327):
    This prints the four values: `python3 -c "import json,sys; m=json.load(open(sys.argv[1])); print(m['lib_path'], m['gfx_api'], m.get('chain', ''), m.get('multi_program', False))" <work>/fw/.msl-cache/<title ID>.json`. When the image already has a shader trailer, use `--replace-msl` instead of `--append-msl`.
 3. `DM_SHELL_FRAMEWORKS=<work>/fw/DmGame<title ID>.framework frontend-ios/Shell/build_shell.sh` builds the shell. Then copy the image to `Documents/games/<title ID>/romfs.img`.
 
+### Signing the shell for your own device
+
+`xcodebuild ... -allowProvisioningUpdates` signs the shell with your Apple developer team and installs it. These are the errors seen on a first run and what fixes each one:
+
+| Error | Cause and fix |
+| --- | --- |
+| `No Account for Team "<ID>"` | Xcode has no account for that team. Add the Apple ID in Xcode > Settings > Accounts. The team ID is the one of the team, not the ID in the name of a signing certificate (`security find-identity` prints the certificate's). `defaults read com.apple.dt.Xcode IDEProvisioningTeamByIdentifier` lists the teams Xcode knows. |
+| `Device "<name>" isn't registered in your developer account` | Register the device's UDID in the team (developer.apple.com > Devices). Pass `-allowProvisioningDeviceRegistration` if the account may do it. |
+| `The app identifier "org.nxnative.shell" cannot be registered to your development team` | Another team owns that bundle ID. Set `DM_BUNDLE_ID` to your own and keep it, so a reinstall keeps the game data and saves. |
+| `doesn't include the Increased Memory Limit capability` | The profile lacks the entitlement the shell asks for (`com.apple.developer.kernel.increased-memory-limit`). A wildcard profile cannot carry it. Use a bundle ID of your own, so Xcode creates a profile with it. `DM_ENTITLEMENTS=` (empty) builds without it, and a large game may then be ended for lack of memory. |
+| The app closes at once, or says it cannot be opened | Trust the developer profile in Settings > General > VPN & Device Management. A free account's profile expires after 7 days, a paid one's after a year. |
+
 ## Integrate
 
 All boundary types are in `Sources/ShellUI/ShellInputs.swift` and `ShellArtwork.swift`:
