@@ -2799,7 +2799,7 @@
   "shell.step2Title": "Installera den med ditt eget verktyg",
   "shell.step3Sub": "Kopierar spelet till appen på din enhet, eller till en disk för iPhone.",
   "shell.step3Title": "Skicka speldata",
-  "shell.updatedShell": "Uppdaterade spelskalet på %@",
+  "shell.updatedShell": "Spelskalet uppdaterat",
   "shell.whereDevice": "Enhet",
   "shell.whereDrive": "Disk eller mapp",
   "shellCache.busy": "Ett bygge eller en installation pågår. Flytta cachen när det är klart.",

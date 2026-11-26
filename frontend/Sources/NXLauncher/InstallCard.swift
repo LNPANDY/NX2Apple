@@ -12,16 +12,17 @@ package struct InstallCard: View {
     @Environment(\.launcherSectionTitleFont) private var titleFont
 
     @State private var selectDeviceGamesOpen = false
-    @State private var signingHelpOpen = false
+    @State private var signingHelpOpen: Bool
     @State private var recentDevice: String?
     let forQueue: Bool
     let showLocked: Bool
 
-    package init(devices: DeviceStore, build: BuildStore, showLocked: Bool = true, forQueue: Bool = false) {
+    package init(devices: DeviceStore, build: BuildStore, showLocked: Bool = true, forQueue: Bool = false, signingHelpInitiallyOpen: Bool = false) {
         self.showLocked = showLocked
         self.forQueue = forQueue
         self.devices = devices
         self.build = build
+        _signingHelpOpen = State(initialValue: signingHelpInitiallyOpen)
     }
 
     package var body: some View {
@@ -204,13 +205,17 @@ package struct InstallCard: View {
                     if !devices.installDevice.isEmpty {
                         CardDivider()
                         CardDisclosure(loc.t("flow.signingHelp"), isOpen: signingHelpOpen) { signingHelpOpen.toggle() }
-                            .padTarget("set.build.install.help", scope: "main", enabled: !build.running, activate: { signingHelpOpen.toggle() })
+                            .padTarget("set.build.install.help", scope: "main", radius: 0, enabled: !build.running, activate: { signingHelpOpen.toggle() })
                         if signingHelpOpen {
-                            VStack(alignment: .leading, spacing: 12) {
-                                if teams.isEmpty { Text(loc.t("dev.noTeam")) }
-                                if !footnote.isEmpty { Text(footnote) }
-                            }.font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary).fixedSize(horizontal: false, vertical: true)
-                                .frame(maxWidth: .infinity, alignment: .leading).padding(18)
+                            CardDivider()
+                            CardDisclosureBody {
+                                VStack(alignment: .leading, spacing: DS.Space.s) {
+                                    if teams.isEmpty { Text(loc.t("dev.noTeam")) }
+                                    if !footnote.isEmpty { Text(footnote) }
+                                }
+                                .font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            }
                         }
                     }
                     if !forQueue && !build.builtShellGames().isEmpty {

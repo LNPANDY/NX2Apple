@@ -43,7 +43,7 @@ enum BuildNotice {
         switch outcome {
         case .finished, .stopped:
             let body = shellUpdated && target != "mac-app"
-                ? place + "\n" + String(format: t("shell.updatedShell"), device ?? "iPhone")
+                ? place + "\n" + t("shell.updatedShell")
                 : place
             return (String(format: t("notify.doneTitle"), game), body)
         case .failed(let reason):

@@ -32,8 +32,12 @@ package struct DSCard<Content: View>: View {
     package init(padding: CGFloat = DS.Space.m, @ViewBuilder _ content: () -> Content) { self.padding = padding; self.content = content() }
     let padding: CGFloat
     let content: Content
+    @State private var reservesSlot = false
     package var body: some View {
         content
+            .environment(\.dsRowReservesSlot, reservesSlot)
+            .onPreferenceChange(DSRowLeadingSlotKey.self) { reservesSlot = $0 }
+            .transformPreference(DSRowLeadingSlotKey.self) { $0 = false }
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: DS.Radius.card))

@@ -2799,7 +2799,7 @@
   "shell.step2Title": "Instálalo con tu propia herramienta",
   "shell.step3Sub": "Copia el juego a la app de tu dispositivo, o a un disco para el iPhone.",
   "shell.step3Title": "Enviar los datos del juego",
-  "shell.updatedShell": "Shell de juego actualizado en %@",
+  "shell.updatedShell": "Shell de juego actualizado",
   "shell.whereDevice": "Dispositivo",
   "shell.whereDrive": "Disco o carpeta",
   "shellCache.busy": "Hay una compilación o una instalación en curso. Mueve la caché cuando termine.",

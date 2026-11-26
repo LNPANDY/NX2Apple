@@ -2799,7 +2799,7 @@
   "shell.step2Title": "직접 쓰는 도구로 설치",
   "shell.step3Sub": "기기의 앱 또는 iPhone용 드라이브에 게임을 복사합니다.",
   "shell.step3Title": "게임 데이터 보내기",
-  "shell.updatedShell": "%@의 게임 셸을 업데이트했습니다",
+  "shell.updatedShell": "게임 셸 업데이트됨",
   "shell.whereDevice": "기기",
   "shell.whereDrive": "드라이브 또는 폴더",
   "shellCache.busy": "빌드나 설치가 진행 중입니다. 끝난 뒤에 캐시를 옮기세요.",

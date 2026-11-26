@@ -69,7 +69,7 @@ enum GalleryCoverage {
         "LauncherInfoHelp": [.addGameFound], "ActionCard": [.addGameFound], "TargetCard": [.gamePage, .wizardPlatform],
         "InstallCard": [.wizardInstall], "RefreshDevicesButton": [.wizardInstall], "LauncherBrandMark": [.wizardInstall],
         "BuildMetadataHero": [.buildOneStage, .buildMultiStage], "BuildIconReveal": [.buildOneStage, .motion(.iconReveal)],
-        "BuildProcessCard": [.buildMultiStage], "BuildProcessRows": [.buildMultiStage], "CardDisclosure": [.buildOneStage],
+        "BuildProcessCard": [.buildMultiStage], "BuildProcessRows": [.buildMultiStage], "CardDisclosure": [.buildOneStage], "CardDisclosureBody": [.buildFinishedIOS],
         "ProgressCard": [.buildsRunning, .nxkitFailed], "LauncherProgressBar": [.buildsRunning],
         "BuildQueueHero": [.desktop(D.queueRunning)], "QueueArtworkStack": [.desktop(D.queueRunning), .buildsQueued],
         "BuildQueueCard": [.desktop(D.queueEveryState)], "BuildPlatformChip": [.desktop(D.queueEveryState), .sheet(.buildSelected)],

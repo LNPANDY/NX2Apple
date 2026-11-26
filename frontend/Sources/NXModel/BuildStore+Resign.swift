@@ -88,7 +88,7 @@ extension BuildStore {
                                 self.installedAppPath = app
                                 self.shellUpdatedOnDevice = shellUpgraded
                                 let base = String(format: self.t("dev.resigned"), name)
-                                self.doneNote = shellUpgraded ? base + "\n" + String(format: self.t("shell.updatedShell"), name) : base
+                                self.doneNote = shellUpgraded ? base + "\n" + self.t("shell.updatedShell") : base
                             }
                             self.running = false
                             then?()
