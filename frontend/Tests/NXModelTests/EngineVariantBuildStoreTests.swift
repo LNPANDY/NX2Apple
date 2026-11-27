@@ -799,4 +799,51 @@ import XCTest
         XCTAssertFalse(store.completedOneGameSeparateRomfs)
         XCTAssertEqual(store.externalRomfsImagePath, "")
     }
+
+    func testNoLagKartMacBuildPatchesExistingTreeBeforeLaunchingScript() throws {
+        let nlkTree = try makeVariantTree(name: "Application Support nlk-existing-mac", flags: "\"--work-dir\" \"--progress\"")
+        let fm = FileManager.default
+        let makefileURL = URL(fileURLWithPath: nlkTree).appendingPathComponent(NoLagKartCompat.hostMakefileRelativePath)
+        try fm.createDirectory(at: makefileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let unpatchedMakefile = """
+        ifeq ($(GAME),0400C3F00006E000)
+        ifneq ($(wildcard ../../mkw/pgo/dmhost.profdata),)
+        CFLAGS+=-fprofile-instr-use=$(abspath ../../mkw/pgo/dmhost.profdata) -Wno-profile-instr-out-of-date
+        endif
+        endif
+        """
+        try unpatchedMakefile.write(to: makefileURL, atomically: true, encoding: .utf8)
+
+        let runner = RecordingRunner()
+        let outDir = temporary.appendingPathComponent("out-nlk-mac", isDirectory: true)
+        try fm.createDirectory(at: outDir, withIntermediateDirectories: true)
+
+        let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
+        defaults.set(false, forKey: MacPreflight.defaultsKey)
+        store.home = temporary.path
+        store.noLagKartPath = nlkTree
+        store.outDir = outDir.path
+
+        let mkw = temporary.appendingPathComponent("MarioKartWorld [0400C3F00006E000].nsp")
+        let keys = temporary.appendingPathComponent("prod.keys")
+        try Data([0]).write(to: mkw)
+        try Data([0]).write(to: keys)
+        store.updateSlot("base") { $0.paths = [mkw.path] }
+        store.updateSlot("keys") { $0.paths = [keys.path] }
+        store.target = BuildTarget.mac
+        store.selectUpstream(.noLagKart)
+
+        var makefileAtLaunch = ""
+        runner.onStart = { _ in
+            makefileAtLaunch = (try? String(contentsOf: makefileURL, encoding: .utf8)) ?? ""
+        }
+
+        store.startBuild()
+        XCTAssertTrue(waitUntil { !runner.launches.isEmpty && !store.running })
+        XCTAssertTrue(
+            makefileAtLaunch.contains("CFLAGS+=-fprofile-instr-use=\"$(abspath ../../mkw/pgo/dmhost.profdata)\" -Wno-profile-instr-out-of-date"),
+            "Existing No Lag Kart tree must be patched before launching Mac build"
+        )
+        XCTAssertTrue(makefileAtLaunch.contains("ifneq ($(wildcard ../../mkw/pgo/dmhost.profdata),)"))
+    }
 }
