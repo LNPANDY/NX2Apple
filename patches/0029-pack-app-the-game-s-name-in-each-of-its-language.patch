@@ -20,17 +20,17 @@ Upstream-Status: pending
 Reason: Mac front ends show the game's name in their own language (DMTitleNames from control.nacp)
 Issue: LNPANDY/NX2Apple#895
 ---
- dm/mac/pack_app.py                 | 14 ++++--
+ dm/mac/pack_app.py                 | 16 +++++--
  dm/tools/fuzz/fuzz_nacp.py         |  6 ++-
  dm/tools/nacp.py                   | 30 +++++++++----
  dm/tools/tests/test_nacp.py        | 69 ++++++++++++++++++++++++++++++
  dm/tools/tests/test_nsp_mac_app.py | 20 +++++++--
  scripts/build_ipa_from_nsp.py      |  3 +-
- 6 files changed, 124 insertions(+), 18 deletions(-)
+ 6 files changed, 125 insertions(+), 19 deletions(-)
  create mode 100644 dm/tools/tests/test_nacp.py
 
 diff --git a/dm/mac/pack_app.py b/dm/mac/pack_app.py
-index 3d6c479..feb25f5 100755
+index 3d6c479..3c35189 100755
 --- a/dm/mac/pack_app.py
 +++ b/dm/mac/pack_app.py
 @@ -5,7 +5,8 @@
@@ -62,20 +62,22 @@ index 3d6c479..feb25f5 100755
      return p
  
  
-@@ -441,7 +447,7 @@ def pack(a):
+@@ -441,8 +447,8 @@ def pack(a):
              if key_file.is_file(): os.replace(key_file, set_aside)
      try:
          a = argparse.Namespace(**vars(a))
 -        for name in ('out', 'host', 'patched', 'romfs', 'msl', 'tables', 'font', 'aoc', 'pso', 'pso_pairs', 'env_file', 'settings', 'icon', 'html', 'control_nacp'):
+-            if getattr(a, name): setattr(a, name, str(Path(getattr(a, name)).resolve()))
 +        for name in ('out', 'host', 'patched', 'romfs', 'msl', 'tables', 'font', 'aoc', 'pso', 'pso_pairs', 'env_file', 'settings', 'icon', 'html', 'control', 'control_nacp'):
-             if getattr(a, name): setattr(a, name, str(Path(getattr(a, name)).resolve()))
++            if getattr(a, name, None): setattr(a, name, str(Path(getattr(a, name)).resolve()))
          mods, msls, pso, tables, pairs, fonts, files = selected_inputs(a)
          gls = supplemental_gl(a.msl, a.tables)
+         files += gls
 @@ -468,6 +474,7 @@ def pack(a):
              pmods, pmsls, _, ptables, _, _, pfiles = selected_inputs(pa)
              pgls = supplemental_gl(pmsl, ptab)
              programs.append((n, Path(prom), Path(pmsl), Path(phtml), pmods, pmsls, ptables, pgls)); files += pfiles + pgls
-+        if a.control and Path(a.control).is_file(): files.append(Path(a.control))   # its names go into Info.plist
++        if getattr(a, 'control', None) and Path(a.control).is_file(): files.append(Path(a.control))   # its names go into Info.plist
          clang = Path(run(['xcrun', '--find', 'clang']).strip()).resolve()
          swiftc = Path(run(['xcrun', '--find', 'swiftc']).strip())   # not resolved: the driver is a link to swift-frontend, which acts by its name
          sdk = Path(run(['xcrun', '--sdk', 'macosx', '--show-sdk-path']).strip()).resolve()

@@ -34,7 +34,7 @@ Issue: LNPANDY/NX2Apple#953
  6 files changed, 65 insertions(+), 12 deletions(-)
 
 diff --git a/dm/mac/pack_app.py b/dm/mac/pack_app.py
-index feb25f5..91ec19a 100755
+index 3c35189..435310c 100755
 --- a/dm/mac/pack_app.py
 +++ b/dm/mac/pack_app.py
 @@ -132,6 +132,9 @@ def info_plist(a, minos, icon):
@@ -43,7 +43,7 @@ index feb25f5..91ec19a 100755
           'DMForkPatches': fork_patches(), 'DMControllerMappings': 1}
 +    # the front ends show DMDisplayVersion, else DMPackageVersion: CFBundleShortVersionString is 1.0 when the packed update has no display version of its own (#953)
 +    if a.version: p['DMDisplayVersion'] = a.version
-+    if a.package_version: p['DMPackageVersion'] = a.package_version
++    if getattr(a, 'package_version', None): p['DMPackageVersion'] = a.package_version
      if icon: p['CFBundleIconFile'] = 'AppIcon'
      if getattr(a, 'prewarm_upload_url', None) and Path(a.msl).name not in ('vk', 'gl'):
          p['DMPrewarmUploadURL'] = a.prewarm_upload_url

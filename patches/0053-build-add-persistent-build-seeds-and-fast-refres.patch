@@ -14,9 +14,10 @@ Issue: none
  dm/tools/build_seed.py                        | 1996 +++++++++++++++++
  dm/tools/romfs_image.py                       |  147 +-
  dm/tools/tests/test_build_seed_romfs_guard.py |  243 ++
+ dm/tools/tests/test_nsp_multi_program.py      |    4 +-
  dm/tools/tests/test_nsp_progress.py           |    1 +
- scripts/build_ipa_from_nsp.py                 | 1048 +++++++--
- 7 files changed, 3258 insertions(+), 251 deletions(-)
+ scripts/build_ipa_from_nsp.py                 | 1046 +++++++--
+ 8 files changed, 3259 insertions(+), 252 deletions(-)
  create mode 100755 dm/tools/build_seed.py
  create mode 100644 dm/tools/tests/test_build_seed_romfs_guard.py
 
@@ -2578,6 +2579,28 @@ index 0000000..a247864
 +
 +if __name__ == '__main__':
 +    unittest.main()
+diff --git a/dm/tools/tests/test_nsp_multi_program.py b/dm/tools/tests/test_nsp_multi_program.py
+index 3604a99..a62a18d 100644
+--- a/dm/tools/tests/test_nsp_multi_program.py
++++ b/dm/tools/tests/test_nsp_multi_program.py
+@@ -244,7 +244,7 @@ class EndToEndBuildOrder(unittest.TestCase):
+             (patched / 'main.patched.bin').write_bytes(b'code')
+             return g
+ 
+-        def fake_vk_shaders(py, repo, roots, sh, env, logs, g, mac=False, provisional=False, dlc_roms=()):
++        def fake_vk_shaders(py, repo, roots, sh, env, logs, g, mac=False, provisional=False, dlc_roms=(), **kw):
+             (sh / 'vk').mkdir(parents=True, exist_ok=True)
+             (sh / 'vk/k.metallib').write_bytes(b'lib')
+             return sh
+@@ -268,7 +268,7 @@ class EndToEndBuildOrder(unittest.TestCase):
+                 ('build_vk_shaders', {'side_effect': fake_vk_shaders}),
+                 ('discover_sibling_programs', {'side_effect': fake_discover}),
+                 ('mac_host', {'side_effect': fake_mac_host}), ('mac_app', {'side_effect': fake_mac_app}),
+-                ('run', {'side_effect': fake_build_ipa}), ('say', {'side_effect': said.append}),
++                ('run', {'side_effect': fake_build_ipa}), ('say', {'side_effect': said.append}), ('_persist_build_seed', {}),
+             )
+             for attr, kw in patches:
+                 stack.enter_context(mock.patch.object(nsp, attr, **kw))
 diff --git a/dm/tools/tests/test_nsp_progress.py b/dm/tools/tests/test_nsp_progress.py
 index eb2184f..0d20038 100644
 --- a/dm/tools/tests/test_nsp_progress.py
@@ -2591,7 +2614,7 @@ index eb2184f..0d20038 100644
              )
              with contextlib.ExitStack() as stack:
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 06cf01c..6e17d66 100755
+index 06cf01c..f16058c 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -47,6 +47,8 @@ import tree_tar   # one file in place of a build's folders of many small files
@@ -2736,13 +2759,11 @@ index 06cf01c..6e17d66 100755
      """What build_vk_shaders and build_gl_shaders share: dm/gfx/tools/<api>_shaders.py on the roots → sh/<api>/ for the Mac and, unless mac (a Mac-only build), sh/ios/<api>/ for the iPhone.
      Returns the folder the host (DM_MSL_DIR) or build_ipa.sh (MSL_IOS) takes the libraries from. key: the inputs' fingerprint (None never reuses). Each target checks only its own
      stamp and complete outputs (<api>_shaders.metallib and <api>_shaders.tsv; sh/<api>.key for the Mac, sh/ios/<api>.key for iOS), and a dual-target run verifies both expected
-@@ -3420,9 +3472,17 @@ def layer_shaders(py, repo, api, name, roots, sh, key, logs, env, mac, options=(
-         missing = [p.name for p in products(d) if not p.is_file()]
+@@ -3421,8 +3473,16 @@ def layer_shaders(py, repo, api, name, roots, sh, key, logs, env, mac, options=(
          if missing: raise BuildError(f'no {target} {name} shader output ({", ".join(missing)}) in {d / api}')
      stamp = kmac if mac else kf
--    note = reused(stamp, key) if key and complete(out) else None
+     note = reused(stamp, key) if key and complete(out) else None
 -    if note is not None:
-+    note = next((n for k in ((kmac, kf) if mac else (kf,)) if (n := reused(k, key)) is not None), None) if key and complete(out) else None
 +    has_romfs = bool(roots) and Path(roots[0]).exists()
 +    if note is None and from_seed and complete(out) and (not mac or not has_romfs):
 +        note = 'seeded'

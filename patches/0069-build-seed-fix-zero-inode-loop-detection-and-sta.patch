@@ -3638,7 +3638,7 @@ index 0000000..6fd2928
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index edc2bac..0a7c940 100755
+index 303e243..bfc4ae3 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -4278,13 +4278,15 @@ def profile_derivation_reason(g, pkg_ver, have, alias=None, app=None):

@@ -5390,7 +5390,7 @@ index fb1793b..0601577 100644
  
  if __name__ == '__main__': unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 0a7c940..3e66891 100755
+index bfc4ae3..1710c7a 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -2103,12 +2103,78 @@ def provisional_modules(g, exe_dir, nros):

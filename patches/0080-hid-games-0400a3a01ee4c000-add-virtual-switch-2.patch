@@ -1490,7 +1490,7 @@ index 4bb97df..4582c5d 100644
          "needs": {"description": "<VAR>=<value>: a sub-setting, drawn only while the row that sets <VAR> has that value. A row naming a variable this list does not have stays drawn.", "type": "string", "pattern": "^DM_[A-Z0-9_]+=[^;=]+$"}
        },
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 3e66891..533b6b0 100755
+index 1710c7a..a5e6541 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -3206,6 +3206,13 @@ def seen_lists(work, app):   # the keys the hosts themselves kept of what their
