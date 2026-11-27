@@ -888,4 +888,55 @@ import XCTest
         XCTAssertEqual(tmpDir, spacelessHome.path + "/Library/Caches/NX2Apple/tmp")
         XCTAssertTrue(FileManager.default.fileExists(atPath: tmpDir))
     }
+
+    func testStartMacNativeGamesBuildHealsBrokenOotAppIconBeforeLaunch() throws {
+        repo.isRepo = false
+        let validTree = try makeFakeMNGTree()
+        let specURL = URL(fileURLWithPath: validTree).appendingPathComponent(MacNativeGamesCompat.ootAppIconSpecRelativePath)
+        try FileManager.default.createDirectory(at: specURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let brokenJSON = """
+        {
+          "source_page": "https://www.nintendo.com/us/store/products/the-legend-of-zelda-ocarina-of-time-switch-2/",
+          "url": "\(MacNativeGamesCompat.brokenOotIconURL)",
+          "sha256": "15d81aed2feace626e7a3b36f411443eb312b16bc2477db11105cf9de153af72"
+        }
+        """
+        try brokenJSON.write(to: specURL, atomically: true, encoding: .utf8)
+
+        let runner = ChunkedRunner()
+        runner.captureAnswer = { self.defaultMNGCaptureAnswer($0) }
+
+        var capturedLaunch: ProcessLaunch?
+        var specDuringLaunch: [String: Any]?
+        runner.onStartInspect = { launch in
+            capturedLaunch = launch
+            if let data = try? Data(contentsOf: specURL),
+               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                specDuringLaunch = obj
+            }
+        }
+
+        let gameDir = temporary.appendingPathComponent("oot_game")
+        try FileManager.default.createDirectory(at: gameDir, withIntermediateDirectories: true)
+        let nupFile = gameDir.appendingPathComponent("The Legend of Zelda Ocarina of Time [0400486024DEC000].nup")
+        try Data([0]).write(to: nupFile)
+
+        let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
+        store.home = temporary.path
+        store.buildUpstream = .macNativeGames
+        store.macNativeGamesPath = validTree
+        store.target = BuildTarget.mac
+        store.updateSlot("base") { $0.paths = [nupFile.path] }
+
+        store.startBuild()
+        let dl = Date().addingTimeInterval(3)
+        while capturedLaunch == nil && Date() < dl {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+
+        XCTAssertNotNil(capturedLaunch)
+        let healed = try XCTUnwrap(specDuringLaunch)
+        XCTAssertEqual(healed["url"] as? String, MacNativeGamesCompat.fixedOotIconURL)
+        XCTAssertEqual(healed["sha256"] as? String, MacNativeGamesCompat.fixedOotIconSHA256)
+    }
 }
