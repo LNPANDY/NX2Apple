@@ -30,7 +30,7 @@
 - **Hot-loaded iOS game frameworks, `.p12` on-device signing, and slim shared IPA**: All your games share a compact shell app of a few tens of megabytes (`DMMSLTR1` shader trailers move into external `.img` archives with foreground `.nxpart` auto-joining). Add or update games by hot-pushing or exporting `DmGame.framework` into `Documents/Frameworks` without reinstalling the shell IPA (sideload users can import a `.p12` certificate in the iOS app for automatic on-device signing), in **10 UI languages**.
 - **Persistent build seeds and fast batch refresh**: Builds made with `1.5` persist `build-seeds`, so most subsequent engine upgrades finish in minutes via batch refresh without keeping the original game package or `_build` folders, paired with per-game update version badges (such as `1.5`) and three-way missing `.img` recovery. The Windows launcher (`NX2Apple-windows-x64.zip`) also adds a general multi-game `BuildQueue`, an emulated heap growing up to 2 GiB on demand, and in-app self-update (`NX2Apple.exe`).
 - **Shortcuts with PiP guide, audio mixing, and controllers**: iPhone and iPad add a built-in 6-step Add to Home Screen wizard with an optional Picture-in-Picture walkthrough card and controller-connect auto-launch, background audio mixing (`DM_AUDIO_MIX`), an interactive `16:9` cover cropper, a visual touch layout editor, split Bluetooth Joy-Con sideways mapping on Mac, and Steam Controller (2026) support.
-- **208 game profiles, including 19 Switch 2 games**: Pick a Switch 2 game folder or `.nup` file in the Mac or Windows launcher with no `prod.keys` needed, backed by Nintendo eShop banner fallback across Mac, iOS, and Windows.
+- **261 game profiles, including 22 Switch 2 games**: Pick a Switch 2 game folder or `.nup` file in the Mac or Windows launcher with no `prod.keys` needed, backed by Nintendo eShop banner fallback across Mac, iOS, and Windows.
 
 Every release is in the [changelog](CHANGELOG.md).
 
@@ -183,7 +183,7 @@ anything extracted from a game.
 
 ## Games
 
-208 games have a profile. Many are reported playable on an iPhone upstream, and most have a
+261 games have a profile. Many are reported playable on an iPhone upstream, and most have a
 profile that has not been tried on a phone yet. A few of them:
 
 | | Game | Where it runs | Status |
@@ -199,13 +199,14 @@ profile that has not been tried on a phone yet. A few of them:
 game's install size, and the full table with the update version each game needs: the update NSP's
 display version must match the profile's, or the build says so.
 
-**Switch 2 games** are supported in the engine. 19 have a profile: Donkey Kong Bananza,
+**Switch 2 games** are supported in the engine. 22 have a profile: Donkey Kong Bananza,
 Splatoon Raiders, Fire Emblem Fortune's Weave, Pokémon Pokopia, Hyrule Warriors: Age of Imprisonment,
 Mario Kart World, Mario Tennis Fever, Star Fox, Yoshi and the Mysterious Book,
 The Legend of Zelda: Ocarina of Time, Kirby Air Riders, Super Mario Bros. Wonder – Nintendo Switch 2
 Edition + Meetup in Bellabel Park, Orbitals, Fast Fusion, Resident Evil 4,
 Nintendo Switch 2 Welcome Tour, Nintendo Switch Sports Resort, Sonic Frontiers Definitive Edition,
-and PRAGMATA. Choose the game's folder of files (`base/`, `updates/`, `dlc/`) or its `.nup` file on
+PRAGMATA, Xenoblade Chronicles: Definitive Edition – Nintendo Switch 2 Edition, Xenoblade Chronicles 2 –
+Nintendo Switch 2 Edition, and Xenoblade Chronicles X: Definitive Edition – Nintendo Switch 2 Edition. Choose the game's folder of files (`base/`, `updates/`, `dlc/`) or its `.nup` file on
 the Builds page. No `prod.keys` are needed for them. The library marks them **Switch 2**. In
 addition to Donkey Kong Bananza running on Mac, iPhone, and iPad, The Legend of Zelda: Ocarina of
 Time (Switch 2 edition) has been played through the ending credits on Mac, and Fire Emblem Fortune's
