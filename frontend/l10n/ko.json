@@ -1,12 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "ko",
-      "korean",
-      "한국어"
-    ],
-    "name": "한국어"
-  },
+  "_language": {"locales": ["ko", "korean", "한국어"], "name": "한국어"},
   "activity.averageSession": "평균 %@",
   "activity.button": "플레이 기록",
   "activity.dayCount": "%lld일",
@@ -2012,6 +2005,8 @@
   "launch.opt.DM_OPMODE.1": "독 모드",
   "launch.opt.DM_PICTURE_FIT.fill": "채우기",
   "launch.opt.DM_PICTURE_FIT.fit": "맞추기",
+  "launch.opt.DM_PORTRAIT_EDGE.0": "표준 (4:3)",
+  "launch.opt.DM_PORTRAIT_EDGE.1": "상단 끝까지 (Dynamic Island 너머)",
   "launch.opt.DM_PRESENT_INTERVAL.display": "60 fps",
   "launch.opt.DM_PRESENT_INTERVAL.game": "30 fps",
   "launch.opt.DM_PRESENT_UPSCALE.metalfx": "MetalFX",
@@ -2068,6 +2063,8 @@
   "launch.set.DM_PAD_PRESS_TO_JOIN": "버튼을 눌러 참가",
   "launch.set.DM_PICTURE_FIT": "화면",
   "launch.set.DM_PICTURE_FIT.note": "채우기는 게임의 16:9 화면을 잘라 화면을 덮습니다. 가장자리 근처의 체력 바, 자막, 지도가 잘릴 수 있습니다. 자르지 않고 전체 화면으로 보려면 게임마다 패치가 필요합니다.",
+  "launch.set.DM_PORTRAIT_EDGE": "세로 화면 영역",
+  "launch.set.DM_PORTRAIT_EDGE.note": "세로 모드에서 게임 화면을 Dynamic Island 너머 화면 맨 위까지 확장합니다. 네이티브 비율 렌더링은 다음 실행부터 적용됩니다.",
   "launch.set.DM_PRESENT_INTERVAL": "프레임 속도",
   "launch.set.DM_PRESENT_SNAP": "프레임 버퍼링",
   "launch.set.DM_PRESENT_SNAP.note": "화면 지연이 최대 한 프레임 늘어납니다.",

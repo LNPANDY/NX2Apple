@@ -21,6 +21,7 @@ Downsample HDR textures
 Dutch
 Dynamic resolution
 Encode thread
+Extends the portrait picture to the top of the screen past the Dynamic Island. Native full-top rendering takes effect on next launch.
 Fill
 Fill crops the game's 16:9 picture to cover the screen. Health bars, subtitles or maps near the edges can be cut off. A full-screen picture without cropping needs a patch for each game.
 Fit
@@ -29,6 +30,7 @@ Frame generation
 Frame rate
 Frame-rate counter
 French
+Full top (past Dynamic Island)
 Fullscreen
 Game
 Game default
@@ -70,6 +72,7 @@ Plays Joy-Con 2 and Pro Controller 2 over Bluetooth: hold Sync on one during the
 Plays game audio alongside other apps instead of stopping them.
 Polish
 Portrait
+Portrait frame
 Portuguese
 Press a button to join
 Recommended
@@ -89,6 +92,7 @@ Small
 Smooth
 Spanish
 Standard
+Standard (4:3)
 Switch 2 controllers
 Taller shapes render more pixels and can increase GPU time and heat.
 Texture filtering

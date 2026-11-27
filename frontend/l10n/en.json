@@ -1,11 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "en"
-    ],
-    "name": "English",
-    "order": 1
-  },
+  "_language": {"locales": ["en"], "name": "English", "order": 1},
   "activity.averageSession": "Average %@",
   "activity.button": "Activity Log",
   "activity.dayCount": "%lld days",
@@ -2011,6 +2005,8 @@
   "launch.opt.DM_OPMODE.1": "Docked",
   "launch.opt.DM_PICTURE_FIT.fill": "Fill",
   "launch.opt.DM_PICTURE_FIT.fit": "Fit",
+  "launch.opt.DM_PORTRAIT_EDGE.0": "Standard (4:3)",
+  "launch.opt.DM_PORTRAIT_EDGE.1": "Full top (past Dynamic Island)",
   "launch.opt.DM_PRESENT_INTERVAL.display": "60 fps",
   "launch.opt.DM_PRESENT_INTERVAL.game": "30 fps",
   "launch.opt.DM_PRESENT_UPSCALE.metalfx": "MetalFX",
@@ -2067,6 +2063,8 @@
   "launch.set.DM_PAD_PRESS_TO_JOIN": "Press a button to join",
   "launch.set.DM_PICTURE_FIT": "Picture",
   "launch.set.DM_PICTURE_FIT.note": "Fill crops the game's 16:9 picture to cover the screen. Health bars, subtitles or maps near the edges can be cut off. A full-screen picture without cropping needs a patch for each game.",
+  "launch.set.DM_PORTRAIT_EDGE": "Portrait frame",
+  "launch.set.DM_PORTRAIT_EDGE.note": "Extends the portrait picture to the top of the screen past the Dynamic Island. Native full-top rendering takes effect on next launch.",
   "launch.set.DM_PRESENT_INTERVAL": "Frame rate",
   "launch.set.DM_PRESENT_SNAP": "Frame buffering",
   "launch.set.DM_PRESENT_SNAP.note": "Up to one frame more display latency.",

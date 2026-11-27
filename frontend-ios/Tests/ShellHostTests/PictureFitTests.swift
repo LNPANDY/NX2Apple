@@ -143,4 +143,67 @@ import ShellUI
             #expect(EngineLaunchPlan.make(game: game, appResources: box.root, documents: box.root, envFileText: nil).environment["DM_SCREEN_ASPECT"] == "auto")
         }
     }
+
+    @Test func portraitFullTopPreservesAutoScreenAspectForFrontIOSToResolveExactDeviceSlot() async throws {
+        let box = try box()
+        let url = box.games.appendingPathComponent(Fixtures.orbit).appendingPathComponent("launcher.json")
+        var json = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        var settings = try #require(json["settings"] as? [[String: Any]])
+        settings.append([
+            "env": "DM_SCREEN_ASPECT",
+            "kind": "choice",
+            "section": "Game",
+            "label": "Picture shape",
+            "note": "",
+            "default": "auto",
+            "options": [["auto", "Match screen"], ["0", "16:9 (Switch)"]]
+        ])
+        settings.append([
+            "env": "DM_ROTATION",
+            "kind": "choice",
+            "section": "Game",
+            "label": "Rotation",
+            "note": "",
+            "default": "auto",
+            "options": [["auto", "Automatic"], ["landscape", "Landscape"], ["portrait", "Portrait"]]
+        ])
+        settings.append([
+            "env": "DM_PORTRAIT_EDGE",
+            "kind": "choice",
+            "section": "Game",
+            "label": "Portrait frame",
+            "note": "Extends the portrait picture to the top of the screen past the Dynamic Island. Native full-top rendering takes effect on next launch.",
+            "default": "0",
+            "options": [["0", "Standard (4:3)"], ["1", "Full top (past Dynamic Island)"]]
+        ])
+        json["settings"] = settings
+        try JSONSerialization.data(withJSONObject: json).write(to: url)
+
+        let launcher = RecordingLauncher()
+        let model = ShellHostModel(config: box.config(), launcher: launcher)
+        model.change(Fixtures.orbit, setting: "DM_ROTATION", value: "portrait")
+
+        // Default DM_PORTRAIT_EDGE=0 resolves DM_SCREEN_ASPECT=auto to 1.333 (4:3).
+        await model.playNow(Fixtures.orbit)
+        let standardGame = try #require(launcher.launched.last)
+        let standardPlan = EngineLaunchPlan.make(game: standardGame, appResources: box.root, documents: box.root, envFileText: nil)
+        #expect(standardPlan.environment["DM_PORTRAIT_EDGE"] == "0")
+        #expect(standardPlan.environment["DM_SCREEN_ASPECT"] == "1.333")
+
+        // DM_PORTRAIT_EDGE=1 passes DM_SCREEN_ASPECT="auto" through so front_ios.m computes the exact full-top aspect (~0.95..1.05).
+        model.change(Fixtures.orbit, setting: "DM_PORTRAIT_EDGE", value: "1")
+        await model.playNow(Fixtures.orbit)
+        let edgeGame = try #require(launcher.launched.last)
+        let edgePlan = EngineLaunchPlan.make(game: edgeGame, appResources: box.root, documents: box.root, envFileText: nil)
+        #expect(edgePlan.environment["DM_PORTRAIT_EDGE"] == "1")
+        #expect(edgePlan.environment["DM_SCREEN_ASPECT"] == "auto")
+
+        // Explicit 16:9 (0) stays 0 even with DM_PORTRAIT_EDGE=1.
+        model.change(Fixtures.orbit, setting: "DM_SCREEN_ASPECT", value: "0")
+        await model.playNow(Fixtures.orbit)
+        let forced169Game = try #require(launcher.launched.last)
+        let forced169Plan = EngineLaunchPlan.make(game: forced169Game, appResources: box.root, documents: box.root, envFileText: nil)
+        #expect(forced169Plan.environment["DM_PORTRAIT_EDGE"] == "1")
+        #expect(forced169Plan.environment["DM_SCREEN_ASPECT"] == "0")
+    }
 }

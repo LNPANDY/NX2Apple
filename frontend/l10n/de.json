@@ -1,13 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "de",
-      "german",
-      "deutsch"
-    ],
-    "name": "Deutsch",
-    "order": 3
-  },
+  "_language": {"locales": ["de", "german", "deutsch"], "name": "Deutsch", "order": 3},
   "activity.averageSession": "Schnitt %@",
   "activity.button": "Aktivitätslog",
   "activity.dayCount": "%lld Tage",
@@ -2013,6 +2005,8 @@
   "launch.opt.DM_OPMODE.1": "Angedockt",
   "launch.opt.DM_PICTURE_FIT.fill": "Füllen",
   "launch.opt.DM_PICTURE_FIT.fit": "Einpassen",
+  "launch.opt.DM_PORTRAIT_EDGE.0": "Standardformat (4:3)",
+  "launch.opt.DM_PORTRAIT_EDGE.1": "Bis ganz oben (über Dynamic Island)",
   "launch.opt.DM_PRESENT_INTERVAL.display": "60 fps",
   "launch.opt.DM_PRESENT_INTERVAL.game": "30 fps",
   "launch.opt.DM_PRESENT_UPSCALE.metalfx": "MetalFX",
@@ -2069,6 +2063,8 @@
   "launch.set.DM_PAD_PRESS_TO_JOIN": "Zum Beitreten eine Taste drücken",
   "launch.set.DM_PICTURE_FIT": "Bild",
   "launch.set.DM_PICTURE_FIT.note": "Füllen schneidet das 16:9-Bild des Spiels zu, damit es den Bildschirm ausfüllt. Lebensleisten, Untertitel oder Karten am Rand können abgeschnitten werden. Ein Vollbild ohne Zuschnitt braucht einen Patch für jedes Spiel.",
+  "launch.set.DM_PORTRAIT_EDGE": "Hochformat-Bildbereich",
+  "launch.set.DM_PORTRAIT_EDGE.note": "Zieht das Bild im Hochformat über die Dynamic Island hinaus bis an den oberen Bildschirmrand. Die native Darstellung greift beim nächsten Start.",
   "launch.set.DM_PRESENT_INTERVAL": "Bildrate",
   "launch.set.DM_PRESENT_SNAP": "Bildpufferung",
   "launch.set.DM_PRESENT_SNAP.note": "Bis zu ein Bild mehr Anzeigeverzögerung.",

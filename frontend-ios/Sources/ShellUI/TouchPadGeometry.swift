@@ -117,7 +117,7 @@ struct PadGeo: Equatable {
     static func gameSafeInsets(_ b: CGRect, _ i: PadScreen.Insets, _ duo: Bool) -> PadScreen.Insets {
         duo && b.height > b.width ? PadScreen.Insets(top: i.top) : i
     }
-    static func region(_ screen: PadScreen, pictureFill: Bool = false, aspect: CGFloat = 16.0 / 9.0) -> Region {
+    static func region(_ screen: PadScreen, pictureFill: Bool = false, portraitEdgeToEdge: Bool = false, aspect: CGFloat = 16.0 / 9.0) -> Region {
         let b = CGRect(origin: .zero, size: screen.size)
         let insets = gameSafeInsets(b, screen.insets, screen.topSafeOnly)
         let fit = aspectFit(b, aspect: aspect)
@@ -134,7 +134,11 @@ struct PadGeo: Equatable {
         }
         let d = division ?? CGRect(x: b.minX, y: b.midY, width: b.width, height: 0)
         let safe = inset(b, insets)
-        let upper = CGRect(x: safe.minX, y: safe.minY, width: safe.width, height: d.minY - safe.minY)
+        let fullTop = portrait && portraitEdgeToEdge
+        let upperX = fullTop ? b.minX : safe.minX
+        let upperY = fullTop ? b.minY : safe.minY
+        let upperW = fullTop ? b.width : safe.width
+        let upper = CGRect(x: upperX, y: upperY, width: upperW, height: d.minY - upperY)
         let lower = CGRect(x: b.minX, y: d.maxY, width: b.width, height: b.maxY - d.maxY)
         if upper.height <= 0 || safe.maxY <= lower.minY {
             if pictureFill && !portrait {
@@ -143,7 +147,7 @@ struct PadGeo: Equatable {
             }
             return l
         }
-        let slot = portrait ? portraitPictureSlot(upper) : upper
+        let slot = portrait ? (fullTop ? upper : portraitPictureSlot(upper)) : upper
         l.upper = upper
         l.gameClip = portrait ? slot : aspectFit(upper, aspect: aspect)
         l.game = (portrait && pictureFill) ? aspectFill(slot, aspect: aspect) : aspectFit(slot, aspect: aspect)
