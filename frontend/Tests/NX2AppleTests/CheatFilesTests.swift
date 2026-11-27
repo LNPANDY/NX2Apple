@@ -753,6 +753,73 @@ import NXModel
         try shot("cheats-after-tripped-zh", CheatsView(m: model, library: library, gameID: id, devicectl: DeviceControl { _ in (true, "") }, support: support).environmentObject(modelStores.localizer))
 
         model.lang = .en
+        let localSample = """
+        [Infinite health]
+        04000000 00180020 000003E7
+
+        [Custom Speed]
+        04000000 00180080 3F800000
+        """
+        let onlineSample = """
+        {Always unlimited stamina}
+        04000000 00000010 00000001
+
+        [Movement & Combat]
+        20000000
+        [Infinite health]
+        04000000 00180020 00000999
+
+        [Moon Jump]
+        80000202
+        04000000 00000400 D503201F
+        20000000
+
+        [Max rupees]
+        04100000 00004200 000F423F
+        [Movement & Combat End]
+        20000001
+        """
+        let previewDiff = CheatFetcher.diffSummary(
+            localText: localSample,
+            onlineText: onlineSample,
+            rxEnd: 0x100000,
+            buildID: "CD57B23FA4BBAD65"
+        )
+        let previewPayload = CheatOnlinePreview(
+            titleID: game,
+            buildID: "CD57B23FA4BBAD65",
+            localText: localSample,
+            onlineText: onlineSample,
+            sources: ["switch-cheats-db", "cheats_gbatemp"],
+            entryCount: previewDiff.onlineCount,
+            diff: previewDiff
+        )
+        let expandedIDs = Set(previewDiff.entries.dropFirst().prefix(2).map(\.id))
+        try shot(
+            "cheats-fetch-preview-en",
+            CheatsFetchPreviewSheet(
+                preview: previewPayload,
+                initialExpandedIDs: expandedIDs,
+                onKeepLocal: {},
+                onMergeAdded: {},
+                onReplaceWithOnline: {}
+            ).environmentObject(modelStores.localizer),
+            height: 720
+        )
+        model.lang = .zh
+        try shot(
+            "cheats-fetch-preview-zh",
+            CheatsFetchPreviewSheet(
+                preview: previewPayload,
+                initialExpandedIDs: expandedIDs,
+                onKeepLocal: {},
+                onMergeAdded: {},
+                onReplaceWithOnline: {}
+            ).environmentObject(modelStores.localizer),
+            height: 720
+        )
+
+        model.lang = .en
         try fm.removeItem(at: folder)
         try write("x", ".cheats-running-\(game)", under: folder)
         try shot("cheats-empty", CheatsView(m: model, library: library, gameID: id, support: support).environmentObject(modelStores.localizer))

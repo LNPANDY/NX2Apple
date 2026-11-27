@@ -27,17 +27,20 @@ struct CheatsView: View {
     @State private var master = true
     @State private var safeMode = false
     @State private var tripped: CheatFiles.TrippedReceipt?
-    @State private var fetchReceipt: CheatFetchReceipt?
-    @State private var busy = false
-    @State private var fetchingOnline = false
-    @State private var result: (text: String, ok: Bool)?
-    @State private var fixupsMetadata = CheatMainFixupsMetadata()
-    @State private var trampolinesMetadata: CheatTrampolineMetadata?
+    @State var fetchReceipt: CheatFetchReceipt?
+    @State var busy = false
+    @State var fetchingOnline = false
+    @State var cachedOnlineCandidate: CheatOnlinePreview?
+    @State var activePreview: CheatOnlinePreview?
+    @State var onlineLookupOverride: CheatOnlineLookupStatus?
+    @State var result: (text: String, ok: Bool)?
+    @State var fixupsMetadata = CheatMainFixupsMetadata()
+    @State var trampolinesMetadata: CheatTrampolineMetadata?
     @State private var bundle = ""
     @State private var hasUsableSeed = false
     @State private var supportsFastBakeTools = false
     @State private var loadGeneration: UInt64 = 0
-    @State private var actionGeneration: UInt64 = 0
+    @State var actionGeneration: UInt64 = 0
 
     private struct RefreshPayload: Sendable {
         var files: [CheatFiles.Found]
@@ -54,18 +57,18 @@ struct CheatsView: View {
         var supportsFastBakeTools: Bool
     }
 
-    private var game: LibraryGame? { library.games.first { $0.id == gameID } }
+    var game: LibraryGame? { library.games.first { $0.id == gameID } }
     private var deviceName: String { game.map { m.devices.deviceName($0.installedDevice) } ?? "iPhone" }
 
-    private var cheatFiles: CheatFiles? {
+    var cheatFiles: CheatFiles? {
         guard let game else { return nil }
         return support.map { CheatFiles(titleID: game.titleID, support: $0) } ?? CheatFiles(titleID: game.titleID)
     }
 
-    private var buildID: String? { fixupsMetadata.buildID ?? trampolinesMetadata?.buildID }
+    var buildID: String? { fixupsMetadata.buildID ?? trampolinesMetadata?.buildID }
     private var current: CheatFiles.Found? { buildID.flatMap { id in files.first { $0.buildID == id } } }
     private var canCopy: Bool { !busy && (game?.onDevice ?? false) && !bundle.isEmpty && !files.isEmpty }
-    private var canFetchOnline: Bool {
+    var canFetchOnline: Bool {
         guard !busy, !fetchingOnline, let game else { return false }
         return CheatFetcher.normalizedHex16(game.titleID) != nil
             && buildID.flatMap({ CheatFetcher.normalizedHex16($0, allow32: true) }) != nil
@@ -99,7 +102,11 @@ struct CheatsView: View {
                 CheatsFetchCard(
                     receipt: fetchReceipt,
                     hasBuildID: buildID != nil,
-                    fetching: fetchingOnline
+                    buildID: buildID,
+                    fetching: fetchingOnline,
+                    onlineLookupOverride: onlineLookupOverride,
+                    hasOnlineCandidate: cachedOnlineCandidate != nil && cachedOnlineCandidate?.buildID == buildID,
+                    onViewOnlineCandidate: { activePreview = cachedOnlineCandidate }
                 )
                 if current != nil, capabilitySummary.totalActive > 0 {
                     CheatsOverviewCard(
@@ -147,6 +154,22 @@ struct CheatsView: View {
         .onDisappear {
             loadGeneration &+= 1
             actionGeneration &+= 1
+        }
+        .sheet(item: $activePreview) { preview in
+            CheatsFetchPreviewSheet(
+                preview: preview,
+                onKeepLocal: {
+                    activePreview = nil
+                    result = (loc.t("cheats.fetch.statusPreserved"), true)
+                },
+                onMergeAdded: { applyOnlinePreview(preview, mergeOnly: true) },
+                onReplaceWithOnline: { applyOnlinePreview(preview, mergeOnly: false) }
+            )
+            .environmentObject(loc)
+            .environmentObject(focus)
+        }
+        .onChange(of: activePreview != nil) { open in
+            focus.scope = open ? "cheatsPreview" : "cheats"
         }
     }
 
@@ -430,7 +453,7 @@ struct CheatsView: View {
 
     // ---- what the controls do ----
 
-    private func refresh() {
+    func refresh() {
         guard let cheatFiles, let game else { return }
         loadGeneration &+= 1
         let gen = loadGeneration
@@ -512,42 +535,6 @@ struct CheatsView: View {
         }
     }
 
-    private func fetchOnlineCheats() {
-        guard canFetchOnline, let cheatFiles, let game, let bid = buildID else { return }
-        actionGeneration &+= 1
-        let gen = actionGeneration
-        let targetID = game.id
-        let titleID = game.titleID
-        let folder = cheatFiles.folder
-        let transport = cheatFetchTransport
-        fetchingOnline = true
-        result = nil
-        Task.detached(priority: .userInitiated) {
-            let outcome = await CheatFetcher.fetch(
-                titleID: titleID,
-                buildID: bid,
-                into: folder,
-                transport: transport
-            )
-            await MainActor.run {
-                guard actionGeneration == gen, self.game?.id == targetID else { return }
-                fetchingOnline = false
-                fetchReceipt = outcome.receipt
-                refresh()
-                switch outcome.receipt.statusKind {
-                case .fetched:
-                    result = (String(format: loc.t("cheats.fetch.done"), outcome.receipt.entryCount), true)
-                case .preservedUser:
-                    result = (loc.t("cheats.fetch.statusPreserved"), true)
-                case .notFound:
-                    result = (loc.t("cheats.fetch.statusNotFound"), false)
-                case .offline, .none:
-                    result = (loc.t("cheats.fetch.statusOffline"), false)
-                }
-            }
-        }
-    }
-
     private func startFastBakeCheats() {
         guard canFastBake, let game, let cheatFiles else { return }
         m.startFastRefresh(
@@ -611,6 +598,8 @@ struct CheatsView: View {
                 busy = false
                 switch outcomeResult {
                 case .success(let outcome):
+                    cachedOnlineCandidate = nil
+                    onlineLookupOverride = nil
                     refresh()
                     result = Self.importMessage(outcome, loc: loc)
                 case .failure(let error):

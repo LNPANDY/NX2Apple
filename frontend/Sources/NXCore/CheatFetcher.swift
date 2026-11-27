@@ -2,11 +2,27 @@ import CryptoKit
 import Foundation
 
 /// Outcome status values recorded in `.cheats-fetch.json`, aligned with `scripts/cheat_fetch.py` and iOS `IOSCheatFetcher`.
+/// Accepts both `"found"` (current canonical) and `"fetched"` (legacy Mac) when decoding.
 package enum CheatFetchStatus: String, Codable, Equatable, Sendable {
-    case fetched
+    case fetched = "found"
     case preservedUser = "preserved_user"
     case notFound = "not_found"
     case offline
+
+    package init?(rawValue: String) {
+        switch rawValue {
+        case "found", "fetched":
+            self = .fetched
+        case "preserved_user":
+            self = .preservedUser
+        case "not_found":
+            self = .notFound
+        case "offline":
+            self = .offline
+        default:
+            return nil
+        }
+    }
 }
 
 /// Receipt persisted as `.cheats-fetch.json` in `<DM_ROOT>/cheats/` alongside `<BID>.txt`.
@@ -47,6 +63,29 @@ package struct CheatFetchReceipt: Codable, Equatable, Sendable {
         self.fileSHA256 = fileSHA256
         self.origin = origin
         self.detail = detail
+    }
+
+    package init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try c.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        titleID = try c.decodeIfPresent(String.self, forKey: .titleID) ?? ""
+        buildID = try c.decodeIfPresent(String.self, forKey: .buildID) ?? ""
+        status = try c.decodeIfPresent(String.self, forKey: .status) ?? ""
+        sources = try c.decodeIfPresent([String].self, forKey: .sources) ?? []
+        entryCount = try c.decodeIfPresent(Int.self, forKey: .entryCount) ?? 0
+        if let str = try? c.decodeIfPresent(String.self, forKey: .fetchedAt) {
+            fetchedAt = str
+        } else if let tsInt = try? c.decodeIfPresent(Int64.self, forKey: .fetchedAt) {
+            fetchedAt = tsInt > 0 ? Self.formatDate(Date(timeIntervalSince1970: TimeInterval(tsInt))) : ""
+        } else if let tsDouble = try? c.decodeIfPresent(Double.self, forKey: .fetchedAt) {
+            fetchedAt = tsDouble > 0 ? Self.formatDate(Date(timeIntervalSince1970: tsDouble)) : ""
+        } else {
+            fetchedAt = ""
+        }
+        fileName = try c.decodeIfPresent(String.self, forKey: .fileName) ?? ""
+        fileSHA256 = try c.decodeIfPresent(String.self, forKey: .fileSHA256) ?? ""
+        origin = try c.decodeIfPresent(String.self, forKey: .origin) ?? ""
+        detail = try c.decodeIfPresent(String.self, forKey: .detail) ?? ""
     }
 
     package var statusKind: CheatFetchStatus? {
@@ -130,14 +169,59 @@ package struct URLSessionCheatFetchTransport: CheatFetchTransport, Sendable {
     }
 }
 
+/// Outcome of querying online cheat repositories without touching local files.
+package enum CheatOnlineLookupStatus: String, Equatable, Sendable {
+    case found
+    case notFound = "not_found"
+    case offline
+}
+
+/// Raw online candidate returned by `CheatFetcher.fetchOnlineCandidate`.
+package struct CheatOnlineCandidate: Equatable, Sendable {
+    package var status: CheatOnlineLookupStatus
+    package var onlineText: String?
+    package var sources: [String]
+    package var entryCount: Int
+    package var detail: String
+
+    package init(
+        status: CheatOnlineLookupStatus,
+        onlineText: String? = nil,
+        sources: [String] = [],
+        entryCount: Int = 0,
+        detail: String = ""
+    ) {
+        self.status = status
+        self.onlineText = onlineText
+        self.sources = sources
+        self.entryCount = entryCount
+        self.detail = detail
+    }
+}
+
 /// Result returned by `CheatFetcher.fetch(titleID:buildID:into:transport:now:)`.
 package struct CheatFetchResult: Equatable, Sendable {
     package var receipt: CheatFetchReceipt
     package var wroteFile: Bool
+    package var onlineText: String?
+    package var onlineSources: [String]
+    package var onlineEntryCount: Int
+    package var onlineLookupStatus: CheatOnlineLookupStatus
 
-    package init(receipt: CheatFetchReceipt, wroteFile: Bool) {
+    package init(
+        receipt: CheatFetchReceipt,
+        wroteFile: Bool,
+        onlineText: String? = nil,
+        onlineSources: [String] = [],
+        onlineEntryCount: Int = 0,
+        onlineLookupStatus: CheatOnlineLookupStatus = .notFound
+    ) {
         self.receipt = receipt
         self.wroteFile = wroteFile
+        self.onlineText = onlineText
+        self.onlineSources = onlineSources
+        self.onlineEntryCount = onlineEntryCount
+        self.onlineLookupStatus = onlineLookupStatus
     }
 }
 
@@ -330,53 +414,14 @@ package enum CheatFetcher {
         return nil
     }
 
-    /// Fetches cheat definitions across the three switch-cheats-db sources and writes `<BID>.txt` + `.cheats-fetch.json`,
-    /// preserving any player-supplied or modified cheat file and leaving `.enabled` toggles untouched.
-    package static func fetch(
+    /// Queries the three switch-cheats-db sources and returns the merged candidate text without modifying disk files.
+    package static func fetchOnlineCandidate(
         titleID: String,
         buildID: String,
-        into folder: URL,
-        transport: CheatFetchTransport = URLSessionCheatFetchTransport(),
-        now: Date = Date(),
-        fm: FileManager = .default
-    ) async -> CheatFetchResult {
+        transport: CheatFetchTransport = URLSessionCheatFetchTransport()
+    ) async -> CheatOnlineCandidate {
         guard let tid16 = normalizedHex16(titleID), let bid16 = normalizedHex16(buildID, allow32: true) else {
-            let receipt = CheatFetchReceipt(
-                titleID: titleID.uppercased(),
-                buildID: buildID.uppercased(),
-                status: CheatFetchStatus.notFound.rawValue,
-                fetchedAt: CheatFetchReceipt.formatDate(now),
-                detail: "Invalid titleID or buildID"
-            )
-            return CheatFetchResult(receipt: receipt, wroteFile: false)
-        }
-
-        let fetchedAt = CheatFetchReceipt.formatDate(now)
-        let existingReceipt = readReceipt(in: folder)
-        let existingFile = existingCheatFile(buildID: bid16, in: folder, fm: fm)
-
-        // Check player file protection first so we never overwrite local edits or user-imported files.
-        if let existingFile, let diskData = try? Data(contentsOf: existingFile) {
-            let diskHash = sha256Hex(diskData)
-            let isManagedFetched = existingReceipt?.buildID.uppercased() == bid16
-                && existingReceipt?.origin == "fetched"
-                && existingReceipt?.fileSHA256.lowercased() == diskHash.lowercased()
-            if !isManagedFetched {
-                let preserved = CheatFetchReceipt(
-                    titleID: tid16,
-                    buildID: bid16,
-                    status: CheatFetchStatus.preservedUser.rawValue,
-                    sources: existingReceipt?.sources ?? [],
-                    entryCount: existingReceipt?.entryCount ?? 0,
-                    fetchedAt: fetchedAt,
-                    fileName: existingFile.lastPathComponent,
-                    fileSHA256: diskHash,
-                    origin: "user",
-                    detail: "Preserved existing user cheat file"
-                )
-                try? writeReceipt(preserved, in: folder)
-                return CheatFetchResult(receipt: preserved, wroteFile: false)
-            }
+            return CheatOnlineCandidate(status: .notFound, detail: "Invalid titleID or buildID")
         }
 
         var perSource: [(source: String, entries: [ParsedSectionEntry])] = []
@@ -406,18 +451,94 @@ package enum CheatFetcher {
         }
 
         if let merged = renderMergedText(from: perSource) {
-            let payload = Data(merged.text.utf8)
-            if payload.count > maxResponseBytes {
-                let tooBig = CheatFetchReceipt(
+            if merged.text.utf8.count > maxResponseBytes {
+                return CheatOnlineCandidate(status: .notFound, detail: "Merged cheat file exceeded 4 MiB")
+            }
+            return CheatOnlineCandidate(
+                status: .found,
+                onlineText: merged.text,
+                sources: merged.sources,
+                entryCount: merged.entryCount
+            )
+        }
+
+        let isOffline = successfulResponses == 0 && !networkErrors.isEmpty
+        return CheatOnlineCandidate(
+            status: isOffline ? .offline : .notFound,
+            detail: isOffline ? networkErrors.joined(separator: ", ") : ""
+        )
+    }
+
+    /// Fetches cheat definitions across the three switch-cheats-db sources.
+    /// When no user-protected file exists, writes `<BID>.txt` + `.cheats-fetch.json`.
+    /// When a user-supplied or edited `<BID>.txt` exists, still queries online repositories so the caller can preview,
+    /// diff, merge, or replace, while leaving the local `<BID>.txt` and `.enabled` toggles untouched.
+    package static func fetch(
+        titleID: String,
+        buildID: String,
+        into folder: URL,
+        transport: CheatFetchTransport = URLSessionCheatFetchTransport(),
+        now: Date = Date(),
+        fm: FileManager = .default
+    ) async -> CheatFetchResult {
+        guard let tid16 = normalizedHex16(titleID), let bid16 = normalizedHex16(buildID, allow32: true) else {
+            let receipt = CheatFetchReceipt(
+                titleID: titleID.uppercased(),
+                buildID: buildID.uppercased(),
+                status: CheatFetchStatus.notFound.rawValue,
+                fetchedAt: CheatFetchReceipt.formatDate(now),
+                detail: "Invalid titleID or buildID"
+            )
+            return CheatFetchResult(receipt: receipt, wroteFile: false, onlineLookupStatus: .notFound)
+        }
+
+        let candidate = await fetchOnlineCandidate(titleID: tid16, buildID: bid16, transport: transport)
+        let fetchedAt = CheatFetchReceipt.formatDate(now)
+        let existingReceipt = readReceipt(in: folder)
+        let existingFile = existingCheatFile(buildID: bid16, in: folder, fm: fm)
+
+        // Check player file protection after network wait (Check-Read-Revalidate) so user files are never silently overwritten.
+        if let existingFile, let diskData = try? Data(contentsOf: existingFile) {
+            let diskHash = sha256Hex(diskData)
+            let isManagedFetched = existingReceipt?.buildID.uppercased() == bid16
+                && existingReceipt?.origin == "fetched"
+                && existingReceipt?.fileSHA256.lowercased() == diskHash.lowercased()
+            if !isManagedFetched {
+                let preservedDetail: String
+                switch candidate.status {
+                case .found:
+                    preservedDetail = "Preserved existing user cheat file"
+                case .notFound:
+                    preservedDetail = "Preserved existing user cheat file (not listed online)"
+                case .offline:
+                    preservedDetail = candidate.detail.isEmpty ? "Preserved existing user cheat file (offline)" : candidate.detail
+                }
+                let preserved = CheatFetchReceipt(
                     titleID: tid16,
                     buildID: bid16,
-                    status: CheatFetchStatus.notFound.rawValue,
+                    status: CheatFetchStatus.preservedUser.rawValue,
+                    sources: existingReceipt?.sources ?? [],
+                    entryCount: existingReceipt?.entryCount ?? 0,
                     fetchedAt: fetchedAt,
-                    detail: "Merged cheat file exceeded 4 MiB"
+                    fileName: existingFile.lastPathComponent,
+                    fileSHA256: diskHash,
+                    origin: "user",
+                    detail: preservedDetail
                 )
-                try? writeReceipt(tooBig, in: folder)
-                return CheatFetchResult(receipt: tooBig, wroteFile: false)
+                try? writeReceipt(preserved, in: folder)
+                return CheatFetchResult(
+                    receipt: preserved,
+                    wroteFile: false,
+                    onlineText: candidate.onlineText,
+                    onlineSources: candidate.sources,
+                    onlineEntryCount: candidate.entryCount,
+                    onlineLookupStatus: candidate.status
+                )
             }
+        }
+
+        if candidate.status == .found, let onlineText = candidate.onlineText {
+            let payload = Data(onlineText.utf8)
             let targetName = "\(bid16).txt"
             let targetURL = folder.appendingPathComponent(targetName)
             do {
@@ -431,8 +552,8 @@ package enum CheatFetcher {
                     titleID: tid16,
                     buildID: bid16,
                     status: CheatFetchStatus.fetched.rawValue,
-                    sources: merged.sources,
-                    entryCount: merged.entryCount,
+                    sources: candidate.sources,
+                    entryCount: candidate.entryCount,
                     fetchedAt: fetchedAt,
                     fileName: targetName,
                     fileSHA256: hash,
@@ -440,7 +561,14 @@ package enum CheatFetcher {
                     detail: ""
                 )
                 try writeReceipt(receipt, in: folder)
-                return CheatFetchResult(receipt: receipt, wroteFile: true)
+                return CheatFetchResult(
+                    receipt: receipt,
+                    wroteFile: true,
+                    onlineText: onlineText,
+                    onlineSources: candidate.sources,
+                    onlineEntryCount: candidate.entryCount,
+                    onlineLookupStatus: .found
+                )
             } catch {
                 let failed = CheatFetchReceipt(
                     titleID: tid16,
@@ -449,13 +577,11 @@ package enum CheatFetcher {
                     fetchedAt: fetchedAt,
                     detail: error.localizedDescription
                 )
-                return CheatFetchResult(receipt: failed, wroteFile: false)
+                return CheatFetchResult(receipt: failed, wroteFile: false, onlineLookupStatus: .offline)
             }
         }
 
-        let isOffline = successfulResponses == 0 && !networkErrors.isEmpty
-        let status: CheatFetchStatus = isOffline ? .offline : .notFound
-        let detail = isOffline ? networkErrors.joined(separator: ", ") : ""
+        let status: CheatFetchStatus = candidate.status == .offline ? .offline : .notFound
         let preservedExisting = (existingFile != nil && existingReceipt?.origin == "fetched" && existingReceipt?.buildID.uppercased() == bid16)
         let receipt = CheatFetchReceipt(
             titleID: tid16,
@@ -467,9 +593,9 @@ package enum CheatFetcher {
             fileName: preservedExisting ? (existingReceipt?.fileName ?? "") : "",
             fileSHA256: preservedExisting ? (existingReceipt?.fileSHA256 ?? "") : "",
             origin: preservedExisting ? "fetched" : "",
-            detail: detail
+            detail: candidate.detail
         )
         try? writeReceipt(receipt, in: folder)
-        return CheatFetchResult(receipt: receipt, wroteFile: false)
+        return CheatFetchResult(receipt: receipt, wroteFile: false, onlineLookupStatus: candidate.status)
     }
 }

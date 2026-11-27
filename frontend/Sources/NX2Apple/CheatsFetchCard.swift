@@ -9,7 +9,11 @@ struct CheatsFetchCard: View {
     @EnvironmentObject var loc: Localizer
     let receipt: CheatFetchReceipt?
     let hasBuildID: Bool
+    var buildID: String? = nil
     let fetching: Bool
+    var onlineLookupOverride: CheatOnlineLookupStatus? = nil
+    var hasOnlineCandidate: Bool = false
+    var onViewOnlineCandidate: (() -> Void)? = nil
 
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -53,11 +57,20 @@ struct CheatsFetchCard: View {
 
             if fetching {
                 ProgressView().controlSize(.small)
-            } else if let timeText {
-                Text(timeText)
-                    .font(DS.Font.footnote)
-                    .foregroundStyle(DS.Color.textSecondary)
-                    .lineLimit(1)
+            } else {
+                VStack(alignment: .trailing, spacing: DS.Space.xxs) {
+                    if let timeText {
+                        Text(timeText)
+                            .font(DS.Font.footnote)
+                            .foregroundStyle(DS.Color.textSecondary)
+                            .lineLimit(1)
+                    }
+                    if hasOnlineCandidate, let onViewOnlineCandidate {
+                        Button(loc.t("cheats.fetch.viewCandidate"), action: onViewOnlineCandidate)
+                            .buttonStyle(LauncherSecondaryButtonStyle())
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                }
             }
         }
         .padding(.horizontal, DS.Space.m)
@@ -67,7 +80,7 @@ struct CheatsFetchCard: View {
             RoundedRectangle(cornerRadius: DS.Radius.card)
                 .strokeBorder(borderColor, lineWidth: 1)
         )
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
     }
 
     private var iconName: String {
@@ -129,7 +142,21 @@ struct CheatsFetchCard: View {
             }
             return loc.t("cheats.fetch.detailFetchedNoSource")
         case .preservedUser:
-            return loc.t("cheats.fetch.detailPreserved")
+            switch onlineLookupOverride {
+            case .notFound:
+                return loc.t("cheats.fetch.preservedNotFound")
+            case .offline:
+                return loc.t("cheats.fetch.preservedOffline")
+            case .found, .none:
+                let nameFromReceipt = receipt?.fileName.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let resolvedName = !nameFromReceipt.isEmpty
+                    ? nameFromReceipt
+                    : (buildID.flatMap { CheatFetcher.normalizedHex16($0, allow32: true) }.map { "\($0).txt" } ?? "")
+                if !resolvedName.isEmpty {
+                    return String(format: loc.t("cheats.fetch.detailPreserved"), resolvedName)
+                }
+                return loc.t("cheats.fetch.detailPreservedGeneric")
+            }
         case .notFound:
             return loc.t("cheats.fetch.detailNotFound")
         case .offline:
