@@ -20,6 +20,10 @@ public struct CheatsSheetView: View {
 
     @State private var snapshot: GameCheatsSnapshot
     @State private var importing = false
+    @State private var fetching = false
+    @State private var deleting = false
+    @State private var showDeleteConfirm = false
+    @State private var lastFetchReceipt: GameCheatFetchReceipt?
     @State private var statusMessage: (text: String, isWarning: Bool)?
     @State private var pendingMismatch: PendingMismatch?
     @State private var opGeneration: UInt64 = 0
@@ -47,6 +51,10 @@ public struct CheatsSheetView: View {
                 }
 
                 headerCard
+
+                if let receipt = effectiveFetchReceipt {
+                    CheatsFetchStatusCard(receipt: receipt)
+                }
 
                 if let statusMessage {
                     statusBanner(statusMessage.text, isWarning: statusMessage.isWarning)
@@ -77,9 +85,24 @@ public struct CheatsSheetView: View {
                 opGeneration &+= 1
                 pendingMismatch = nil
                 statusMessage = nil
+                lastFetchReceipt = nil
                 importing = false
+                fetching = false
+                deleting = false
+                showDeleteConfirm = false
                 snapshot = updated
             }
+        }
+        .alert(
+            ShellStrings.text("Delete cheat file?"),
+            isPresented: $showDeleteConfirm
+        ) {
+            Button(ShellStrings.text("Delete"), role: .destructive) {
+                deleteCurrentCheatFile()
+            }
+            Button(ShellStrings.text("Cancel"), role: .cancel) {}
+        } message: {
+            Text(ShellStrings.text("This removes the current cheat file and its saved switches. Bundled cheats will not be restored automatically."))
         }
         .alert(
             ShellStrings.text("Build ID does not match"),
@@ -190,37 +213,88 @@ public struct CheatsSheetView: View {
 
             Rectangle().fill(ShellPalette.hairline).frame(height: 1)
 
-            HStack(spacing: 10) {
-                Button {
-                    Task { await importCheatFile() }
-                } label: {
-                    HStack(spacing: 6) {
-                        if importing {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Image(systemName: "square.and.arrow.down")
-                        }
-                        Text(ShellStrings.text("Import .txt…"))
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(ShellButtonStyle(fills: true))
-                .disabled(importing || actions.onImportCheatFile == nil)
-                .accessibilityIdentifier("cheats.import")
-                .shellTarget("cht.import", enabled: !importing && actions.onImportCheatFile != nil) {
-                    Task { await importCheatFile() }
-                }
-
-                if let exportURL = snapshot.exportFileURL {
-                    ShareLink(item: exportURL) {
+            VStack(spacing: 10) {
+                HStack(spacing: 10) {
+                    let canFetch = !fetching && !importing && !deleting && actions.onFetchCheats != nil && snapshot.buildID != nil
+                    Button {
+                        Task { await fetchCheats() }
+                    } label: {
                         HStack(spacing: 6) {
-                            Image(systemName: "square.and.arrow.up")
-                            Text(ShellStrings.text("Share .txt"))
+                            if fetching {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Image(systemName: "icloud.and.arrow.down")
+                            }
+                            Text(ShellStrings.text("Fetch online"))
                         }
                         .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(ShellButtonStyle(fills: true))
-                    .accessibilityIdentifier("cheats.share")
+                    .disabled(!canFetch)
+                    .accessibilityIdentifier("cheats.fetch")
+                    .shellTarget("cht.fetch", enabled: canFetch) {
+                        Task { await fetchCheats() }
+                    }
+
+                    let canImport = !importing && !fetching && !deleting && actions.onImportCheatFile != nil
+                    Button {
+                        Task { await importCheatFile() }
+                    } label: {
+                        HStack(spacing: 6) {
+                            if importing {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Image(systemName: "square.and.arrow.down")
+                            }
+                            Text(ShellStrings.text("Import .txt…"))
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(ShellButtonStyle(fills: true))
+                    .disabled(!canImport)
+                    .accessibilityIdentifier("cheats.import")
+                    .shellTarget("cht.import", enabled: canImport) {
+                        Task { await importCheatFile() }
+                    }
+                }
+
+                if snapshot.hasCurrentFile && (snapshot.exportFileURL != nil || actions.onDeleteCheatFile != nil || actions.onDeleteCheatFileAsync != nil) {
+                    HStack(spacing: 10) {
+                        if let exportURL = snapshot.exportFileURL {
+                            ShareLink(item: exportURL) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "square.and.arrow.up")
+                                    Text(ShellStrings.text("Share .txt"))
+                                }
+                                .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(ShellButtonStyle(fills: true))
+                            .accessibilityIdentifier("cheats.share")
+                        }
+
+                        if actions.onDeleteCheatFile != nil || actions.onDeleteCheatFileAsync != nil {
+                            let canDelete = !deleting && !fetching && !importing
+                            Button {
+                                showDeleteConfirm = true
+                            } label: {
+                                HStack(spacing: 6) {
+                                    if deleting {
+                                        ProgressView().controlSize(.small)
+                                    } else {
+                                        Image(systemName: "trash")
+                                    }
+                                    Text(ShellStrings.text("Delete"))
+                                }
+                                .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(ShellButtonStyle(fills: true, destructive: true))
+                            .disabled(!canDelete)
+                            .accessibilityIdentifier("cheats.delete")
+                            .shellTarget("cht.delete", enabled: canDelete) {
+                                showDeleteConfirm = true
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -244,18 +318,23 @@ public struct CheatsSheetView: View {
         .accessibilityIdentifier("cheats.statusBanner")
     }
 
+    private var effectiveFetchReceipt: GameCheatFetchReceipt? {
+        lastFetchReceipt ?? snapshot.fetchReceipt
+    }
+
     private var triageGuidanceCard: some View {
         let needsBake = snapshot.codeNeedsBakeCount
+        let unsafeCount = snapshot.unsafeCodeCount
         let readyCount = snapshot.readyOnIOSCount
-        let accentColor: Color = needsBake > 0 ? Color.orange : ShellPalette.ready
+        let accentColor: Color = unsafeCount > 0 ? DeleteStyle.red : (needsBake > 0 ? Color.orange : ShellPalette.ready)
 
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
-                Image(systemName: needsBake > 0 ? "wand.and.stars" : "checkmark.seal.fill")
+                Image(systemName: (needsBake > 0 || unsafeCount > 0) ? "wand.and.stars" : "checkmark.seal.fill")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(accentColor)
                     .accessibilityHidden(true)
-                Text(needsBake > 0 ? ShellStrings.text("iOS compatibility summary") : ShellStrings.text("All cheats ready on iPhone"))
+                Text((needsBake > 0 || unsafeCount > 0) ? ShellStrings.text("iOS compatibility summary") : ShellStrings.text("All cheats ready on iPhone"))
                     .shellType(ShellType.cardTitle)
                     .foregroundStyle(.white)
             }
@@ -282,11 +361,18 @@ public struct CheatsSheetView: View {
                         label: ShellStrings.text("\(snapshot.codeNeedsBakeCount) need builder bake")
                     )
                 }
-                if snapshot.fixedHeapWarningCount > 0 {
+                if snapshot.unsafeCodeCount > 0 {
+                    capabilityStatChip(
+                        color: DeleteStyle.red,
+                        symbol: "shield.slash.fill",
+                        label: ShellStrings.text("\(snapshot.unsafeCodeCount) safety blocked")
+                    )
+                }
+                if snapshot.fixedAddressCount > 0 {
                     capabilityStatChip(
                         color: ShellPalette.attention,
                         symbol: "exclamationmark.triangle.fill",
-                        label: ShellStrings.text("\(snapshot.fixedHeapWarningCount) fixed offset")
+                        label: ShellStrings.text("\(snapshot.fixedAddressCount) fixed offset")
                     )
                 }
             }
@@ -309,6 +395,12 @@ public struct CheatsSheetView: View {
                     .buttonStyle(ShellButtonStyle(fills: true))
                     .accessibilityIdentifier("cheats.shareForBake")
                 }
+            } else if unsafeCount > 0 {
+                Text(ShellStrings.text("\(unsafeCount) cheats were blocked by static safety checks and stay disabled on iPhone."))
+                    .shellType(ShellType.note)
+                    .foregroundStyle(.white.opacity(0.84))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("cheats.triageUnsafeText")
             } else {
                 Text(ShellStrings.text("Every cheat in this file can be toggled directly on iPhone and applies the next time you launch the game."))
                     .shellType(ShellType.note)
@@ -428,6 +520,28 @@ public struct CheatsSheetView: View {
                     Text(ShellStrings.text("One-shot"))
                         .shellText(11.5, .semibold, relativeTo: .caption)
                         .foregroundStyle(.secondary)
+                } else if entry.isUnsafeCode {
+                    Button {
+                        let reason = entry.unsafeCodeReason ?? ""
+                        let msg = reason.isEmpty
+                            ? ShellStrings.text("This cheat was blocked by static safety checks and cannot be enabled.")
+                            : reason
+                        statusMessage = (msg, true)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "shield.slash.fill")
+                                .font(.system(size: 10, weight: .semibold))
+                            Text(ShellStrings.text("Blocked"))
+                                .shellText(11.5, .semibold, relativeTo: .caption)
+                        }
+                        .foregroundStyle(DeleteStyle.red)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(DeleteStyle.red.opacity(0.14), in: Capsule())
+                        .overlay(Capsule().strokeBorder(DeleteStyle.red.opacity(0.42), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("cheats.unsafe.\(entry.key)")
                 } else if entry.capability == .codeNeedsBake {
                     Button {
                         statusMessage = (ShellStrings.text("Share this .txt file to your computer and run fast bake once to unlock code cheats on iPhone."), true)
@@ -460,7 +574,7 @@ public struct CheatsSheetView: View {
                 }
             }
             .padding(.vertical, 4)
-            .opacity(entry.capability == .codeNeedsBake ? 0.78 : 1.0)
+            .opacity((entry.capability == .codeNeedsBake || entry.isUnsafeCode) ? 0.78 : 1.0)
         }
     }
 
@@ -474,7 +588,8 @@ public struct CheatsSheetView: View {
     }
 
     private func entryTitleColumn(_ entry: GameCheatEntry) -> some View {
-        let showBadge = !entry.isBroken && !entry.isOnce
+        let showFixedAddress = !entry.isBroken && !entry.isOnce && (entry.hasFixedAddress || entry.capability == .fixedHeapWarning)
+        let showCapability = !entry.isBroken && !entry.isOnce && !entry.isUnsafeCode && !(entry.capability == .fixedHeapWarning && showFixedAddress)
         let triggerCombo = entry.isBroken ? nil : entry.triggerCombo
         return VStack(alignment: .leading, spacing: 5) {
             Text(entry.name)
@@ -482,11 +597,43 @@ public struct CheatsSheetView: View {
                 .foregroundStyle(.white)
                 .fixedSize(horizontal: false, vertical: true)
 
-            if showBadge || triggerCombo != nil {
+            if showCapability || entry.isUnsafeCode || showFixedAddress || triggerCombo != nil {
                 CheatsTagFlowLayout(spacing: 6) {
-                    if showBadge {
+                    if entry.isUnsafeCode {
+                        HStack(spacing: 4) {
+                            Image(systemName: "shield.slash.fill")
+                                .font(.system(size: 9.5, weight: .semibold))
+                                .foregroundStyle(DeleteStyle.red)
+                                .accessibilityHidden(true)
+                            Text(ShellStrings.text("Safety blocked"))
+                                .shellText(11.5, .semibold, relativeTo: .caption)
+                                .foregroundStyle(DeleteStyle.red)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(DeleteStyle.red.opacity(0.14), in: Capsule())
+                        .overlay(Capsule().strokeBorder(DeleteStyle.red.opacity(0.42), lineWidth: 1))
+                    } else if showCapability {
                         rowCapabilityBadge(entry.capability)
                     }
+
+                    if showFixedAddress {
+                        HStack(spacing: 4) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 9.5, weight: .semibold))
+                                .foregroundStyle(ShellPalette.attention)
+                                .accessibilityHidden(true)
+                            Text(ShellStrings.text("Fixed address · may break"))
+                                .shellText(11.5, .semibold, relativeTo: .caption)
+                                .foregroundStyle(ShellPalette.attention)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(ShellPalette.attention.opacity(0.14), in: Capsule())
+                        .overlay(Capsule().strokeBorder(ShellPalette.attention.opacity(0.42), lineWidth: 1))
+                        .accessibilityIdentifier("cheats.fixedAddress.\(entry.key)")
+                    }
+
                     if let combo = triggerCombo {
                         HStack(spacing: 4) {
                             Image(systemName: "gamecontroller.fill")
@@ -503,6 +650,21 @@ public struct CheatsSheetView: View {
                         .accessibilityIdentifier("cheats.key.\(entry.key)")
                     }
                 }
+            }
+
+            if let reason = entry.unsafeCodeReason {
+                Text(reason.isEmpty ? ShellStrings.text("Blocked by static safety check during code baking.") : reason)
+                    .shellText(11.5, .regular, relativeTo: .caption)
+                    .foregroundStyle(DeleteStyle.red.opacity(0.9))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("cheats.unsafeReason.\(entry.key)")
+            }
+
+            if showFixedAddress {
+                Text(ShellStrings.text("Address may shift after restart. Use the in-game Memory Scanner if needed."))
+                    .shellText(11.5, .regular, relativeTo: .caption)
+                    .foregroundStyle(ShellPalette.attention.opacity(0.85))
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -612,6 +774,58 @@ public struct CheatsSheetView: View {
         handleImportOutcome(outcome)
     }
 
+    private func fetchCheats() async {
+        guard let fetcher = actions.onFetchCheats else { return }
+        let targetID = snapshot.gameID
+        let gen = nextGeneration()
+        fetching = true
+        let outcome = await fetcher(targetID)
+        guard !Task.isCancelled, opGeneration == gen, snapshot.gameID == targetID else { return }
+        fetching = false
+        switch outcome {
+        case .completed(let updated, let receipt):
+            snapshot = updated
+            lastFetchReceipt = receipt
+            switch receipt.status {
+            case "found":
+                statusMessage = (ShellStrings.text("Fetched \(receipt.entryCount) cheats from online sources."), false)
+            case "preserved_user":
+                statusMessage = (ShellStrings.text("Your own cheat file was kept instead of overwriting it."), true)
+            case "not_found":
+                statusMessage = (ShellStrings.text("No matching cheats exist in the online database for this build."), false)
+            case "offline":
+                statusMessage = (ShellStrings.text("Offline, could not check online"), true)
+            default:
+                statusMessage = (ShellStrings.text("Online fetch unavailable"), true)
+            }
+        case .failed(let message):
+            if !message.isEmpty {
+                statusMessage = (message, true)
+            }
+        }
+    }
+
+    private func deleteCurrentCheatFile() {
+        let targetID = snapshot.gameID
+        let gen = nextGeneration()
+        if let asyncDelete = actions.onDeleteCheatFileAsync {
+            deleting = true
+            Task {
+                let updated = await asyncDelete(targetID)
+                guard opGeneration == gen, snapshot.gameID == targetID else { return }
+                deleting = false
+                snapshot = updated
+                lastFetchReceipt = nil
+                statusMessage = (ShellStrings.text("Deleted cheat file. Bundled cheats will not be restored automatically."), false)
+            }
+        } else if let updated = actions.onDeleteCheatFile?(targetID) {
+            guard opGeneration == gen, snapshot.gameID == targetID else { return }
+            snapshot = updated
+            lastFetchReceipt = nil
+            statusMessage = (ShellStrings.text("Deleted cheat file. Bundled cheats will not be restored automatically."), false)
+        }
+    }
+
     private func confirmMismatch(_ mismatch: PendingMismatch) {
         let targetID = snapshot.gameID
         let gen = nextGeneration()
@@ -653,53 +867,6 @@ public struct CheatsSheetView: View {
             break
         case .failed(let message):
             statusMessage = (message, true)
-        }
-    }
-}
-
-/// Simple wrapping flow layout for capability pills and trigger key capsules inside `CheatsSheetView`.
-private struct CheatsTagFlowLayout: Layout {
-    var spacing: CGFloat = 8
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let maxWidth = proposal.width ?? .infinity
-        var rowWidth: CGFloat = 0
-        var rowHeight: CGFloat = 0
-        var totalHeight: CGFloat = 0
-        var widest: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if rowWidth > 0 && rowWidth + spacing + size.width > maxWidth {
-                widest = max(widest, rowWidth)
-                totalHeight += rowHeight + spacing
-                rowWidth = size.width
-                rowHeight = size.height
-            } else {
-                rowWidth = rowWidth == 0 ? size.width : rowWidth + spacing + size.width
-                rowHeight = max(rowHeight, size.height)
-            }
-        }
-        widest = max(widest, rowWidth)
-        totalHeight += rowHeight
-        return CGSize(width: proposal.width.map { min($0, widest) } ?? widest, height: totalHeight)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var x = bounds.minX
-        var y = bounds.minY
-        var rowHeight: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x > bounds.minX && x + size.width > bounds.maxX {
-                x = bounds.minX
-                y += rowHeight + spacing
-                rowHeight = 0
-            }
-            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
-            x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
         }
     }
 }

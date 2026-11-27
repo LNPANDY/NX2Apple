@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import ShellUI
 
@@ -10,6 +11,9 @@ public struct GameCheatsStore: Sendable {
     }
 
     public static let maxFileBytes = 4 * 1024 * 1024
+    public static let seededFileName = ".seeded.json"
+    public static let deletedFileName = ".deleted.json"
+    public static let fetchReceiptFileName = ".cheats-fetch.json"
     private static let nameMax = 127
     private static let cheatMax = 256
     private static let insMax = 0x2000
@@ -63,7 +67,14 @@ public struct GameCheatsStore: Sendable {
         public struct EntryRecord: Equatable, Sendable {
             public var kind: String
             public var keyMask: UInt64
+            public var detail: String
             public var isBaked: Bool { kind == "baked_static" || kind == "baked_conditional" }
+
+            public init(kind: String, keyMask: UInt64 = 0, detail: String = "") {
+                self.kind = kind
+                self.keyMask = keyMask
+                self.detail = detail
+            }
         }
 
         public var buildID: String?
@@ -114,14 +125,22 @@ public struct GameCheatsStore: Sendable {
                 guard !key.isEmpty else { continue }
                 let kind = field("kind")
                 let keyMask = parseHexOrDec(field("key_mask")) ?? 0
+                let detail = field("detail")
                 if rowType == "entry" {
-                    entries[key] = EntryRecord(kind: kind, keyMask: keyMask)
+                    entries[key] = EntryRecord(kind: kind, keyMask: keyMask, detail: detail)
                 } else if rowType == "site" {
-                    bakedSiteKeys.insert(key)
+                    if kind != "unsafe_code" && kind != "unbaked_code" {
+                        bakedSiteKeys.insert(key)
+                    }
                     if let existing = entries[key] {
-                        entries[key] = EntryRecord(kind: existing.isBaked ? existing.kind : kind, keyMask: existing.keyMask | keyMask)
+                        let resolvedDetail = existing.detail.isEmpty ? detail : existing.detail
+                        entries[key] = EntryRecord(
+                            kind: existing.isBaked ? existing.kind : kind,
+                            keyMask: existing.keyMask | keyMask,
+                            detail: resolvedDetail
+                        )
                     } else {
-                        entries[key] = EntryRecord(kind: kind, keyMask: keyMask)
+                        entries[key] = EntryRecord(kind: kind, keyMask: keyMask, detail: detail)
                     }
                 }
             }
@@ -129,7 +148,8 @@ public struct GameCheatsStore: Sendable {
         }
 
         public func isBaked(key: String) -> Bool {
-            bakedSiteKeys.contains(key) || (entries[key]?.isBaked ?? false)
+            if entries[key]?.kind == "unsafe_code" { return false }
+            return bakedSiteKeys.contains(key) || (entries[key]?.isBaked ?? false)
         }
     }
 
@@ -222,7 +242,198 @@ public struct GameCheatsStore: Sendable {
         return found.count == 1 ? found[0] : nil
     }
 
+    public var seededURL: URL { cheatsFolder.appendingPathComponent(Self.seededFileName) }
+    public var deletedURL: URL { cheatsFolder.appendingPathComponent(Self.deletedFileName) }
+    public var fetchReceiptURL: URL { cheatsFolder.appendingPathComponent(Self.fetchReceiptFileName) }
+
+    public func readSeededHashes(fileManager fm: FileManager = .default) -> [String: String] {
+        guard fm.fileExists(atPath: seededURL.path),
+              let data = try? Data(contentsOf: seededURL),
+              let decoded = try? JSONDecoder().decode([String: String].self, from: data) else {
+            return [:]
+        }
+        return decoded
+    }
+
+    public func readDeletedCheatFiles(fileManager fm: FileManager = .default) -> Set<String> {
+        guard fm.fileExists(atPath: deletedURL.path),
+              let data = try? Data(contentsOf: deletedURL),
+              let decoded = try? JSONDecoder().decode([String].self, from: data) else {
+            return []
+        }
+        return Set(decoded)
+    }
+
+    public func readFetchReceipt(currentBuildID: String? = nil, fileManager fm: FileManager = .default) -> GameCheatFetchReceipt? {
+        guard fm.fileExists(atPath: fetchReceiptURL.path),
+              let data = try? Data(contentsOf: fetchReceiptURL),
+              let receipt = try? JSONDecoder().decode(GameCheatFetchReceipt.self, from: data) else {
+            return nil
+        }
+        if let currentBuildID, !currentBuildID.isEmpty, !receipt.buildID.isEmpty,
+           receipt.buildID.uppercased() != currentBuildID.uppercased() {
+            return nil
+        }
+        return receipt
+    }
+
+    public func writeFetchReceipt(_ receipt: GameCheatFetchReceipt, fileManager fm: FileManager = .default) throws {
+        try fm.createDirectory(at: cheatsFolder, withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(receipt)
+        try data.write(to: fetchReceiptURL, options: .atomic)
+    }
+
+    public func unmarkDeletedCheatFile(named fileName: String, fileManager fm: FileManager = .default) throws {
+        var deleted = readDeletedCheatFiles(fileManager: fm)
+        guard deleted.remove(fileName) != nil else { return }
+        try writeDeletedCheatFiles(deleted, fileManager: fm)
+    }
+
+    public func unmarkSeededCheatFile(named fileName: String, fileManager fm: FileManager = .default) throws {
+        var seeded = readSeededHashes(fileManager: fm)
+        guard seeded.removeValue(forKey: fileName) != nil else { return }
+        try writeSeededHashes(seeded, fileManager: fm)
+    }
+
+    private func writeSeededHashes(_ map: [String: String], fileManager fm: FileManager) throws {
+        try fm.createDirectory(at: cheatsFolder, withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(map)
+        try data.write(to: seededURL, options: .atomic)
+    }
+
+    private func writeDeletedCheatFiles(_ set: Set<String>, fileManager fm: FileManager) throws {
+        try fm.createDirectory(at: cheatsFolder, withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(set.sorted())
+        try data.write(to: deletedURL, options: .atomic)
+    }
+
+    /// Seeds bundled `<BID>.txt` and `.cheats-fetch.json` from `<framework>/dm/cheats/` into `cheatsFolder`
+    /// with 4-state user protection (never re-seeds deleted files, detects deletion via Files app, preserves
+    /// user-imported or modified files, and updates unedited bundled files on app upgrade). Never modifies `.enabled`.
+    public func seedBundledCheatsIfNeeded(fileManager fm: FileManager = .default) {
+        var seeded = readSeededHashes(fileManager: fm)
+        var deleted = readDeletedCheatFiles(fileManager: fm)
+        var seededChanged = false
+        var deletedChanged = false
+
+        // State 2 (pre-pass): any previously seeded .txt file missing from cheatsFolder was deleted in Files app.
+        for fileName in Array(seeded.keys) where fileName != Self.fetchReceiptFileName {
+            let targetURL = cheatsFolder.appendingPathComponent(fileName)
+            if !fm.fileExists(atPath: targetURL.path) {
+                deleted.insert(fileName)
+                seeded.removeValue(forKey: fileName)
+                deletedChanged = true
+                seededChanged = true
+            }
+        }
+
+        let bundledDir = frameworkURL?.appendingPathComponent("dm/cheats", isDirectory: true)
+        let bundledNames: [String] = {
+            guard let bundledDir else { return [] }
+            return ((try? fm.contentsOfDirectory(atPath: bundledDir.path)) ?? []).sorted()
+        }()
+        let bundledCheatNames = bundledNames.filter { Self.buildID(ofFileNamed: $0) != nil }
+
+        var previousBundledTxtHashes: Set<String> = []
+        var canSyncBundledReceipt = false
+
+        if let bundledDir, !bundledCheatNames.isEmpty {
+            for name in bundledCheatNames {
+                let srcURL = bundledDir.appendingPathComponent(name)
+                guard Self.isWithinSizeLimit(srcURL), let srcData = try? Data(contentsOf: srcURL) else { continue }
+                let bundledHash = Self.sha256Hex(srcData)
+                let destURL = cheatsFolder.appendingPathComponent(name)
+
+                // State 1: deleted previously -> never re-seed.
+                if deleted.contains(name) { continue }
+
+                if fm.fileExists(atPath: destURL.path) {
+                    // State 3: user-imported (not in .seeded.json) or user-modified (SHA256 mismatch) -> never overwrite.
+                    guard let recordedHash = seeded[name] else { continue }
+                    guard let destData = try? Data(contentsOf: destURL) else { continue }
+                    let currentHash = Self.sha256Hex(destData)
+                    if currentHash.lowercased() != recordedHash.lowercased() { continue }
+                    previousBundledTxtHashes.insert(recordedHash.lowercased())
+
+                    // State 4 (upgrade): player did not alter the bundled file; refresh if bundle changed.
+                    if currentHash.lowercased() != bundledHash.lowercased() {
+                        do {
+                            try fm.createDirectory(at: cheatsFolder, withIntermediateDirectories: true)
+                            try srcData.write(to: destURL, options: .atomic)
+                            seeded[name] = bundledHash
+                            seededChanged = true
+                        } catch {
+                            continue
+                        }
+                    }
+                    canSyncBundledReceipt = true
+                } else {
+                    // State 4 (first install): copy atomically without creating or touching .enabled.
+                    do {
+                        try fm.createDirectory(at: cheatsFolder, withIntermediateDirectories: true)
+                        try srcData.write(to: destURL, options: .atomic)
+                        seeded[name] = bundledHash
+                        seededChanged = true
+                        canSyncBundledReceipt = true
+                    } catch {
+                        continue
+                    }
+                }
+            }
+
+            let bundledReceiptURL = bundledDir.appendingPathComponent(Self.fetchReceiptFileName)
+            if canSyncBundledReceipt,
+               Self.isWithinSizeLimit(bundledReceiptURL),
+               let receiptData = try? Data(contentsOf: bundledReceiptURL) {
+                let bundledReceiptHash = Self.sha256Hex(receiptData)
+                let shouldCopyReceipt: Bool = {
+                    if !fm.fileExists(atPath: fetchReceiptURL.path) { return true }
+                    guard let existingData = try? Data(contentsOf: fetchReceiptURL) else { return false }
+                    let existingHash = Self.sha256Hex(existingData).lowercased()
+                    if let seededReceiptHash = seeded[Self.fetchReceiptFileName]?.lowercased(),
+                       existingHash == seededReceiptHash {
+                        return true
+                    }
+                    if let existingReceipt = try? JSONDecoder().decode(GameCheatFetchReceipt.self, from: existingData) {
+                        if existingReceipt.origin == "bundled" { return true }
+                        if previousBundledTxtHashes.contains(existingReceipt.fileSHA256.lowercased()) { return true }
+                    }
+                    return false
+                }()
+                if shouldCopyReceipt {
+                    let existingHash = (try? Data(contentsOf: fetchReceiptURL)).map { Self.sha256Hex($0).lowercased() }
+                    if existingHash != bundledReceiptHash.lowercased() {
+                        try? fm.createDirectory(at: cheatsFolder, withIntermediateDirectories: true)
+                        try? receiptData.write(to: fetchReceiptURL, options: .atomic)
+                    }
+                    if seeded[Self.fetchReceiptFileName]?.lowercased() != bundledReceiptHash.lowercased() {
+                        seeded[Self.fetchReceiptFileName] = bundledReceiptHash
+                        seededChanged = true
+                    }
+                }
+            }
+        }
+
+        if deletedChanged {
+            try? writeDeletedCheatFiles(deleted, fileManager: fm)
+        }
+        if seededChanged {
+            try? writeSeededHashes(seeded, fileManager: fm)
+        }
+    }
+
+    private static func sha256Hex(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
     public func loadSnapshot(gameTitle: String) -> GameCheatsSnapshot {
+        seedBundledCheatsIfNeeded()
         let fixups = readFixupsMetadata()
         let trampolines = readTrampolineMetadata()
         let currentBuild = fixups.buildID ?? trampolines?.buildID
@@ -230,6 +441,7 @@ public struct GameCheatsStore: Sendable {
         let matched = matchedFile(for: currentBuild, in: found)
         let activeBuildID = currentBuild ?? matched?.buildID
         let otherBuilds = found.map(\.buildID).filter { $0 != activeBuildID }
+        let receipt = readFetchReceipt(currentBuildID: activeBuildID)
 
         let fuseGuard = CheatFuseGuard(titleID: titleID, folder: cheatsFolder)
         let fuseAlert: GameCheatFuseAlert? = fuseGuard.readTripped().map {
@@ -269,7 +481,8 @@ public struct GameCheatsStore: Sendable {
             masterOn: masterOn,
             entries: entries,
             fuseAlert: fuseAlert,
-            exportFileURL: matched?.url
+            exportFileURL: matched?.url,
+            fetchReceipt: receipt
         )
     }
 
@@ -327,6 +540,43 @@ public struct GameCheatsStore: Sendable {
         try FileManager.default.createDirectory(at: cheatsFolder, withIntermediateDirectories: true)
         let dest = flatCheatURL(for: targetBuildID)
         try data.write(to: dest, options: .atomic)
+        let fileName = dest.lastPathComponent
+        try? unmarkDeletedCheatFile(named: fileName)
+        try? unmarkSeededCheatFile(named: fileName)
+        return loadSnapshot(gameTitle: gameTitle)
+    }
+
+    /// Deletes the active cheat file, clears its `.enabled` switches, and records it in `.deleted.json`
+    /// so bundled re-seeding does not restore a file the player explicitly deleted.
+    public func deleteCurrentCheatFile(gameTitle: String) throws -> GameCheatsSnapshot {
+        let fm = FileManager.default
+        let fixups = readFixupsMetadata()
+        let trampolines = readTrampolineMetadata()
+        let currentBuild = fixups.buildID ?? trampolines?.buildID
+        guard let matched = matchedFile(for: currentBuild, in: foundFiles()) else {
+            return loadSnapshot(gameTitle: gameTitle)
+        }
+        let fileName = matched.url.lastPathComponent
+        if fm.fileExists(atPath: matched.url.path) {
+            try fm.removeItem(at: matched.url)
+        }
+        let enabledFile = enabledURL(for: matched.buildID)
+        if fm.fileExists(atPath: enabledFile.path) {
+            try? fm.removeItem(at: enabledFile)
+        }
+        if let receipt = readFetchReceipt(currentBuildID: matched.buildID, fileManager: fm),
+           receipt.fileName == fileName || receipt.buildID.uppercased() == matched.buildID.uppercased() {
+            try? fm.removeItem(at: fetchReceiptURL)
+        }
+        var deleted = readDeletedCheatFiles(fileManager: fm)
+        deleted.insert(fileName)
+        try writeDeletedCheatFiles(deleted, fileManager: fm)
+        var seeded = readSeededHashes(fileManager: fm)
+        var seededChanged = seeded.removeValue(forKey: fileName) != nil
+        if seeded.removeValue(forKey: Self.fetchReceiptFileName) != nil { seededChanged = true }
+        if seededChanged {
+            try? writeSeededHashes(seeded, fileManager: fm)
+        }
         return loadSnapshot(gameTitle: gameTitle)
     }
 
@@ -580,6 +830,7 @@ public struct GameCheatsStore: Sendable {
                 var keyMask: UInt64 = 0
                 var hasCodeWrite = false
                 var hasFixedHeap = false
+                var hasFixedAddress = false
                 var failedDecode = false
 
                 var pc = 0
@@ -591,19 +842,31 @@ public struct GameCheatsStore: Sendable {
                     switch op.op {
                     case 0:
                         let isMain = op.mem == 0 || op.mem >= 5
-                        let isHeap = op.mem == 1
+                        let isNonMain = op.mem >= 1 && op.mem <= 4
                         if isMain {
                             if !dirty.contains(op.reg) {
                                 if effectiveRxEnd > 0, op.rel < effectiveRxEnd { hasCodeWrite = true }
                             } else {
                                 hasCodeWrite = true
                             }
-                        } else if isHeap, !dirty.contains(op.reg), op.rel > 0 {
-                            hasFixedHeap = true
+                        } else if isNonMain, !dirty.contains(op.reg) {
+                            hasFixedAddress = true
+                            if op.mem == 1, op.rel > 0 { hasFixedHeap = true }
+                        }
+                    case 1:
+                        let isNonMain = op.mem >= 1 && op.mem <= 4
+                        let isPointerChain = op.useReg && dirty.contains(op.reg)
+                        if isNonMain, !isPointerChain {
+                            hasFixedAddress = true
                         }
                     case 8, 0xC4:
                         keyMask |= op.keyMask
-                    case 3, 4, 5, 7, 9:
+                    case 3, 4, 7, 9:
+                        dirty.insert(op.reg)
+                    case 5:
+                        if op.flags == 0, op.mem >= 1, op.mem <= 4 {
+                            hasFixedAddress = true
+                        }
                         dirty.insert(op.reg)
                     case 6:
                         if op.inc { dirty.insert(op.reg) }
@@ -629,6 +892,8 @@ public struct GameCheatsStore: Sendable {
                 if failedDecode {
                     entries[idx].entry.isBroken = true
                     entries[idx].entry.capability = .dataReady
+                    entries[idx].entry.hasFixedAddress = false
+                    entries[idx].entry.unsafeCodeReason = nil
                     entries[idx].entry.triggerKeys = []
                     entries[idx].entry.enabled = false
                     continue
@@ -637,18 +902,23 @@ public struct GameCheatsStore: Sendable {
                 let tRec = activeTrampolines?.entries[raw.entry.key]
                 if let tm = tRec?.keyMask, tm != 0 { keyMask |= tm }
 
+                let unsafeReason: String? = (tRec?.kind == "unsafe_code") ? tRec?.detail : nil
                 let cap: CheatCapability
-                if let activeTrampolines, activeTrampolines.isBaked(key: raw.entry.key) {
+                if unsafeReason != nil {
+                    cap = .codeNeedsBake
+                } else if let activeTrampolines, activeTrampolines.isBaked(key: raw.entry.key) {
                     cap = .codeBaked
                 } else if tRec?.kind == "unbaked_code" || hasCodeWrite {
                     cap = .codeNeedsBake
-                } else if hasFixedHeap {
+                } else if hasFixedHeap || hasFixedAddress {
                     cap = .fixedHeapWarning
                 } else {
                     cap = .dataReady
                 }
 
                 entries[idx].entry.capability = cap
+                entries[idx].entry.hasFixedAddress = hasFixedAddress
+                entries[idx].entry.unsafeCodeReason = unsafeReason
                 entries[idx].entry.triggerKeys = buttonNames(for: keyMask)
                 entries[idx].entry.enabled = entries[idx].entry.switchableOnIOS && enabled.contains(raw.entry.key)
             }
@@ -661,6 +931,8 @@ public struct GameCheatsStore: Sendable {
         var mem: Int = 0
         var reg: Int = 0
         var rel: UInt64 = 0
+        var flags: Int = 0
+        var useReg: Bool = false
         var inc: Bool = false
         var operand: Int = 0
         var cond: Int = 0
@@ -698,7 +970,15 @@ public struct GameCheatsStore: Sendable {
             let t = Int((w >> 24) & 0xF), c = Int((w >> 16) & 0xF)
             let len = t == 8 ? 4 : 3
             guard widthOK(t), c >= 1, c <= 6, remaining >= len else { return nil }
-            return DecodedOp(op: op, length: len)
+            let rel = (UInt64(w & 0xFF) << 32) | UInt64(words[index + 1])
+            return DecodedOp(
+                op: op,
+                length: len,
+                mem: Int((w >> 20) & 0xF),
+                reg: Int((w >> 8) & 0xF),
+                rel: rel,
+                useReg: ((w >> 12) & 0xF) != 0
+            )
         case 2:
             return DecodedOp(op: op, length: 1)
         case 3:
@@ -712,7 +992,13 @@ public struct GameCheatsStore: Sendable {
         case 5:
             let t = Int((w >> 24) & 0xF), flags = Int((w >> 12) & 0xF)
             guard widthOK(t), flags <= 3, remaining >= 2 else { return nil }
-            return DecodedOp(op: op, length: 2, reg: Int((w >> 16) & 0xF))
+            return DecodedOp(
+                op: op,
+                length: 2,
+                mem: Int((w >> 20) & 0xF),
+                reg: Int((w >> 16) & 0xF),
+                flags: flags
+            )
         case 6:
             let t = Int((w >> 24) & 0xF)
             guard widthOK(t), remaining >= 3 else { return nil }

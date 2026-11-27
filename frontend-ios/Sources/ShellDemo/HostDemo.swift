@@ -22,7 +22,7 @@ struct HostDemoScreen: View {
         let gamesRoot: URL
         if let i = args.firstIndex(of: "--games-dir"), args.indices.contains(i + 1) {
             gamesRoot = URL(fileURLWithPath: args[i + 1], isDirectory: true)
-        } else if args.contains("--mock-cheat-file") || args.contains("--mock-cheat-mismatch") || args.contains("--mock-cheat-preloaded") || args.contains("--mock-cheat-fuse") {
+        } else if args.contains("--mock-cheat-file") || args.contains("--mock-cheat-mismatch") || args.contains("--mock-cheat-preloaded") || args.contains("--mock-cheat-fuse") || args.contains("--mock-cheat-fetch") {
             let bundled = Bundle.main.url(forResource: "Games", withExtension: nil)
                 ?? (fm.urls(for: .documentDirectory, in: .userDomainMask).first ?? fm.temporaryDirectory).appendingPathComponent("Games")
             let scratchGames = fm.temporaryDirectory.appendingPathComponent("shell-demo-games-cheats", isDirectory: true)
@@ -42,6 +42,7 @@ struct HostDemoScreen: View {
             row_type\tname\tcheat_key\tkind\tslot_id\tvariant_mask\ttarget_off\tpatched_word\tkey_mask\tdetail
             entry\tMoon Jump (Hold ZR+B)\tMoon Jump (Hold ZR+B)\tbaked_conditional\t0\t0x1\t0x400\t0xd503201f\t0x202\t
             site\tMoon Jump (Hold ZR+B)\tMoon Jump (Hold ZR+B)\tbaked_conditional\t0\t0x1\t0x400\t0xd503201f\t0x202\t
+            entry\tUnsafe Bypass\tUnsafe Bypass\tunsafe_code\t-1\t0x0\t0x400\t0xd503201f\t0x0\tdataflow_bypass: x24 read bypassed def
             """
             try? Data(trampolines.utf8).write(to: dmDir.appendingPathComponent("cheat_trampolines.tsv"))
             gamesRoot = scratchGames
@@ -196,11 +197,33 @@ struct HostDemoScreen: View {
             try? Data("existing-farm-data".utf8).write(to: existingSave.appendingPathComponent("SaveGameInfo"))
             try? Data(repeating: 0x2A, count: 2048).write(to: existingSave.appendingPathComponent("Farm_Existing"))
         }
+        let fetchTransport: IOSCheatFetcher.Transport?
+        if args.contains("--mock-cheat-fetch") {
+            let dbPayload = try? JSONSerialization.data(withJSONObject: [
+                "CD57B23FA4BBAD65": [
+                    "[Infinite Health]": "[Infinite Health]\n04000000 00180020 000003E7",
+                    "[Max Rupees]": "[Max Rupees]\n04100000 00004200 000F423F",
+                    "[Unsafe Bypass]": "[Unsafe Bypass]\n04000000 00000400 D503201F",
+                ],
+            ])
+            fetchTransport = { request in
+                if request.url?.absoluteString.contains("/cheats/") == true, let dbPayload {
+                    let ok = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                    return (dbPayload, ok)
+                }
+                let nf = HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!
+                return (Data(), nf)
+            }
+        } else {
+            fetchTransport = nil
+        }
+
         let suite = Self.suite
         let config = ShellHostConfig(gamesRoot: gamesRoot, appDataRoot: appData,
                                      environment: HostEnvironment(chain: "b-3f9a2c"),
                                      updateURL: URL(string: "https://github.com/LNPANDY/NX2Apple/releases"),
                                      defaults: { UserDefaults(suiteName: suite + $0) ?? .standard },
+                                     fetchCheatsTransport: fetchTransport,
                                      sideloadCertBacking: InMemoryCertBacking())
         let folderPicker: any FolderPicker
         if args.contains("--mock-bad-folder") {
