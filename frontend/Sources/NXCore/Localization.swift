@@ -52,6 +52,21 @@ package struct Lang: Hashable, Sendable {
         find(UserDefaults.standard.string(forKey: "appLanguage") ?? "") ?? device()
     }
 
+    /// The language the launcher is shown in now, for what is drawn outside the views that get it from the environment (Typography's
+    /// fallback for Chinese, Japanese and Korean, #1514). The Localizer sets it when it is made and when its language changes.
+    package static var interface: Lang {
+        get {
+            interfaceLock.lock(); defer { interfaceLock.unlock() }
+            if let interfaceValue { return interfaceValue }
+            let lang = initial()
+            interfaceValue = lang
+            return lang
+        }
+        set { interfaceLock.lock(); interfaceValue = newValue; interfaceLock.unlock() }
+    }
+    private static let interfaceLock = NSLock()
+    private static var interfaceValue: Lang?
+
     /// The stored choice, or nil when following the system.
     package static var saved: Lang? {
         get { find(UserDefaults.standard.string(forKey: "appLanguage") ?? "") }
