@@ -1,4 +1,4 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 1c293e6d3aa6be463703330f832aa49be74b4b82 Mon Sep 17 00:00:00 2001
 From: LNPANDY <lnp-andy@hotmail.com>
 Date: Sun, 22 Nov 2026 18:46:11 +0800
 Subject: [PATCH] gfx: GPU BC1-3 to ASTC 4x4 transcode and BC4-5 compute decode

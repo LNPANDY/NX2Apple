@@ -1,4 +1,4 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 28eafe3a121d7fc82328f0cbdd0472057b0d79c0 Mon Sep 17 00:00:00 2001
 From: v0lumehi <aljic.zijad@gmail.com>
 Date: Tue, 3 Nov 2026 18:41:49 +0100
 Subject: [PATCH] iOS: quit a game from the in-game menu or by holding Home

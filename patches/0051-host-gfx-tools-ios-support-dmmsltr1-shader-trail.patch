@@ -1,16 +1,14 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From f1d85d2c8a32599fafac0752e33e6a12e76a1856 Mon Sep 17 00:00:00 2001
 From: LNPANDY <lnp-andy@hotmail.com>
-Date: Sat, 14 Nov 2026 02:56:43 +0800
-Subject: [PATCH] host,gfx,tools,ios: support DMMSLTR1 shader trailers in
- romfs.img
+Date: Sat, 28 Nov 2026 00:32:58 +0800
+Subject: [PATCH] host, gfx, tools, ios: record built-at timestamp and support
+ DMMSLTR1 shader trailer
 
-Allow DMROMFS1 images to carry a 16 KiB-aligned DMMSLTR1 shader trailer sub-image after the base RomFS index while keeping guest mounts, virtual readers and romfs.id identities bound strictly to base_romfs_size.
-
-Add hidden dm_msl_trailer_* helpers with page-aligned mmap, multi-program DM_PROGRAM resolution and shell/gfx teardown hooks; wire NVN, Vulkan and OpenGL shader loading to fall back to the DM_ROMFS trailer when DM_MSL_DIR is absent; add --append-msl, --replace-msl and --inspect-msl to romfs_image.py; and record optional gfx_api and built_at fields in game.manifest.json.
+Consolidate embedded framework built-at timestamp metadata (0049) with DMMSLTR1 single-file shader trailer support across host, gfx, tools, and iOS (0051).
 
 Upstream-Status: pending
-Reason: Support page-aligned DMMSLTR1 shader trailers in romfs.img and record built_at and gfx_api in iOS manifests
-Issue: LNPANDY/NX2Apple
+Reason: Stamp embedded framework build timestamps and store shaders in DMMSLTR1 RomFS trailers for fast shell refresh
+Issue: none
 ---
  dm/gfx/gl/hle_gl.m                   |  98 +++--
  dm/gfx/msl_mount.h                   |  28 ++
@@ -22,14 +20,14 @@ Issue: LNPANDY/NX2Apple
  dm/host/romfs_identity.h             |  10 +-
  dm/host/romfs_image.h                | 119 +++++-
  dm/host/tests/t_fs.c                 |  76 ++++
- dm/ios/tests/test_framework_build.py |  15 +-
+ dm/ios/tests/test_framework_build.py |  28 +-
  dm/ios/tests/test_romfs_startup.py   |  32 ++
- dm/ios/tools/build_ipa.sh            |   5 +-
- dm/ios/tools/gen_manifest.py         |  17 +-
+ dm/ios/tools/build_ipa.sh            |   4 +-
+ dm/ios/tools/gen_manifest.py         |  12 +
  dm/tools/romfs.py                    |  69 +++-
  dm/tools/romfs_image.py              | 577 ++++++++++++++++++++++++++-
  dm/tools/tests/test_msl_trailer.py   | 491 +++++++++++++++++++++++
- 17 files changed, 1906 insertions(+), 107 deletions(-)
+ 17 files changed, 1918 insertions(+), 102 deletions(-)
  create mode 100644 dm/gfx/msl_mount.h
  create mode 100644 dm/gfx/nvn/msl_mount.c
  create mode 100644 dm/tools/tests/test_msl_trailer.py
@@ -498,7 +496,7 @@ index 0000000..4167f1c
 +    pthread_mutex_unlock(&g_msl_tr_mu);
 +}
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 8b4f42c..d6ccbfe 100644
+index 341f35e..0a82376 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
 @@ -45,6 +45,7 @@
@@ -597,7 +595,7 @@ index 8b4f42c..d6ccbfe 100644
  // 1 (and the file noted) when the library lacks <key><suffix>
  static int pre_lib_absent(NSString *key, NSString *suffix) {
      NSString *name = [key stringByAppendingString:suffix];
-@@ -24738,10 +24763,11 @@ void dm_gfx_teardown(void) { @autoreleasepool {
+@@ -24766,10 +24791,11 @@ void dm_gfx_teardown(void) { @autoreleasepool {
  
      romfs_img *mimg = atomic_exchange(&g_msl_img, NULL);
      if (mimg) romfs_image_close(mimg);
@@ -1141,14 +1139,14 @@ index 65e0f55..c108204 100644
      snprintf(save, sizeof save, "%s/save", root); snprintf(work, sizeof work, "%s.work", save);
      mkdir(save, 0755); snprintf(p, sizeof p, "%s/a", save); put(p, "old");
 diff --git a/dm/ios/tests/test_framework_build.py b/dm/ios/tests/test_framework_build.py
-index 0681468..c31a282 100644
+index bb599e5..57606d0 100644
 --- a/dm/ios/tests/test_framework_build.py
 +++ b/dm/ios/tests/test_framework_build.py
-@@ -104,7 +104,10 @@ class ManifestTests(unittest.TestCase):
+@@ -107,15 +107,36 @@ class ManifestTests(unittest.TestCase):
  
      def test_values_the_schema_cannot_carry_are_refused(self):
          cases = [('--game', '1234'), ('--modules', ''), ('--modules', 'main_sdk'), ('--chain', 'fixture'),
--                 ('--romfs-identity', 'not-an-identity'), ('--built-at', '2026-11-13')]
+-                 ('--romfs-identity', 'not-an-identity')]
 +                 ('--romfs-identity', 'not-an-identity'), ('--gfx-api', 'metal'),
 +                 ('--built-at', '2026-11-13'), ('--built-at', '2026-11-13 18:20:00Z'),
 +                 ('--built-at', '2026-11-13T18:20:00+08:00'), ('--built-at', '2026-11-13T18:20:00.123Z'),
@@ -1156,10 +1154,23 @@ index 0681468..c31a282 100644
          for flag, value in cases:
              with self.subTest(flag=flag, value=value):
                  base = [sys.executable, str(REPO / 'dm/ios/tools/gen_manifest.py'), '/dev/null', '--game', GAME, '--name', 'x',
-@@ -124,6 +127,13 @@ class ManifestTests(unittest.TestCase):
-         self.assertEqual(result.returncode, 0, result.stderr)
-         self.assertEqual(with_ts['built_at'], '2026-11-13T16:30:00Z')
+                         '--display-version', '1', '--package-version', 'v0', '--modules', 'main', '--chain', 'b-1',
+                         '--romfs-marker', 'marker', '--romfs-identity', 'DMROMFSID1 title=x size=1 index=2']
+-                base[base.index(flag) + 1] = value
++                if flag in base:
++                    base[base.index(flag) + 1] = value
++                else:
++                    base += [flag, value]
+                 self.assertNotEqual(subprocess.run(base, capture_output=True).returncode, 0)
  
++    def test_optional_built_at_is_omitted_by_default_and_kept_when_given(self):
++        result, without_ts = self.manifest()
++        self.assertEqual(result.returncode, 0, result.stderr)
++        self.assertNotIn('built_at', without_ts)
++        result, with_ts = self.manifest('--built-at', '2026-11-13T16:30:00Z')
++        self.assertEqual(result.returncode, 0, result.stderr)
++        self.assertEqual(with_ts['built_at'], '2026-11-13T16:30:00Z')
++
 +    def test_optional_gfx_api_and_built_at_are_written_when_given(self):
 +        for api in ('nvn', 'vulkan', 'gl'):
 +            result, data = self.manifest('--gfx-api', api, '--built-at', '2026-11-13T18:20:00Z')
@@ -1170,7 +1181,7 @@ index 0681468..c31a282 100644
  
  class ProjectTemplateTests(unittest.TestCase):
      """build_ipa.sh --prepare-xcode copies the template the build asks for in as project.yml."""
-@@ -170,6 +180,9 @@ class FrameworkEnvironmentTests(unittest.TestCase):
+@@ -220,6 +241,9 @@ class FrameworkEnvironmentTests(unittest.TestCase):
              self.assertTrue((root / 'Gen/framework/dm/env.txt').is_file(), 'the built framework must carry its environment')
              self.assertEqual((root / 'Gen/framework/dm/env.txt').read_text(), 'DM_PROF_TEX_BC_CPU=1\n')
              self.assertFalse((root / 'Gen/framework/dm/font').exists())
@@ -1224,25 +1235,24 @@ index 4792b5e..54671a3 100644
          """Slim builds carry no add-on content: games/<id>/aoc (the layout hle_fs.c aoc_dir reads) must reach DM_AOC_DIR, before aoc_locate takes Documents/aoc or <App>/aoc, and never over an explicit value."""
          main = (REPO / 'dm/ios/Sources/main.m').read_text()
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 50a1f2b..f49348f 100755
+index c658f5e..50b352b 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
-@@ -255,10 +255,11 @@ if [ "${FRAMEWORK:-0}" = 1 ]; then
+@@ -255,9 +255,11 @@ if [ "${FRAMEWORK:-0}" = 1 ]; then
    fi
    NRO_TABLE=$PATCHED/nro.tsv; [ -f "$NRO_TABLE" ] || NRO_TABLE=   # the NRO modules gen_embed.py packs: nro_count in the manifest
    FW_LOADER=FR; [ -z "$FRAMEWORK_ONLY" ] || FW_LOADER=FH
 +  FW_GFXAPI=${GFXAPI:-$("${DM_PYTHON:-python3}" "$DM/games/game.py" "$GAME" gfx_api nvn)} || die "game profile: gfx_api"
    "${DM_PYTHON:-python3}" tools/gen_manifest.py Gen/framework/game.manifest.json --game "$GAME" --name "$DM_DISPLAY_NAME" \
      --display-version "$DM_APP_VERSION" --package-version "${PKG:-}" --modules "$MODS" ${NRO_TABLE:+--nro-table "$NRO_TABLE"} \
--    --chain "b-$V" --romfs-marker "$MARKER" --romfs-identity "$ROMFS_ID" --framework-name "$FW_NAME" --loader "$FW_LOADER" --profile "$GD/game.tsv" \
--    --built-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > /dev/null || die "game manifest (gen_manifest.py)"
+-    --chain "b-$V" --romfs-marker "$MARKER" --romfs-identity "$ROMFS_ID" --framework-name "$FW_NAME" --loader "$FW_LOADER" --profile "$GD/game.tsv" > /dev/null || die "game manifest (gen_manifest.py)"
 +    --chain "b-$V" --romfs-marker "$MARKER" --romfs-identity "$ROMFS_ID" --framework-name "$FW_NAME" --loader "$FW_LOADER" \
 +    --gfx-api "$FW_GFXAPI" --built-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --profile "$GD/game.tsv" > /dev/null || die "game manifest (gen_manifest.py)"
    DM_NS_TAG=$("${DM_PYTHON:-python3}" tools/gen_objc_namespace.py --print-tag ${DM_NS_TAG:+--tag "$DM_NS_TAG"} --game "$GAME" --framework-name "$FW_NAME" ${DM_CHAIN_INDEX:+--chain-index "$DM_CHAIN_INDEX"} \
      --header Gen/framework/objc_namespace.h --exports Gen/framework/exported_symbols.txt \
      "$DM/host" "$DM/gfx" "$DM/ios/Sources" "$DM/ios/framework") || die "framework ObjC namespace"
 diff --git a/dm/ios/tools/gen_manifest.py b/dm/ios/tools/gen_manifest.py
-index 105b853..4f03f2a 100644
+index 963156f..4f03f2a 100644
 --- a/dm/ios/tools/gen_manifest.py
 +++ b/dm/ios/tools/gen_manifest.py
 @@ -28,6 +28,8 @@ SHADER_MAP = 'dm/shader_map.tsv'  # inside the framework: main.m points DM_NVN_S
@@ -1265,7 +1275,7 @@ index 105b853..4f03f2a 100644
      data = {
          'schema': SCHEMA,
          'title_id': title_id,
-@@ -91,12 +97,12 @@ def manifest(args):
+@@ -91,6 +97,10 @@ def manifest(args):
      console = console_of(args.profile)
      if console:
          data['console'] = console   # the shell marks a Switch 2 game and warns about its memory (LNPANDY/NX2Apple#696)
@@ -1275,24 +1285,16 @@ index 105b853..4f03f2a 100644
 +        data['built_at'] = args.built_at
      if args.built_by:
          data['built_by'] = args.built_by
--    if args.built_at:
--        if not re.match(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$', args.built_at):
--            raise SystemExit(f'[RED] gen_manifest: --built-at {args.built_at!r} is not UTC ISO-8601 (YYYY-MM-DDTHH:MM:SSZ)')
--        data['built_at'] = args.built_at
      return data
- 
- 
-@@ -119,8 +125,9 @@ def main(argv=None):
+@@ -115,6 +125,8 @@ def main(argv=None):
      ap.add_argument('--loader', default='FR', choices=('FR', 'FH'),
                      help='FR: a module container whose host is the app (M1); FH: the framework carries its own host (the shell, #451)')
      ap.add_argument('--profile', help='the game\'s dm/games/<title ID>/game.tsv: console in the manifest comes from its first line')
--    ap.add_argument('--built-by', help='who built it, for a log line (optional; a device or tool name)')
 +    ap.add_argument('--gfx-api', choices=GFX_APIS, help='the graphics backend this framework uses (nvn, vulkan or gl)')
-     ap.add_argument('--built-at', default='', help='UTC ISO-8601 build timestamp (YYYY-MM-DDTHH:MM:SSZ, optional)')
-+    ap.add_argument('--built-by', help='who built it, for a log line (optional; a device or tool name)')
++    ap.add_argument('--built-at', default='', help='UTC ISO-8601 build timestamp (YYYY-MM-DDTHH:MM:SSZ, optional)')
+     ap.add_argument('--built-by', help='who built it, for a log line (optional; a device or tool name)')
      args = ap.parse_args(argv)
      data = manifest(args)
-     out = Path(args.out)
 diff --git a/dm/tools/romfs.py b/dm/tools/romfs.py
 index 84daf7f..28bb04c 100644
 --- a/dm/tools/romfs.py

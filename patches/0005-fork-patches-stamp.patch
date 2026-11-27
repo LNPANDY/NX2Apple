@@ -1,4 +1,4 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 7ce4337315694086da7367067dd2d6990eac079d Mon Sep 17 00:00:00 2001
 From: v0lumehi <aljic.zijad@googlemail.com>
 Date: Wed, 28 Oct 2026 13:34:47 +0100
 Subject: [PATCH] Builds record the fork's patches: DMForkPatches in Info.plist

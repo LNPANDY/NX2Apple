@@ -1,4 +1,4 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 3d818d1619373f782a91d7249316dc13a2b39193 Mon Sep 17 00:00:00 2001
 From: thehobbit85 <thehobbit85@gmail.com>
 Date: Wed, 4 Nov 2026 21:09:10 -0800
 Subject: [PATCH] Keep the selected Python when generating the Mac host

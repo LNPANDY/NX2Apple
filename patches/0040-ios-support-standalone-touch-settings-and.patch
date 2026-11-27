@@ -1,4 +1,4 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 68a4d17e80084eb51c18e22c70e7515816b588a8 Mon Sep 17 00:00:00 2001
 From: LNPANDY <lnp-andy@hotmail.com>
 Date: Thu, 12 Nov 2026 20:01:59 +0800
 Subject: [PATCH] ios: support standalone touch settings and localized menu

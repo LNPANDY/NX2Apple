@@ -1,4 +1,4 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From f04c788192f22f64949f2d69e7bc2b9b6becee48 Mon Sep 17 00:00:00 2001
 From: LNPANDY <lnp-andy@hotmail.com>
 Date: Thu, 12 Nov 2026 20:01:55 +0800
 Subject: [PATCH] host: read game profile constants at run time for shared host
