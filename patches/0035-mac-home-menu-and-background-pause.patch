@@ -1,16 +1,18 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 55fe13938a12fba224ee25dc0b3b7fdcea61ca7f Mon Sep 17 00:00:00 2001
 From: LNPANDY <lnp-andy@hotmail.com>
-Date: Thu, 12 Nov 2026 20:01:57 +0800
-Subject: [PATCH] mac: add Home menu overlay and safe background pause timer
- generation
+Date: Sat, 28 Nov 2026 00:32:54 +0800
+Subject: [PATCH] front_mac: keep focus while unfocused, Home menu, and
+ background pause
 
-Upstream-Status: pending [builds on controllers_mac from seedds/nxnative#221]
-Reason: Open an in-game Home menu on short Home press, pause in background, auto-pause on controller disconnect after 3 s, and guard hide timers across resume
-Issue: LNPANDY/NX2Apple#1120
+Consolidate Mac unfocused window focus retention (0022) with Mac Home menu and background pause (0035).
+
+Upstream-Status: fork-only
+Reason: Provide Mac in-game Home menu, background pause, and unfocused focus-retention behavior for the launcher
+Issue: none
 ---
  dm/host/controllers_mac.h         |   5 +
  dm/host/controllers_mac.m         |  54 ++++-
- dm/host/front_mac.m               | 342 ++++++++++++++++++++++++++++--
+ dm/host/front_mac.m               | 348 +++++++++++++++++++++++++++---
  dm/host/home_quit.h               | 163 ++++++++++++--
  dm/host/home_quit_mac.h           |  63 ++++++
  dm/host/tests/t_controllers_mac.m |  19 +-
@@ -18,7 +20,7 @@ Issue: LNPANDY/NX2Apple#1120
  dm/host/tests/t_home_quit_mac.m   |  43 +++-
  docs/frontends.md                 |   4 +-
  docs/playing.md                   |   2 +-
- 10 files changed, 798 insertions(+), 45 deletions(-)
+ 10 files changed, 801 insertions(+), 48 deletions(-)
 
 diff --git a/dm/host/controllers_mac.h b/dm/host/controllers_mac.h
 index bd852c4..dc7a350 100644
@@ -183,7 +185,7 @@ index ee5d71a..c60c0da 100644
      IOHIDDeviceClose(hid->device,kIOHIDOptionsTypeNone); hid->opened=NO;
  }
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index 2b3d87f..8dd2cee 100644
+index bc25ab7..8dd2cee 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
 @@ -1,7 +1,7 @@
@@ -606,14 +608,20 @@ index 2b3d87f..8dd2cee 100644
          hq_log_setting();
          [NSNotificationCenter.defaultCenter addObserverForName:GCControllerDidConnectNotification object:nil queue:NSOperationQueue.mainQueue
                                                     usingBlock:^(NSNotification *n) { (void)n; hq_log_setting(); }];
-@@ -1523,10 +1821,10 @@ void front_run(void (*guest)(void)) {
-         // DM_FOCUS_KEEP (on by default, =0 turns it off): the game stays in focus while its window is up, whichever app is active. Tears of the Kingdom and Ocarina of Time
-         // stop presenting out of focus, so clicking into another app read as a hang (no frame and no sound after the last focus change)
-         static int keep = -1; if (keep < 0) keep = !getenv("DM_FOCUS_KEEP") || atoi(getenv("DM_FOCUS_KEEP"));
+@@ -1520,13 +1818,13 @@ void front_run(void (*guest)(void)) {
+         [nc addObserverForName:NSWindowWillExitFullScreenNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; dm_fstep_settle(); }];
+         [nc addObserverForName:NSWindowDidEnterFullScreenNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; screen_refresh(win.screen); g_layer.contentsScale = win.backingScaleFactor; layer_opaque_sync(win.screen, 1); screen_match_apply(); g_fullscreen = 1; g_fs_starting = 0; dm_fstep_settle(); }];   // the switch first: front_screen_settling holds the link until it settles
+         [nc addObserverForName:NSWindowDidExitFullScreenNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; g_fullscreen = 0; screen_refresh(win.screen); g_layer.contentsScale = win.backingScaleFactor; layer_opaque_sync(win.screen, 0); screen_match_apply(); dm_fstep_settle(); }];
+-        // DM_FOCUS_KEEP=1 (scripts/regress.py): the game stays in focus while its window is up, whichever app is active. Tears of the Kingdom stops presenting out of focus, so
+-        // another app taking the key window during an unattended run read as a hang (no frame after the last focus change)
+-        static int keep = -1; if (keep < 0) keep = getenv("DM_FOCUS_KEEP") && atoi(getenv("DM_FOCUS_KEEP"));
 -        [nc addObserverForName:NSWindowDidResignKeyNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; input_release(); if (!win.miniaturized && !g_text_box && !keep) dm_focus_set(2); }];
 -        [nc addObserverForName:NSWindowDidBecomeKeyNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; input_resume(); dm_focus_set(1); }];
 -        [nc addObserverForName:NSWindowDidMiniaturizeNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; input_release(); dm_focus_set(3); dm_audio_suspend(1); dm_gfx_suspend(1); }];
 -        [nc addObserverForName:NSWindowDidDeminiaturizeNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; dm_gfx_suspend(0); dm_audio_suspend(0); dm_focus_set(2); }];
++        // DM_FOCUS_KEEP (on by default, =0 turns it off): the game stays in focus while its window is up, whichever app is active. Tears of the Kingdom and Ocarina of Time
++        // stop presenting out of focus, so clicking into another app read as a hang (no frame and no sound after the last focus change)
++        static int keep = -1; if (keep < 0) keep = !getenv("DM_FOCUS_KEEP") || atoi(getenv("DM_FOCUS_KEEP"));
 +        [nc addObserverForName:NSWindowDidResignKeyNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; input_release(); if (!win.miniaturized && !g_text_box && !keep && !g_bg && !g_dc.paused) dm_focus_set(2); }];
 +        [nc addObserverForName:NSWindowDidBecomeKeyNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; if (g_bg) return; input_resume(); if (!g_dc.paused) dm_focus_set(1); }];   // paused in the background (bg_enter): bg_resume takes it back
 +        [nc addObserverForName:NSWindowDidMiniaturizeNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; input_release(); dm_focus_set(3); if (!g_dc_suspended && !g_bg) { dm_audio_suspend(1); dm_gfx_suspend(1); } }];

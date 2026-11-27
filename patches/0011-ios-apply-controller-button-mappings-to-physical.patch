@@ -1,4 +1,4 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 4de7d4710d910e1916c06566fe20234a1e973fdf Mon Sep 17 00:00:00 2001
 From: Haseenesss <Haseenesss@gmail.com>
 Date: Mon, 2 Nov 2026 17:58:55 +0900
 Subject: [PATCH] ios: apply controller button mappings to physical gamepads

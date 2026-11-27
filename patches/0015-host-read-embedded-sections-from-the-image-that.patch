@@ -1,4 +1,4 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 08f469bb99aebd8e16b0a663cd1e2aca451e490f Mon Sep 17 00:00:00 2001
 From: LNPANDY <lnp-andy@hotmail.com>
 Date: Thu, 5 Nov 2026 23:02:30 +0800
 Subject: [PATCH] host: read embedded sections from the image that holds the

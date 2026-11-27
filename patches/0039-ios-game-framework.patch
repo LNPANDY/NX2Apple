@@ -1,31 +1,35 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From ad7afd3f90070c394f45f748022f4571f49ef126 Mon Sep 17 00:00:00 2001
 From: LNPANDY <lnp-andy@hotmail.com>
-Date: Thu, 12 Nov 2026 20:01:59 +0800
-Subject: [PATCH] ios: build per-game dynamic frameworks for the shared shell
+Date: Sat, 28 Nov 2026 00:32:56 +0800
+Subject: [PATCH] ios: build per-game dynamic frameworks with Team ID, stripped
+ MSL, and clones
+
+Consolidate iOS shared-shell game framework build (0039), developer Team ID bundle-ID suffix (0047), MSL stripping for framework-only builds (0052), and APFS clone copies (0067).
 
 Upstream-Status: fork-only (declined seedds/nxnative#492)
-Reason: Build self-contained DmGame frameworks so the shared iOS shell can dlopen multiple games
-Issue: LNPANDY/NX2Apple#392
+Reason: Build lightweight per-game dynamic frameworks for the NX2Apple shared iOS shell
+Issue: none
 ---
  dm/ios/Sources/DmGameMenu.h          |   1 +
  dm/ios/Sources/FrameworkBootstrap.h  |  25 ++
- dm/ios/Sources/FrameworkBootstrap.m  |  47 ++++
+ dm/ios/Sources/FrameworkBootstrap.m  |  47 +++
  dm/ios/Sources/front_ios.m           |   5 +-
  dm/ios/Sources/main.m                |  25 +-
  dm/ios/framework/DmGameMarker.m      |  10 +
  dm/ios/framework/ShellGlue.h         |  11 +
- dm/ios/framework/ShellGlue.m         |  76 +++++++
- dm/ios/project-framework.yml         | 200 ++++++++++++++++
- dm/ios/tests/test_bc_device_check.py |  56 +++++
- dm/ios/tests/test_framework_build.py | 323 ++++++++++++++++++++++++++
- dm/ios/tests/test_framework_link.py  | 191 ++++++++++++++++
+ dm/ios/framework/ShellGlue.m         |  76 ++++
+ dm/ios/project-framework.yml         | 200 ++++++++++
+ dm/ios/tests/test_bc_device_check.py |  56 +++
+ dm/ios/tests/test_bundle_id.py       | 351 +++++++++++++++++
+ dm/ios/tests/test_framework_build.py | 564 +++++++++++++++++++++++++++
+ dm/ios/tests/test_framework_link.py  | 191 +++++++++
  dm/ios/tests/test_xcode_workflow.py  |  11 +-
- dm/ios/tools/build_ipa.sh            | 100 +++++++-
+ dm/ios/tools/build_ipa.sh            | 202 +++++++++-
  dm/ios/tools/compile_check.py        |  22 +-
- dm/ios/tools/gen_manifest.py         | 130 +++++++++++
- dm/tools/tests/test_nsp_progress.py  | 329 +++++++++++++++++++++++++++
- scripts/build_ipa_from_nsp.py        | 215 ++++++++++++++---
- 18 files changed, 1732 insertions(+), 45 deletions(-)
+ dm/ios/tools/gen_manifest.py         | 130 ++++++
+ dm/tools/tests/test_nsp_progress.py  | 329 ++++++++++++++++
+ scripts/build_ipa_from_nsp.py        | 310 +++++++++++++--
+ 19 files changed, 2513 insertions(+), 53 deletions(-)
  create mode 100644 dm/ios/Sources/FrameworkBootstrap.h
  create mode 100644 dm/ios/Sources/FrameworkBootstrap.m
  create mode 100644 dm/ios/framework/DmGameMarker.m
@@ -33,6 +37,7 @@ Issue: LNPANDY/NX2Apple#392
  create mode 100644 dm/ios/framework/ShellGlue.m
  create mode 100644 dm/ios/project-framework.yml
  create mode 100644 dm/ios/tests/test_bc_device_check.py
+ create mode 100644 dm/ios/tests/test_bundle_id.py
  create mode 100644 dm/ios/tests/test_framework_build.py
  create mode 100644 dm/ios/tests/test_framework_link.py
  create mode 100644 dm/ios/tools/gen_manifest.py
@@ -596,12 +601,369 @@ index 0000000..6c443e5
 +
 +if __name__ == '__main__':
 +    unittest.main()
+diff --git a/dm/ios/tests/test_bundle_id.py b/dm/ios/tests/test_bundle_id.py
+new file mode 100644
+index 0000000..6d8fda2
+--- /dev/null
++++ b/dm/ios/tests/test_bundle_id.py
+@@ -0,0 +1,351 @@
++"""Single-game iOS bundle ID team suffix and Xcode team auto-detection tests."""
++from contextlib import ExitStack, redirect_stdout
++import io
++import os
++from pathlib import Path
++import shutil
++import subprocess
++import sys
++import tempfile
++from types import SimpleNamespace
++import unittest
++from unittest.mock import patch
++
++REPO = Path(__file__).resolve().parents[3]
++for folder in ('scripts', 'dm/games', 'dm/tools', 'dm/ios/tools'):
++    sys.path.insert(0, str(REPO / folder))
++import build_ipa_from_nsp as build
++import game
++import nacp
++import profile_guess
++import romfs_image
++import xcode_projects
++
++GAME = '0100A6301214E000'
++TID_LOWER = GAME.lower()
++SCRIPT = (REPO / 'dm/ios/tools/build_ipa.sh').read_text()
++BUNDLE_BLOCK = SCRIPT[SCRIPT.index('DM_TEAM_ID=${DM_TEAM_ID:-0000000000}'):SCRIPT.index('\nif [ "${DM_SHOW_FPS:-0}" = 1 ]')]
++PREPARE_ENTITLEMENTS = SCRIPT[
++    SCRIPT.index('# A prepared Xcode project is signed in Xcode'):
++    SCRIPT.index('# DM_COPY_ROMFS=NO also for the prepared project')
++]
++SIGNING = SCRIPT[SCRIPT.index('# The entitlements of an unsigned IPA'):SCRIPT.index('\nP=Payload/DmIOS.app\n')]
++CAN_SIGN = sys.platform == 'darwin' and shutil.which('codesign') and shutil.which('cc')
++
++
++def make_completed(returncode=0, stdout='', stderr=''):
++    return subprocess.CompletedProcess(['tool'], returncode, stdout=stdout, stderr=stderr)
++
++
++class TeamDetectionTests(unittest.TestCase):
++    def test_single_unique_apple_development_team_is_detected(self):
++        find_id = make_completed(0, '  1) AAAA1111 "Apple Development: user@example.com (CERTNAME01)"\n     1 valid identities found\n')
++        cert_pem = make_completed(0, '-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n')
++        subject = make_completed(0, 'subject=UID=U1, CN=Apple Development: user@example.com (CERTNAME01), OU=TEAM123456, O=User, C=US\n')
++        with patch.object(build.subprocess, 'run', side_effect=[find_id, cert_pem, subject]) as mocked:
++            self.assertEqual(build.detect_development_team(), 'TEAM123456')
++        self.assertEqual(mocked.call_count, 3)
++        self.assertEqual(mocked.call_args_list[0].kwargs['stdin'], subprocess.DEVNULL)
++        self.assertEqual(mocked.call_args_list[0].kwargs['timeout'], 5)
++
++    def test_duplicate_certs_for_same_team_still_resolve_single_team(self):
++        find_id = make_completed(0, (
++            '  1) AAAA1111 "Apple Development: user@example.com (CERTNAME01)"\n'
++            '  2) BBBB2222 "iPhone Developer: user@example.com (CERTNAME02)"\n'
++            '     2 valid identities found\n'
++        ))
++        cert = make_completed(0, 'PEM')
++        subj = make_completed(0, 'subject=CN=x, OU=SAME123456, O=User, C=US\n')
++        with patch.object(build.subprocess, 'run', side_effect=[find_id, cert, subj, cert, subj]):
++            self.assertEqual(build.detect_development_team(), 'SAME123456')
++
++    def test_zero_teams_returns_empty(self):
++        find_id = make_completed(0, '  1) AAAA1111 "Developer ID Application: User (CORP123456)"\n     1 valid identities found\n')
++        with patch.object(build.subprocess, 'run', return_value=find_id):
++            self.assertEqual(build.detect_development_team(), '')
++
++    def test_two_different_teams_return_empty(self):
++        find_id = make_completed(0, (
++            '  1) AAAA1111 "Apple Development: a@example.com (NAME000001)"\n'
++            '  2) BBBB2222 "Apple Development: b@example.com (NAME000002)"\n'
++            '     2 valid identities found\n'
++        ))
++        cert = make_completed(0, 'PEM')
++        subj1 = make_completed(0, 'subject=CN=a, OU=TEAMAAAAAA, O=A, C=US\n')
++        subj2 = make_completed(0, 'subject=CN=b, OU=TEAMBBBBBB, O=B, C=US\n')
++        with patch.object(build.subprocess, 'run', side_effect=[find_id, cert, subj1, cert, subj2]):
++            self.assertEqual(build.detect_development_team(), '')
++
++    def test_timeout_and_errors_return_empty(self):
++        with patch.object(build.subprocess, 'run', side_effect=subprocess.TimeoutExpired(['security'], 5)):
++            self.assertEqual(build.detect_development_team(), '')
++        with patch.object(build.subprocess, 'run', side_effect=OSError('missing')):
++            self.assertEqual(build.detect_development_team(), '')
++        with patch.object(build.subprocess, 'run', return_value=make_completed(1, '')):
++            self.assertEqual(build.detect_development_team(), '')
++        find_id = make_completed(0, '  1) AAAA1111 "Apple Development: a@example.com (NAME000001)"\n')
++        with patch.object(build.subprocess, 'run', side_effect=[find_id, subprocess.TimeoutExpired(['security'], 5)]):
++            self.assertEqual(build.detect_development_team(), '')
++
++
++class CliBundleIdWorkflowTests(unittest.TestCase):
++    def run_cli(self, extra_args, *, saved_signing=None, env_overrides=None, security_side_effect=None,
++                platform='darwin', setting_bundle_id='', setting_team_id=''):
++        with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
++            root = Path(temporary).resolve()
++            (root / 'prod.keys').touch()
++            base = root / 'base.nsp'
++            base.touch()
++            registered = game.load(GAME)
++            profile = SimpleNamespace(
++                id=registered.id, title_id=registered.title_id, dir=root / 'profile' / registered.id,
++                get=registered.get, words=registered.words, modules_in=registered.modules_in,
++                table=registered.table,
++                builds=lambda: {'v0': {'display': '1.0.0', 'main': 'build-0'}},
++            )
++            sources = {key: (False, '') for key in ('glslc_capture', 'vk_capture', 'gl_capture', 'gl_fixed', 'ue_decode', 'oodle_packs', 'ue_legacy')}
++            sources['graphics'] = ('vulkan', 'fixture')
++            fam = {'base': base, 'updates': [], 'dlc': []}
++            extraction = root / 'extracted' / 'v0'
++            (extraction / 'RomFS').mkdir(parents=True)
++            (extraction / 'ExeFS').mkdir()
++            romfs_image.pack(extraction / 'RomFS', extraction / 'RomFS.img')
++
++            captured = {}
++
++            def fake_run(cmd, log, **kwargs):
++                log.parent.mkdir(parents=True, exist_ok=True)
++                log.write_text('')
++                captured['cmd'] = cmd
++                captured['env'] = kwargs.get('env', {})
++                if cmd and str(cmd[0]) == 'bash' and str(cmd[1]).endswith('build_ipa.sh'):
++                    captured['build_ipa_called'] = True
++                    if '--prepare-xcode' not in cmd:
++                        if 'DM_FRAMEWORK_ONLY' in captured['env']:
++                            fw = Path(captured['env']['DM_FRAMEWORK_ONLY']) / f'DmGame{registered.id.upper()}.framework'
++                            fw.mkdir(parents=True, exist_ok=True)
++                            (fw / 'game.manifest.json').write_text('{}')
++                        else:
++                            Path(cmd[2]).parent.mkdir(parents=True, exist_ok=True)
++                            Path(cmd[2]).write_bytes(b'ipa')
++
++            def fake_mac_app(*args, **kwargs):
++                captured['mac_app_bundle_id'] = args[16]
++
++            for name, value in {
++                'scan_nsps': (int(registered.id, 16), fam), 'check_prereqs': None, 'check_metal': None,
++                'check_native_python': None, 'free_gb': 10000, 'find_nx_extract': root / 'nx_extract',
++                'extract': extraction, 'check_formats': None, 'can_clone': False, 'build_mismatch': [],
++                'extract_aoc': None, 'rewrite': profile, 'build_vk_shaders': root / 'shaders',
++                'provisional_prep': None, 'chain_header': None,
++                'mac_host': (root / 'dmhost', root / 'font.ttf'), 'mac_run': 'run',
++            }.items():
++                stack.enter_context(patch.object(build, name, return_value=value))
++            stack.enter_context(patch.object(build, 'run', side_effect=fake_run))
++            stack.enter_context(patch.object(build, 'mac_app', side_effect=fake_mac_app))
++            stack.enter_context(patch.object(build.tree_tar, 'unpack'))
++            stack.enter_context(patch.object(build.tree_tar, 'pack'))
++            stack.enter_context(patch.object(build, 'apple_silicon', return_value=True))
++            stack.enter_context(patch.dict(os.environ, env_overrides or {}, clear=False))
++            if not env_overrides or 'DM_TEAM_ID' not in env_overrides:
++                os.environ.pop('DM_TEAM_ID', None)
++            if not env_overrides or 'DM_BUNDLE_ID' not in env_overrides:
++                os.environ.pop('DM_BUNDLE_ID', None)
++            stack.enter_context(patch.object(build, 'BUNDLE_ID', setting_bundle_id))
++            stack.enter_context(patch.object(build, 'TEAM_ID', setting_team_id))
++            stack.enter_context(patch.object(build.sys, 'platform', platform))
++            stack.enter_context(patch.object(game, 'by_title', return_value=registered))
++            stack.enter_context(patch.object(game, 'load', return_value=profile))
++            stack.enter_context(patch.object(profile_guess, 'build_sources', return_value=sources))
++            stack.enter_context(patch.object(nacp, 'name', return_value='Fixture Game'))
++            stack.enter_context(patch.object(nacp, 'version', return_value='1.0.0'))
++            stack.enter_context(patch.object(nacp, 'languages', return_value=['en-US']))
++            stack.enter_context(patch.object(xcode_projects, 'signing_settings', return_value=saved_signing or {}))
++            stack.enter_context(patch.object(xcode_projects, 'register_project'))
++            stack.enter_context(patch.object(xcode_projects, 'check_bundle_id'))
++            sec_mock = stack.enter_context(patch.object(build.subprocess, 'run', side_effect=security_side_effect))
++            progress = build.Progress()
++            stack.enter_context(patch.object(build, 'PROG', progress))
++            out = io.StringIO()
++            try:
++                with redirect_stdout(out):
++                    code = build.cli([str(root), '-k', str(root / 'prod.keys'), *extra_args])
++            finally:
++                progress.close()
++            self.assertEqual(code, 0, out.getvalue())
++            captured['security_calls'] = sec_mock.call_count
++            return captured
++
++    def test_explicit_bundle_id_always_wins(self):
++        res = self.run_cli(
++            ['--prepare-xcode', '--bundle-id', 'com.explicit.cli', '--team-id', 'TEAM123456'],
++            saved_signing={'PRODUCT_BUNDLE_IDENTIFIER': 'com.saved.game', 'DEVELOPMENT_TEAM': 'OLDTEAM999'},
++            env_overrides={'DM_BUNDLE_ID': 'com.env.game'},
++            setting_bundle_id='com.setting.game',
++        )
++        self.assertEqual(res['env']['DM_BUNDLE_ID'], 'com.explicit.cli')
++        self.assertEqual(res['env']['DM_TEAM_ID'], 'TEAM123456')
++
++        res_env = self.run_cli(
++            ['--prepare-xcode', '--team-id', 'TEAM123456'],
++            saved_signing={'PRODUCT_BUNDLE_IDENTIFIER': 'com.saved.game'},
++            env_overrides={'DM_BUNDLE_ID': 'com.env.game'},
++        )
++        self.assertEqual(res_env['env']['DM_BUNDLE_ID'], 'com.env.game')
++
++    def test_custom_and_pinned_saved_bundle_identifiers_are_preserved(self):
++        for saved in ('com.me.customgame', f'org.nxnative.{TID_LOWER}.OLDTEAM999'):
++            with self.subTest(saved=saved):
++                res = self.run_cli(
++                    ['--prepare-xcode', '--team-id', 'NEWTEAM123'],
++                    saved_signing={'PRODUCT_BUNDLE_IDENTIFIER': saved, 'DEVELOPMENT_TEAM': '0000000000'},
++                )
++                self.assertEqual(res['env']['DM_BUNDLE_ID'], saved)
++                self.assertEqual(res['env']['DM_TEAM_ID'], 'NEWTEAM123')
++
++    def test_bare_saved_bundle_id_upgrades_once_real_team_resolved(self):
++        res = self.run_cli(
++            ['--prepare-xcode', '--team-id', 'TEAM123456'],
++            saved_signing={'PRODUCT_BUNDLE_IDENTIFIER': f'org.nxnative.{TID_LOWER}', 'DEVELOPMENT_TEAM': '0000000000'},
++        )
++        self.assertEqual(res['env']['DM_BUNDLE_ID'], f'org.nxnative.{TID_LOWER}.TEAM123456')
++        self.assertEqual(res['env']['DM_TEAM_ID'], 'TEAM123456')
++
++        res_saved_team = self.run_cli(
++            ['--prepare-xcode'],
++            saved_signing={'PRODUCT_BUNDLE_IDENTIFIER': f'org.nxnative.{TID_LOWER}', 'DEVELOPMENT_TEAM': 'SAVEDTEAM1'},
++            security_side_effect=AssertionError('security must not run when saved DEVELOPMENT_TEAM is already real'),
++        )
++        self.assertEqual(res_saved_team['security_calls'], 0)
++        self.assertEqual(res_saved_team['env']['DM_BUNDLE_ID'], f'org.nxnative.{TID_LOWER}.SAVEDTEAM1')
++        self.assertEqual(res_saved_team['env']['DM_TEAM_ID'], 'SAVEDTEAM1')
++
++    def test_prepare_xcode_detects_single_team_via_security_and_handles_ambiguous_or_error(self):
++        single = [
++            make_completed(0, '  1) AAAA "Apple Development: dev@example.com (CERT000001)"\n'),
++            make_completed(0, 'PEM'),
++            make_completed(0, 'subject=CN=x, OU=SOLE123456, O=Dev, C=US\n'),
++        ]
++        res_one = self.run_cli(['--prepare-xcode'], security_side_effect=single)
++        self.assertEqual(res_one['env']['DM_TEAM_ID'], 'SOLE123456')
++        self.assertEqual(res_one['env']['DM_BUNDLE_ID'], f'org.nxnative.{TID_LOWER}.SOLE123456')
++
++        res_zero = self.run_cli(['--prepare-xcode'], security_side_effect=[make_completed(0, '     0 valid identities found\n')])
++        self.assertEqual(res_zero['env']['DM_TEAM_ID'], '0000000000')
++        self.assertEqual(res_zero['env']['DM_BUNDLE_ID'], f'org.nxnative.{TID_LOWER}')
++
++        two = [
++            make_completed(0, '  1) AAAA "Apple Development: a@example.com (C1)"\n  2) BBBB "Apple Development: b@example.com (C2)"\n'),
++            make_completed(0, 'PEM1'),
++            make_completed(0, 'subject=CN=a, OU=TEAM111111, O=A, C=US\n'),
++            make_completed(0, 'PEM2'),
++            make_completed(0, 'subject=CN=b, OU=TEAM222222, O=B, C=US\n'),
++        ]
++        res_two = self.run_cli(['--prepare-xcode'], security_side_effect=two)
++        self.assertEqual(res_two['env']['DM_TEAM_ID'], '0000000000')
++        self.assertEqual(res_two['env']['DM_BUNDLE_ID'], f'org.nxnative.{TID_LOWER}')
++
++        res_timeout = self.run_cli(['--prepare-xcode'], security_side_effect=subprocess.TimeoutExpired(['security'], 5))
++        self.assertEqual(res_timeout['env']['DM_TEAM_ID'], '0000000000')
++        self.assertEqual(res_timeout['env']['DM_BUNDLE_ID'], f'org.nxnative.{TID_LOWER}')
++
++    def test_unsigned_single_game_ipa_keeps_bare_bundle_id_and_skips_keychain_probe(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            out_ipa = Path(tmp) / 'game.ipa'
++            res = self.run_cli(
++                ['--platform', 'ios', '--romfs', 'bundle', '-o', str(out_ipa)],
++                security_side_effect=AssertionError('security must not run for unsigned generic IPA'),
++            )
++            self.assertEqual(res['security_calls'], 0)
++            self.assertEqual(res['env']['DM_TEAM_ID'], '0000000000')
++            self.assertEqual(res['env']['DM_BUNDLE_ID'], f'org.nxnative.{TID_LOWER}')
++
++    def test_mac_and_shell_framework_are_unaffected_by_team_id(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            app_out = Path(tmp) / 'Fixture.app'
++            res_mac_app = self.run_cli(
++                ['--platform', 'mac-app', '--team-id', 'TEAM123456', '-o', str(app_out)],
++                env_overrides={'DM_TEAM_ID': 'TEAM123456'},
++            )
++            self.assertEqual(res_mac_app['mac_app_bundle_id'], f'org.nxnative.{TID_LOWER}')
++
++            res_mac = self.run_cli(
++                ['--platform', 'mac', '--team-id', 'TEAM123456'],
++                env_overrides={'DM_TEAM_ID': 'TEAM123456'},
++                security_side_effect=AssertionError('security must not run for Mac platform'),
++            )
++            self.assertEqual(res_mac['security_calls'], 0)
++            self.assertFalse(res_mac.get('build_ipa_called'))
++            args_mac = SimpleNamespace(bundle_id=None, team_id='TEAM123456')
++            self.assertEqual(
++                build.resolve_bundle_id(int(GAME, 16), args_mac, {'DM_TEAM_ID': 'TEAM123456'}, {}, 'TEAM123456', mac=True),
++                f'org.nxnative.{TID_LOWER}',
++            )
++
++            fw_dir = Path(tmp) / 'fw'
++            res_fw = self.run_cli(
++                ['--shell-framework', str(fw_dir), '--team-id', 'TEAM123456'],
++                env_overrides={'DM_TEAM_ID': 'TEAM123456'},
++            )
++            self.assertEqual(res_fw['env']['DM_TEAM_ID'], 'TEAM123456')
++            self.assertEqual(res_fw['env']['DM_BUNDLE_ID'], f'org.nxnative.{TID_LOWER}')
++
++
++class BuildIpaShellDefaultsAndEntitlementsTests(unittest.TestCase):
++    def run_bundle_block(self, **extra):
++        env = {k: v for k, v in os.environ.items() if not k.startswith('DM_')}
++        env.update(GAME=GAME, **extra)
++        script = (
++            'set -u\n'
++            'gp() {\n  printf "public.app-category.games\\n"\n}\n'
++            'DM_DISPLAY_NAME="Fixture"\n'
++            'DM_APP_VERSION="1.0"\n'
++            + BUNDLE_BLOCK
++            + '\nprintf "%s\\t%s\\n" "$DM_BUNDLE_ID" "$DM_TEAM_ID"\n'
++        )
++        result = subprocess.run(['/bin/bash', '-c', script], env=env, capture_output=True, text=True)
++        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
++        bundle_id, team_id = result.stdout.strip().split('\t')
++        return bundle_id, team_id
++
++    def test_build_ipa_sh_default_bundle_id_with_and_without_team(self):
++        self.assertEqual(self.run_bundle_block(DM_TEAM_ID='TEAM123456'), (f'org.nxnative.{TID_LOWER}.TEAM123456', 'TEAM123456'))
++        self.assertEqual(self.run_bundle_block(DM_TEAM_ID='0000000000'), (f'org.nxnative.{TID_LOWER}', '0000000000'))
++        self.assertEqual(self.run_bundle_block(), (f'org.nxnative.{TID_LOWER}', '0000000000'))
++        self.assertEqual(self.run_bundle_block(DM_TEAM_ID=''), (f'org.nxnative.{TID_LOWER}', '0000000000'))
++        self.assertEqual(self.run_bundle_block(DM_BUNDLE_ID='com.override.app', DM_TEAM_ID='TEAM123456'), ('com.override.app', 'TEAM123456'))
++        self.assertEqual(self.run_bundle_block(FRAMEWORK_ONLY='/tmp/fw', DM_TEAM_ID='TEAM123456'), (f'org.nxnative.{TID_LOWER}', 'TEAM123456'))
++
++    def test_prepare_xcode_entitlements_preserve_increased_memory_limit(self):
++        with tempfile.TemporaryDirectory() as temporary:
++            root = Path(temporary)
++            (root / 'Gen').mkdir()
++            (root / 'Gen/dm.xcconfig').touch()
++            env = {k: v for k, v in os.environ.items() if not k.startswith('DM_')}
++            env.update(PREPARE_XCODE='YES', DM_BUNDLE_ID=f'org.nxnative.{TID_LOWER}.TEAM123456')
++            script = 'set -u\nt() {\n  true\n}\ndie() {\n  echo "$*" >&2\n  exit 1\n}\n' + PREPARE_ENTITLEMENTS
++            result = subprocess.run(['/bin/bash', '-c', script], cwd=root, env=env, capture_output=True, text=True)
++            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
++            entitlements = (root / 'Gen/DmIOS.entitlements').read_text()
++            self.assertIn('com.apple.developer.kernel.increased-memory-limit', entitlements)
++            self.assertIn('CODE_SIGN_ENTITLEMENTS = Gen/DmIOS.entitlements', (root / 'Gen/dm.xcconfig').read_text())
++
++    @unittest.skipUnless(CAN_SIGN, 'needs macOS codesign and a C compiler')
++    def test_adhoc_signing_preserves_increased_memory_limit_with_team_bundle_id(self):
++        with tempfile.TemporaryDirectory() as temporary:
++            root = Path(temporary)
++            (root / 'DmIOS.app').mkdir()
++            (root / 'pkg').mkdir()
++            (root / 'main.c').write_text('int main(void) { return 0; }\n')
++            subprocess.run(['cc', '-o', str(root / 'DmIOS.app/DmIOS'), str(root / 'main.c')], check=True)
++            env = {k: v for k, v in os.environ.items() if not k.startswith('DM_')}
++            env.update(APP=str(root / 'DmIOS.app'), O=str(root / 'pkg'), DM_BUNDLE_ID=f'org.nxnative.{TID_LOWER}.TEAM123456')
++            script = 'set -u\nt() {\n  true\n}\ndie() {\n  echo "$*" >&2\n  exit 1\n}\n' + SIGNING
++            result = subprocess.run(['/bin/bash', '-c', script], cwd=root, env=env, capture_output=True, text=True)
++            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
++            shown = subprocess.run(['codesign', '-d', '--entitlements', '-', str(root / 'DmIOS.app/DmIOS')], capture_output=True, text=True)
++            self.assertIn('com.apple.developer.kernel.increased-memory-limit', shown.stdout + shown.stderr)
++
++
++if __name__ == '__main__':
++    unittest.main()
 diff --git a/dm/ios/tests/test_framework_build.py b/dm/ios/tests/test_framework_build.py
 new file mode 100644
-index 0000000..870ee31
+index 0000000..bb599e5
 --- /dev/null
 +++ b/dm/ios/tests/test_framework_build.py
-@@ -0,0 +1,323 @@
+@@ -0,0 +1,564 @@
 +"""Route C M1 (docs/launcher-c-plan.md): the opt-in framework build's packaging and signing, off a device.
 +
 +Four parts, each on synthetic inputs, no game files or Xcode:
@@ -611,19 +973,22 @@ index 0000000..870ee31
 +  - the framework is signed before the app's executable, the framework's signature carries no entitlements, the app's
 +    keeps the Increased Memory Limit request, and the packed IPA has the framework where the app dlopens it. A default
 +    pack (no DM_FRAMEWORK) still has no Frameworks/ entry at all;
-+  - DM_FRAMEWORK_ONLY puts the game's shader libraries into the framework in the form they have: an NVN game's one file
-+    b-<chain>.img (dm/tools/shader_lib.py) as msl/b-<chain>.img, a folder as msl/<folder>, and a rebuild leaves only that one.
++  - DM_FRAMEWORK_ONLY strips the game's shader libraries from the framework (leaving no msl/ directory) and records
++    source shader metadata under .msl-cache/<id>.json.
 +Only the signing and packing steps run (a stand-in app and framework, no Xcode); codesign is required for the third part.
 +"""
 +import json
 +import os
 +from pathlib import Path
++import plistlib
 +import shutil
++import struct
 +import subprocess
 +import sys
 +import tempfile
 +import unittest
 +import zipfile
++import zlib
 +
 +REPO = Path(__file__).resolve().parents[3]
 +sys.path.insert(0, str(REPO / 'dm/games'))
@@ -743,6 +1108,64 @@ index 0000000..870ee31
 +    def test_the_default_mode_still_selects_project_yml(self):
 +        self.assertEqual(self.prepare(0), ('name: default\n', False))
 +
++    def test_framework_targets_declare_title_id_and_app_icon_metadata(self):
++        spec = (REPO / 'dm/ios/project-framework.yml').read_text()
++        target = None
++        section = None
++        in_props = False
++        props_by_target = {}
++        for raw in spec.splitlines():
++            stripped = raw.split('#', 1)[0].rstrip()
++            if not stripped.strip():
++                continue
++            indent = len(stripped) - len(stripped.lstrip(' '))
++            text = stripped.strip()
++            if indent == 2 and text.endswith(':'):
++                target = text[:-1]
++                section = None
++                in_props = False
++            elif indent == 4 and target and text.endswith(':'):
++                section = text[:-1]
++                in_props = False
++            elif indent == 6 and target and section == 'info' and text == 'properties:':
++                in_props = True
++                props_by_target.setdefault(target, {})
++            elif indent <= 6:
++                in_props = False
++            elif indent == 8 and in_props and ':' in text:
++                key, value = text.split(':', 1)
++                value = value.strip()
++                if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
++                    value = value[1:-1]
++                props_by_target[target][key.strip()] = value
++
++        for fw_target in ('DmGame', 'DmShellGame'):
++            self.assertIn(fw_target, props_by_target)
++            self.assertEqual(props_by_target[fw_target].get('DMTitleID'), '${GAME}')
++            self.assertEqual(props_by_target[fw_target].get('CFBundleIconFile'), 'AppIcon.png')
++
++        if shutil.which('xcodegen'):
++            with tempfile.TemporaryDirectory() as temporary:
++                root = Path(temporary).resolve()
++                for rel in ('Sources', 'Gen/dm', 'Gen/Assets.xcassets', 'Gen/src', 'Gen/main', 'Gen/framework/dm', 'framework'):
++                    (root / rel).mkdir(parents=True, exist_ok=True)
++                for stub in ('Gen/dm.xcconfig', 'Gen/framework.xcconfig', 'Gen/embed.S', 'Gen/main/main.c',
++                             'framework/DmGameMarker.m', 'framework/ShellGlue.m', 'Sources/front_ios.m', 'Sources/DmGamepad.m',
++                             'Sources/GameMenu.swift', 'Sources/GameMenuCheats.swift', 'Sources/LauncherSettings.swift', 'Sources/PrewarmUpload.swift', 'Sources/CloudSaves.m',
++                             'Sources/DataBookmark.m', 'Gen/framework/profile.tsv',
++                             'Gen/framework/game.manifest.json', 'Gen/framework/objc_namespace.h', 'Gen/framework/exported_symbols.txt'):
++                    (root / stub).write_text('')
++                (root / 'project-framework.yml').write_text(spec)
++                env = dict(os.environ, GAME='010015100E123000', DM_BUNDLE_ID='org.nxnative.test', DM_DISPLAY_NAME='Fixture',
++                           DM_APP_VERSION='1.0', DM_TEAM_ID='0000000000', DM_APP_CATEGORY='public.app-category.games',
++                           DM_SHOW_FPS='NO', DM_LANG='en-US', DM_SCHEME_NAME='DmIOS')
++                res = subprocess.run(['xcodegen', 'generate', '-q', '--spec', 'project-framework.yml'], cwd=root, env=env, capture_output=True, text=True)
++                self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
++                for plist_rel in ('Gen/framework/Info.plist', 'Gen/framework/ShellGame-Info.plist'):
++                    plist = plistlib.loads((root / plist_rel).read_bytes())
++                    self.assertEqual(plist.get('DMTitleID'), '010015100E123000')
++                    self.assertEqual(plist.get('CFBundleIconFile'), 'AppIcon.png')
++
 +
 +class FrameworkEnvironmentTests(unittest.TestCase):
 +    def test_build_environment_stays_with_its_framework(self):
@@ -854,7 +1277,7 @@ index 0000000..870ee31
 +
 +@unittest.skipUnless(sys.platform == 'darwin', 'build_ipa.sh copies an image with macOS cp -c (clonefile)')
 +class FrameworkOnlyShaderLibrariesTests(unittest.TestCase):
-+    """DM_FRAMEWORK_ONLY's copy of the shader libraries into the game's framework, after a stand-in xcodebuild; no Xcode, no game files."""
++    """DM_FRAMEWORK_ONLY strips the shader libraries from the game framework and caches source metadata in out/.msl-cache/<GAME>.json."""
 +    FW = 'DmGame' + GAME
 +
 +    def setUp(self):
@@ -885,42 +1308,222 @@ index 0000000..870ee31
 +            self.assertTrue(image.is_file())
 +        return image if packed else folder
 +
-+    def build(self):
++    def build(self, icon=None):
 +        root = self.root
++        icon_path = icon if icon is not None else (root / 'no-icon.jpg')
 +        result = run_step(FRAMEWORK_ONLY, root, FRAMEWORK_ONLY=str(root / 'out'), FW_NAME=self.FW, O=str(root / 'pkg'), DD=str(root / 'dd'),
 +                          DM_BUNDLE_ID='org.nxnative.fixture', MSL_IOS=str(root / 'shaders'), MSLDIR='b-fixture', PSO='',
-+                          ICON=str(root / 'no-icon.jpg'), PATH=f'{root / "bin"}:{os.environ["PATH"]}')
++                          ICON=str(icon_path), PATH=f'{root / "bin"}:{os.environ["PATH"]}')
 +        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 +        self.assertTrue((self.out / self.FW).is_file())
 +
 +    def shaders(self):
-+        return sorted(p.name for p in (self.out / 'msl').iterdir())
++        msl = self.out / 'msl'
++        return sorted(p.name for p in msl.iterdir()) if msl.exists() else []
 +
 +    def test_a_packed_library_goes_in_as_its_one_file(self):
 +        image = self.library(packed=True)
 +        self.build()
-+        self.assertEqual(self.shaders(), ['b-fixture.img'])
-+        self.assertEqual((self.out / 'msl/b-fixture.img').read_bytes(), image.read_bytes())
++        self.assertFalse((self.out / 'msl').exists())
++        cache = json.loads((self.root / 'out/.msl-cache' / f'{GAME}.json').read_text())
++        self.assertEqual(cache['schema'], 1)
++        self.assertEqual(cache['title_id'], GAME)
++        self.assertEqual(cache['gfx_api'], 'nvn')
++        self.assertEqual(cache['chain'], 'b-fixture')
++        self.assertFalse(cache['multi_program'])
++        self.assertEqual(cache['lib_path'], str(image))
++        self.assertEqual(cache['msl_root'], str(self.root / 'shaders'))
++        self.assertEqual(cache['programs'], [])
 +
 +    def test_a_library_folder_goes_in_as_a_folder(self):
-+        self.library(packed=False)
++        folder = self.library(packed=False)
 +        self.build()
-+        self.assertEqual(self.shaders(), ['b-fixture'])
-+        self.assertEqual((self.out / 'msl/b-fixture/fixture_b.metallib').read_text(), 'shader')
++        self.assertFalse((self.out / 'msl').exists())
++        cache = json.loads((self.root / 'out/.msl-cache' / f'{GAME}.json').read_text())
++        self.assertEqual(cache['schema'], 1)
++        self.assertEqual(cache['title_id'], GAME)
++        self.assertEqual(cache['gfx_api'], 'nvn')
++        self.assertEqual(cache['chain'], 'b-fixture')
++        self.assertFalse(cache['multi_program'])
++        self.assertEqual(cache['lib_path'], str(folder))
++        self.assertEqual(cache['msl_root'], str(self.root / 'shaders'))
++        self.assertEqual(cache['programs'], [])
 +
 +    def test_a_rebuild_leaves_only_the_current_library(self):
 +        (self.out / 'msl/b-fixture').mkdir(parents=True)   # an earlier build's folder, and another chain's library
 +        (self.out / 'msl/b-fixture/stale_b.metallib').write_text('stale')
 +        (self.out / 'msl/b-otherchain.img').write_text('other chain')
-+        self.library(packed=True)
++        image = self.library(packed=True)
 +        self.build()
-+        self.assertEqual(self.shaders(), ['b-fixture.img'])
++        self.assertFalse((self.out / 'msl').exists())
++        cache = json.loads((self.root / 'out/.msl-cache' / f'{GAME}.json').read_text())
++        self.assertEqual(cache['lib_path'], str(image))
++        self.assertEqual(cache['gfx_api'], 'nvn')
++        self.assertEqual(cache['chain'], 'b-fixture')
++
 +        image = self.library(packed=True, content='a newer shader')
 +        self.build()
-+        self.assertEqual((self.out / 'msl/b-fixture.img').read_bytes(), image.read_bytes())
-+        self.library(packed=False)
++        self.assertFalse((self.out / 'msl').exists())
++        cache = json.loads((self.root / 'out/.msl-cache' / f'{GAME}.json').read_text())
++        self.assertEqual(cache['lib_path'], str(image))
++
++        folder = self.library(packed=False)
 +        self.build()
-+        self.assertEqual(self.shaders(), ['b-fixture'])
++        self.assertFalse((self.out / 'msl').exists())
++        cache = json.loads((self.root / 'out/.msl-cache' / f'{GAME}.json').read_text())
++        self.assertEqual(cache['lib_path'], str(folder))
++        self.assertEqual(cache['gfx_api'], 'nvn')
++        self.assertEqual(cache['chain'], 'b-fixture')
++
++    def test_icon_writes_512x512_app_icon_and_icon_and_missing_icon_removes_stale_files(self):
++        def png_chunk(tag, payload):
++            return struct.pack('>I', len(payload)) + tag + payload + struct.pack('>I', zlib.crc32(tag + payload) & 0xffffffff)
++
++        w, h = 16, 16
++        raw_rows = b''.join(b'\x00' + (b'\x20\x60\xc0' * w) for _ in range(h))
++        src_png = (b'\x89PNG\r\n\x1a\n' +
++                   png_chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)) +
++                   png_chunk(b'IDAT', zlib.compress(raw_rows)) +
++                   png_chunk(b'IEND', b''))
++        src_icon = self.root / 'source-icon.png'
++        src_icon.write_bytes(src_png)
++
++        self.library(packed=True)
++        self.build(icon=src_icon)
++
++        icon_file = self.out / 'icon.png'
++        app_icon_file = self.out / 'AppIcon.png'
++        self.assertTrue(icon_file.is_file())
++        self.assertTrue(app_icon_file.is_file())
++        icon_bytes = icon_file.read_bytes()
++        app_icon_bytes = app_icon_file.read_bytes()
++        self.assertEqual(icon_bytes, app_icon_bytes)
++        self.assertEqual(icon_bytes[:8], b'\x89PNG\r\n\x1a\n')
++        self.assertEqual(icon_bytes[12:16], b'IHDR')
++        out_w, out_h = struct.unpack('>II', icon_bytes[16:24])
++        self.assertEqual((out_w, out_h), (512, 512))
++
++        # Rebuilding when ICON is missing cleans up both stale icon.png and AppIcon.png.
++        self.build()
++        self.assertFalse(icon_file.exists())
++        self.assertFalse(app_icon_file.exists())
++
++
++class FrameworkClonesTests(unittest.TestCase):
++    """The framework's executable and pipeline archive are clones of the build's own outputs (LNPANDY/NX2Apple#422), and a failed copy keeps what was there."""
++    FW = 'DmGame' + GAME
++    BIG = 'shader ' * 40000   # 280 KB: several blocks of file data
++
++    def setUp(self):
++        self.root = root = Path(tempfile.mkdtemp()).resolve()
++        self.addCleanup(shutil.rmtree, root)
++        (root / 'dm').mkdir()
++        (root / 'dm/tools').symlink_to(REPO / 'dm/tools', target_is_directory=True)
++        (root / 'bin').mkdir()
++        (root / 'bin/xcodebuild').write_text('#!/bin/sh\nexit 0\n')
++        (root / 'bin/xcodebuild').chmod(0o755)
++        self.built = root / 'dd/Build/Products/Release-iphoneos' / f'{self.FW}.framework'
++        self.built.mkdir(parents=True)
++        (self.built / self.FW).write_text(self.BIG)
++        (self.built / 'game.manifest.json').write_text(json.dumps({'framework_executable': self.FW}))
++        (root / 'shaders/b-fixture').mkdir(parents=True)
++        (root / 'shaders/b-fixture/fixture_b.metallib').write_text('shader')
++        self.pso = root / 'pso-src'
++        (self.pso / 'applegpu_g18p').mkdir(parents=True)
++        (self.pso / 'applegpu_g18p/archive.metallib').write_text(self.BIG.replace('shader', 'pipeln'))
++        self.out = root / 'out' / f'{self.FW}.framework'
++
++    def build(self, expect=0, **extra):
++        root = self.root
++        result = run_step(FRAMEWORK_ONLY, root, FRAMEWORK_ONLY=str(root / 'out'), FW_NAME=self.FW, O=str(root / 'pkg'), DD=str(root / 'dd'),
++                          DM_BUNDLE_ID='org.nxnative.fixture', MSL_IOS=str(root / 'shaders'), MSLDIR='b-fixture', PSO=str(self.pso),
++                          ICON=str(root / 'no-icon.jpg'), PATH=f'{root / "bin"}:{os.environ["PATH"]}', **extra)
++        if expect == 0: self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
++        else: self.assertNotEqual(result.returncode, 0, 'the build should fail')
++        return result
++
++    def failing_rename(self, suffix):
++        """A mv that fails where it would put a finished copy in its place (the source ends in `suffix`), and is mv everywhere else."""
++        mv = self.root / 'bin/mv'
++        mv.write_text(f'#!/bin/sh\nfor a in "$@"; do case "$a" in *{suffix}) exit 1;; esac; done\nexec /bin/mv "$@"\n')
++        mv.chmod(0o755)
++
++    @staticmethod
++    def extents(path):
++        """The device offset of each run of the file's data (fcntl F_LOG2PHYS_EXT): two files that share their blocks, as a clone and its source do, have the same list."""
++        import fcntl, struct
++        runs, size, at = [], os.path.getsize(path), 0
++        with open(path, 'rb') as f:
++            while at < size:
++                _, length, device = struct.unpack('=Iqq', fcntl.fcntl(f.fileno(), 65, struct.pack('=Iqq', 0, size - at, at)))
++                if length <= 0: break
++                runs.append((at, length, device)); at += length
++        return runs
++
++    def assertShared(self, copy, source):
++        self.assertEqual(Path(copy).read_bytes(), Path(source).read_bytes())
++        self.assertEqual(self.extents(copy), self.extents(source), f'{copy} is a second copy of {source} on disk, not a clone')
++
++    def needs_clones(self):
++        """Skips where the temporary folder's file system has no clones, or does not say where a file's blocks are."""
++        a, b = self.root / 'probe', self.root / 'probe.clone'
++        a.write_text(self.BIG)
++        try:
++            subprocess.run(['cp', '-c', str(a), str(b)], check=True, capture_output=True)
++            shared = self.extents(a) == self.extents(b) != []
++        except (OSError, subprocess.CalledProcessError): shared = False
++        a.unlink(); b.unlink(missing_ok=True)
++        if not shared: self.skipTest('the temporary folder is not on a file system with clones (APFS)')
++
++    def test_the_executable_and_the_pipeline_archive_are_clones_after_every_build(self):
++        self.needs_clones()
++        for rebuilt in ('dylib2', 'dylib3'):   # a first build, then rebuilds over it
++            self.build()
++            self.assertShared(self.out / self.FW, self.built / self.FW)
++            self.assertShared(self.out / 'pso/applegpu_g18p/archive.metallib', self.pso / 'applegpu_g18p/archive.metallib')
++            self.assertEqual(sorted(p.name for p in self.out.iterdir() if p.name.endswith(('.part', '.old'))), [])
++            (self.built / self.FW).write_text(self.BIG.replace('shader', rebuilt))
++            (self.pso / 'applegpu_g18p/archive.metallib').write_text(self.BIG.replace('shader', rebuilt))
++
++    def test_what_the_archive_no_longer_has_is_gone(self):
++        self.build()
++        (self.pso / 'applegpu_g18p/archive.metallib').rename(self.pso / 'applegpu_g18p/other.metallib')
++        self.build()
++        self.assertEqual(sorted(p.name for p in (self.out / 'pso/applegpu_g18p').iterdir()), ['other.metallib'])
++
++    def test_an_unchanged_executable_keeps_its_file(self):
++        self.build()
++        before = (self.out / self.FW).stat()
++        self.build()
++        after = (self.out / self.FW).stat()
++        self.assertEqual((before.st_ino, before.st_mtime_ns), (after.st_ino, after.st_mtime_ns))
++
++    def test_a_copy_works_without_clones(self):
++        """cp -c falls back to a plain copy where the volume cannot clone, so the output is the same bytes: the fake cp refuses -c as such a volume does."""
++        cp = self.root / 'bin/cp'
++        cp.write_text('#!/bin/sh\nn=$#; i=0\nwhile [ $i -lt $n ]; do a=$1; shift; case $a in -cRp) a=-Rp;; -cp) a=-p;; esac; set -- "$@" "$a"; i=$((i+1)); done\nexec /bin/cp "$@"\n')
++        cp.chmod(0o755)
++        self.build()
++        self.assertEqual((self.out / self.FW).read_bytes(), (self.built / self.FW).read_bytes())
++        self.assertEqual((self.out / 'pso/applegpu_g18p/archive.metallib').read_bytes(), (self.pso / 'applegpu_g18p/archive.metallib').read_bytes())
++
++    def test_a_failed_final_rename_keeps_the_old_pipeline_archive(self):
++        self.build()
++        (self.pso / 'applegpu_g18p/archive.metallib').write_text('a newer archive')
++        self.failing_rename('pso.part')
++        result = self.build(expect=1)
++        self.assertIn('copy the pipeline archive', result.stdout + result.stderr)
++        self.assertEqual((self.out / 'pso/applegpu_g18p/archive.metallib').read_text(), self.BIG.replace('shader', 'pipeln'))
++        self.assertEqual(sorted(p.name for p in self.out.iterdir() if p.name.endswith(('.part', '.old'))), [])
++
++    def test_a_failed_final_rename_keeps_the_old_executable(self):
++        self.build()
++        (self.built / self.FW).write_text('a newer executable')
++        self.failing_rename(f'{self.FW}.part')
++        result = self.build(expect=1)
++        self.assertIn("copy the framework's executable", result.stdout + result.stderr)
++        self.assertEqual((self.out / self.FW).read_text(), self.BIG)
++        self.assertEqual(sorted(p.name for p in self.out.iterdir() if p.name.endswith(('.part', '.old'))), [])
 +
 +
 +if __name__ == '__main__':
@@ -1159,10 +1762,10 @@ index 2f46306..184bf72 100644
              register.assert_called_once()
              self.assertEqual(mocks['derive_profile'].call_count, int(derived))
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 57df869..abffac3 100755
+index 57df869..56c6417 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
-@@ -8,6 +8,12 @@
+@@ -8,9 +8,15 @@
  #   DM_COPY_ROMFS=NO leaves the game files (RomFS) out of the IPA, as it does for the Xcode build phase: the package then stays small (a large game's full package can exceed what iOS extracts), and the app takes the files from Documents/romfs.img (scripts/push_romfs.sh); default: they are packed
  #   DM_SHADER_FILES=1 packs an NVN game's shader library as its separate files, msl/b-<chain>/, not as the one file b-<chain>.img, for install tools that cannot copy a large file (AltServer; pack_ipa.py --shader-files); default: off
  #   DM_ENTITLEMENTS=<plist> is the unsigned IPA's entitlements, signed ad-hoc into the executable (relative to the caller's directory; default: Increased Memory Limit; an empty string = none)
@@ -1174,7 +1777,11 @@ index 57df869..abffac3 100755
 +#     build_shell.sh to embed in the shell app; no app, no IPA, no game files
  #   AOC=add-on content directory (default $W/data/aoc; when it exists it goes to DmIOS.app/aoc/<index>/; an empty string = none), GFXAPI=nvn / vulkan (default: by the shader libraries in MSL_IOS)
  #   The app name is the game name in the base NSP's control data ($W/data/v0/control.nacp, else the one next to the RomFS), the app version is the display version in the packed game's control data (the one next to the RomFS:
- #   nx_extract saves the update's there when an update is packed, else the base game's), the bundle ID is org.nxnative.<base game title ID in lowercase> (DM_DISPLAY_NAME / DM_APP_VERSION / DM_BUNDLE_ID override them);
+-#   nx_extract saves the update's there when an update is packed, else the base game's), the bundle ID is org.nxnative.<base game title ID in lowercase> (DM_DISPLAY_NAME / DM_APP_VERSION / DM_BUNDLE_ID override them);
++#   nx_extract saves the update's there when an update is packed, else the base game's), the bundle ID is org.nxnative.<base game title ID in lowercase> (with .$DM_TEAM_ID appended for single-game builds when DM_TEAM_ID is a real team and DM_FRAMEWORK_ONLY is unset) (DM_DISPLAY_NAME / DM_APP_VERSION / DM_BUNDLE_ID override them)
+ #   CONTROL=<control.nacp> is the file whose languages the launcher's settings offer (the NSP script's languages_control; default: the packed game's control data as above);
+ #   DM_METAL_CAPTURE=1 makes a development build that can write GPU frame captures (MetalCaptureEnabled in Info.plist, for the host's DM_GPU_CAPTURE switch);
+ #   DM_PYTHON=<path> selects Python for build_ipa.sh and its helper tools (default: python3 on PATH; FONT_PY overrides it for make_shared_fonts.py);
 @@ -40,6 +46,13 @@ PKG=$(gp package)
  if [ -z "${ROMFS:-}" ] && [ -f "$W/data/$PKG/RomFS.img" ]; then ROMFS=$W/data/$PKG/RomFS.img; fi
  PATCHED=${PATCHED:-$W/build/patched_$PKG}; ROMFS=${ROMFS:-$W/data/$PKG/RomFS}; MSL_IOS=${MSL_IOS:-$W/build/ios/dmsh_b}; AOC=${AOC-$W/data/aoc}
@@ -1189,7 +1796,25 @@ index 57df869..abffac3 100755
  OUT_IPA=${1:-$(dirname "$W")/$(gp ipa)}; O=$W/build/ios/pkg; DD=$O/dd
  XCODE_DD=${DM_XCODE_DERIVED_DATA:-$W/build/ios/xcode-dd}
  MARKER=$(gp romfs_marker)
-@@ -59,7 +72,10 @@ if [ "$PREPARE_XCODE" = YES ]; then
+@@ -48,7 +61,16 @@ NACP=$W/data/v0/control.nacp; [ -f "$NACP" ] || NACP=$(dirname "$ROMFS")/control
+ VNACP=$(dirname "$ROMFS")/control.nacp; [ -f "$VNACP" ] || VNACP=$W/data/v0/control.nacp
+ [ -n "${DM_APP_VERSION:-}" ] || DM_APP_VERSION=$("${DM_PYTHON:-python3}" "$DM/tools/nacp.py" --version "$VNACP") || { t "no display version in $VNACP: the app version is 1.0"; DM_APP_VERSION=1.0; }
+ VNACP=${CONTROL:-$VNACP}   # from here on, the file that lists the game's languages for the launcher's settings
+-export LC_ALL=C DM_BUNDLE_ID=${DM_BUNDLE_ID:-org.nxnative.$(echo "$GAME" | tr 'A-Z' 'a-z')} DM_DISPLAY_NAME DM_APP_VERSION DM_APP_CATEGORY=$(gp app_category) DM_TEAM_ID=${DM_TEAM_ID:-0000000000}   # placeholder identity: unsigned, the install tool replaces it
++DM_TEAM_ID=${DM_TEAM_ID:-0000000000}
++if [ -z "${DM_BUNDLE_ID:-}" ]
++then
++  DM_BUNDLE_ID=org.nxnative.$(echo "$GAME" | tr 'A-Z' 'a-z')
++  if [ -z "${FRAMEWORK_ONLY:-}" ] && [ -n "$DM_TEAM_ID" ] && [ "$DM_TEAM_ID" != 0000000000 ]
++  then
++    DM_BUNDLE_ID="$DM_BUNDLE_ID.$DM_TEAM_ID"
++  fi
++fi
++export LC_ALL=C DM_BUNDLE_ID DM_DISPLAY_NAME DM_APP_VERSION DM_APP_CATEGORY=$(gp app_category) DM_TEAM_ID   # placeholder identity: unsigned, the install tool replaces it
+ if [ "${DM_SHOW_FPS:-0}" = 1 ]; then export DM_SHOW_FPS=YES; else export DM_SHOW_FPS=NO; fi
+ export DM_LANG=${DM_LANG:-en-US}
+ export DM_FORK_PATCHES=$(paste -sd, "$DM/fork_patches.txt" 2>/dev/null || true)   # DMForkPatches in Info.plist (scripts/patches.py writes the list; empty on a build without fork patches)
+@@ -59,7 +81,10 @@ if [ "$PREPARE_XCODE" = YES ]; then
    [ "$IOS" != "$IOS_SOURCE" ] || die "the per-game Xcode project must be outside dm/ios"
    # Source links follow repository edits; generated files and build products belong to this game only. Linked again each time: a project prepared from another checkout (a removed worktree) follows this one
    for item in Sources tools; do ln -sfn "$IOS_SOURCE/$item" "$IOS/$item" || die "link $item"; done
@@ -1201,7 +1826,7 @@ index 57df869..abffac3 100755
    cd "$IOS" || die "cd $IOS"
    DM_SCHEME_NAME="$(echo "$DM_DISPLAY_NAME" | tr '/:' '__') ($GAME)"   # the scheme file is named after it
  
-@@ -202,6 +218,37 @@ if [ -f "$ICON" ]; then
+@@ -202,6 +227,37 @@ if [ -f "$ICON" ]; then
    echo "DM_APPICON = AppIcon" >> Gen/dm.xcconfig
    t "app icon: $ICON"
  else t "no app icon ($ICON not found): the home-screen icon stays blank"; fi
@@ -1239,7 +1864,7 @@ index 57df869..abffac3 100755
  # A prepared Xcode project is signed in Xcode, so it asks for the Increased Memory Limit capability the bigger games need (see the README); DM_ENTITLEMENTS=another plist, or empty for none.
  # The unsigned IPA carries the same request in its executable's ad-hoc signature below; the install tool replaces that signature.
  if [ "$PREPARE_XCODE" = YES ] && [ -n "${DM_ENTITLEMENTS-default}" ]; then
-@@ -213,7 +260,10 @@ if [ "$PREPARE_XCODE" = YES ] && [ -n "${DM_ENTITLEMENTS-default}" ]; then
+@@ -213,7 +269,10 @@ if [ "$PREPARE_XCODE" = YES ] && [ -n "${DM_ENTITLEMENTS-default}" ]; then
  fi
  # DM_COPY_ROMFS=NO also for the prepared project: its Copy game resources phase (stage_resources.sh) then leaves the game files out and writes the image's identity; Gen/dm.xcconfig is made again by every run
  [ "${DM_COPY_ROMFS:-YES}" != NO ] || [ "$PREPARE_XCODE" != YES ] || echo "DM_COPY_ROMFS = NO" >> Gen/dm.xcconfig
@@ -1251,14 +1876,27 @@ index 57df869..abffac3 100755
  plutil -replace DMTitleID -string "$GAME" -- Gen/Info.plist || die "DMTitleID"
  PREWARM_URL=${DM_PREWARM_UPLOAD_URL-}
  if [ -z "${DM_PREWARM_UPLOAD_URL+x}" ] && [ -f "$DM/services/prewarm-inbox/endpoint.txt" ]; then
-@@ -241,6 +291,40 @@ if [ "$PREPARE_XCODE" = YES ]; then
+@@ -241,6 +300,129 @@ if [ "$PREPARE_XCODE" = YES ]; then
    exit 0
  fi
  
 +# DM_FRAMEWORK_ONLY: the framework target alone, unsigned (build_shell.sh's project embeds it and Xcode signs it with the shell), then the
-+# game's per-game resources into it, so one folder is one game: the shader libraries (msl/<MSLDIR> or msl/<MSLDIR>.img, msl/ the shell's DM_MSL_DIR), the pipeline
-+# archive (pso/, DM_PSO_BUNDLE) and the icon the shell's library shows. The game files and add-on content stay out (data, Documents/games/<id>/)
++# game's per-game resources into it, so one folder is one game: the pipeline archive (pso/, DM_PSO_BUNDLE) and the icon the shell's library shows.
++# The shader libraries are stripped from the framework (msl/ removed); their source metadata is recorded under .msl-cache/<id>.json.
++# The game files and add-on content stay out (data, Documents/games/<id>/)
++# Every copy into the framework is a clone of the build's own output (cp -c: on APFS the two share their blocks, on a file system without clones it is a plain copy), made under a temporary name
++# and renamed, so a failed or interrupted build leaves what was there. rsync writes a changed file anew: the executable and the pipeline archive were each a second copy on disk (LNPANDY/NX2Apple#422).
++# A file whose size and time, to the nanosecond, are its source's is left alone, as rsync left it
 +if [ -n "$FRAMEWORK_ONLY" ]; then
++  same_file() { [ -f "$2" ] && [ ! -L "$2" ] && [ "$(stat -f '%z %Fm' "$1")" = "$(stat -f '%z %Fm' "$2")" ]; }   # cp -p keeps the time to the nanosecond: a rebuild in the same second is seen
++  clone_file() { same_file "$1" "$2" || { rm -rf -- "$2.part" && cp -cp -- "$1" "$2.part" && { [ ! -d "$2" ] || rm -rf -- "$2"; } && mv -f -- "$2.part" "$2"; } || { rm -rf -- "$2.part"; return 1; }; }
++  # A folder, whole (every file a clone). The old one is set aside until the new one is in place, and comes back when the last rename fails
++  clone_tree() {
++    rm -rf -- "$2.part" "$2.old"
++    cp -cRp -- "$1" "$2.part" || { rm -rf -- "$2.part"; return 1; }
++    if [ -e "$2" ] || [ -L "$2" ]; then mv -- "$2" "$2.old" || { rm -rf -- "$2.part"; return 1; }; fi
++    if mv -- "$2.part" "$2"; then rm -rf -- "$2.old"; else rm -rf -- "$2.part"; [ ! -e "$2.old" ] || mv -- "$2.old" "$2"; return 1; fi
++  }
 +  t "xcodebuild (Release, unsigned, the game framework $FW_NAME with its own host)"
 +  mkdir -p "$O" "$FRAMEWORK_ONLY" || die "mkdir $FRAMEWORK_ONLY"
 +  xcodebuild -project DmIOS.xcodeproj -target DmShellGame -configuration Release -sdk iphoneos \
@@ -1269,20 +1907,96 @@ index 57df869..abffac3 100755
 +  [ -f "$BUILT/$FW_NAME" ] || die "no built framework $BUILT"
 +  OUTFW=$FRAMEWORK_ONLY/$FW_NAME.framework; mkdir -p "$OUTFW"
 +  t "copying resources into $FW_NAME.framework"
-+  rsync -a --delete --exclude /msl --exclude /pso --exclude /icon.png -- "$BUILT/" "$OUTFW/" || die "copy the framework to $OUTFW"
-+  # An NVN game's libraries may be the one file b-<chain>.img (dm/tools/shader_lib.py): it goes in as msl/<MSLDIR>.img, where the host reads it (nvn_mtl.m), as stage_resources.sh copies it into an app
++  rsync -a --delete --exclude /msl --exclude /pso --exclude /icon.png --exclude /AppIcon.png --exclude "/$FW_NAME" -- "$BUILT/" "$OUTFW/" || die "copy the framework to $OUTFW"
++  clone_file "$BUILT/$FW_NAME" "$OUTFW/$FW_NAME" || die "copy the framework's executable to $OUTFW"
++  rm -rf "$OUTFW/msl"
 +  LIB=$(lib_path "$MSL_IOS/$MSLDIR") || die "shader libraries $MSL_IOS/$MSLDIR"
-+  mkdir -p "$OUTFW/msl" || die "mkdir $OUTFW/msl"
-+  if [ -f "$LIB" ]; then
-+    rm -rf "$OUTFW/msl/$MSLDIR"
-+    if [ -f "$OUTFW/msl/$MSLDIR.img" ]; then rsync -a -- "$LIB" "$OUTFW/msl/$MSLDIR.img"; else cp -cp -- "$LIB" "$OUTFW/msl/$MSLDIR.img"; fi || die "copy the shader libraries"
-+  else
-+    rm -f "$OUTFW/msl/$MSLDIR.img"
-+    mkdir -p "$OUTFW/msl/$MSLDIR" && rsync -a --delete -- "$LIB/" "$OUTFW/msl/$MSLDIR/" || die "copy the shader libraries"
++  PROG_DATA=
++  if [ -n "${PROGRAMS_TSV:-}" ]; then
++    M0=$MSLDIR
++    while IFS= read -r row; do
++      prog_set "$row"
++      PLIB=$(lib_path "$MSL_IOS/$MSLDIR") || die "shader libraries $MSL_IOS/$MSLDIR"
++      PROG_DATA+="${PN}"$'\t'"${GAME}"$'\t'"${MSL_IOS}"$'\t'"${MSLDIR}"$'\t'"${GFXAPI:-nvn}"$'\t'"${PLIB}"$'\n'
++    done < <(prog_rows)
++    prog_back
++    MSLDIR=$M0
 +  fi
-+  for old in "$OUTFW/msl/"*; do case "$old" in "$OUTFW/msl/$MSLDIR"|"$OUTFW/msl/$MSLDIR.img") ;; *) rm -rf "$old";; esac; done
-+  if [ -n "$PSO" ]; then mkdir -p "$OUTFW/pso" && rsync -a --delete -- "$PSO/" "$OUTFW/pso/" || die "copy the pipeline archive"; else rm -rf "$OUTFW/pso"; fi
-+  if [ -f "$ICON" ]; then sips -s format png -z 512 512 "$ICON" --out "$OUTFW/icon.png" > /dev/null || die "sips: cannot convert the icon $ICON"; else rm -f "$OUTFW/icon.png"; fi
++  FW_GFX=${FW_GFXAPI:-${GFXAPI:-nvn}}
++  PROG_DATA="$PROG_DATA" "${DM_PYTHON:-python3}" - "$FRAMEWORK_ONLY" "$GAME" "$FW_GFX" "$MSLDIR" "$MSL_IOS" "$LIB" << 'EOF' || die "record shader metadata (.msl-cache)"
++import json, os, sys, tempfile, shutil
++
++fw_only, game, gfx_api, msldir, msl_root, lib = sys.argv[1:7]
++cache_dir = os.path.join(fw_only, '.msl-cache')
++os.makedirs(cache_dir, exist_ok=True)
++
++chain = msldir if gfx_api == 'nvn' else ''
++raw_progs = os.environ.get('PROG_DATA', '')
++lines = [l.split('\t') for l in raw_progs.splitlines() if l.strip()]
++
++if lines:
++    multi_program = True
++    stage_dir = os.path.join(cache_dir, f'{game}_multi')
++    shutil.rmtree(stage_dir, ignore_errors=True)
++    os.makedirs(stage_dir, exist_ok=True)
++    programs = []
++    for pn, p_game, p_msl_root, p_msldir, p_gfx, p_lib in lines:
++        p_chain = p_msldir if p_gfx == 'nvn' else ''
++        p_dir = os.path.join(stage_dir, f'p{pn}')
++        os.makedirs(p_dir, exist_ok=True)
++        if os.path.isfile(p_lib):
++            dst = os.path.join(p_dir, os.path.basename(p_lib))
++            if os.path.islink(dst) or os.path.exists(dst):
++                os.unlink(dst)
++            os.symlink(os.path.abspath(p_lib), dst)
++        elif os.path.isdir(p_lib):
++            sub_dir = os.path.join(p_dir, p_msldir)
++            os.makedirs(sub_dir, exist_ok=True)
++            for item in os.listdir(p_lib):
++                src_item = os.path.join(p_lib, item)
++                dst_item = os.path.join(sub_dir, item)
++                if os.path.islink(dst_item) or os.path.exists(dst_item):
++                    os.unlink(dst_item)
++                os.symlink(os.path.abspath(src_item), dst_item)
++        programs.append({
++            'program': int(pn) if pn.isdigit() else pn,
++            'title_id': p_game,
++            'gfx_api': p_gfx,
++            'chain': p_chain,
++            'msl_root': p_msl_root,
++            'lib_path': p_lib,
++        })
++    lib_path = stage_dir
++else:
++    multi_program = False
++    lib_path = lib
++    programs = []
++
++meta = {
++    'schema': 1,
++    'title_id': game,
++    'gfx_api': gfx_api,
++    'chain': chain,
++    'multi_program': multi_program,
++    'msl_root': msl_root,
++    'lib_path': lib_path,
++    'programs': programs,
++}
++
++tmp_fd, tmp_file = tempfile.mkstemp(prefix=f'{game}.json.tmp.', dir=cache_dir)
++with os.fdopen(tmp_fd, 'w', encoding='utf-8') as f:
++    json.dump(meta, f, indent=2)
++    f.write('\n')
++target_json = os.path.join(cache_dir, f'{game}.json')
++os.replace(tmp_file, target_json)
++EOF
++  if [ -n "$PSO" ]; then clone_tree "$PSO" "$OUTFW/pso" || die "copy the pipeline archive"; else rm -rf "$OUTFW/pso" "$OUTFW/pso.part" "$OUTFW/pso.old"; fi
++  if [ -f "$ICON" ]; then
++    sips -s format png -z 512 512 "$ICON" --out "$OUTFW/icon.png" > /dev/null || die "sips: cannot convert the icon $ICON"
++    cp -f "$OUTFW/icon.png" "$OUTFW/AppIcon.png" || die "cp: cannot write $OUTFW/AppIcon.png"
++  else
++    rm -f "$OUTFW/icon.png" "$OUTFW/AppIcon.png"
++  fi
 +  "${DM_PYTHON:-python3}" -c 'import json, sys; m = json.load(open(sys.argv[1])); sys.exit(m["framework_executable"] != sys.argv[2])' "$OUTFW/game.manifest.json" "$FW_NAME" \
 +    || die "$OUTFW/game.manifest.json does not name $FW_NAME"
 +  t "done: $OUTFW ($(du -sh "$OUTFW" | cut -f1); build_shell.sh embeds it in the shell)"
@@ -1292,7 +2006,7 @@ index 57df869..abffac3 100755
  t "xcodebuild (Release, unsigned, iPhone + iPad)"
  mkdir -p "$O"
  xcodebuild -project DmIOS.xcodeproj -scheme DmIOS -configuration Release -destination 'generic/platform=iOS' -derivedDataPath "$DD" \
-@@ -256,6 +340,18 @@ APP=$DD/Build/Products/Release-iphoneos/DmIOS.app
+@@ -256,6 +438,18 @@ APP=$DD/Build/Products/Release-iphoneos/DmIOS.app
  # the app sets DM_AOC_DIR at launch, the host reports them as owned and mounts them from it) and the RomFS
  rm -rf "$APP/msl" "$O/Payload"   # Payload/: what the copy-and-zip packing left behind, as was out.ipa (and its index) unless it is the IPA packed here, which a repeat pack reuses
  [ "$O/out.ipa" -ef "$OUT_IPA" ] || rm -f "$O/out.ipa"; [ "$O/out.ipa.idx" -ef "$OUT_IPA.idx" ] || rm -f "$O/out.ipa.idx"
@@ -1828,9 +2542,27 @@ index 145e025..eb2184f 100644
  if __name__ == '__main__':
      unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 0192c7c..dd56f1e 100755
+index 0192c7c..06cf01c 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
+@@ -59,7 +59,7 @@ TITLE_ID = ''                           # the game to pack when the folder holds
+ WORK_DIR = ''                           # the game's build folder (empty = <title ID>_build in the NSP folder); the extracted files, shader cache and temporary files live there, and the IPA (or app) goes beside it unless OUT_IPA names it
+ OUT_IPA = ''                            # output IPA (empty = <the profile's ipa> in the NSP folder); with PLATFORM 'mac-app' the output app (empty = <game name>.app in the NSP folder)
+ APP_NAME = ''                           # app name on the home screen (empty = the game name in the base NSP)
+-BUNDLE_ID = ''                          # the app's bundle ID (empty = saved per-game Xcode ID, else org.nxnative.<base game title ID in lowercase>)
++BUNDLE_ID = ''                          # the app's bundle ID (empty = DM_BUNDLE_ID or saved per-game Xcode ID, else org.nxnative.<base game title ID in lowercase>, with .<team ID> on single-game iOS builds when a real team is resolved)
+ ICON = ''                               # the app icon, a JPEG or PNG of any size (empty = the game's icon from its control data; a dump or NUP may have none)
+ FALLBACK_ICON = ''                      # the app icon only when ICON is empty and the game has none of its own (a dump or NUP without one); empty = such an app's icon is blank
+ ROMFS = 'bundle'                        # 'bundle' = the game files go into the IPA (or the Xcode app), as always; 'separate' = they stay out (DM_COPY_ROMFS=NO): the IPA is small, and its rebuilds do not pack or send the RomFS again.
+@@ -70,7 +70,7 @@ PREPARE_XCODE = False                   # prepare a per-game Xcode project and a
+ PLATFORM = 'ios'                        # 'ios' = the IPA (or the Xcode project); 'mac-app' = a double-clickable Mac app of the game; 'mac' = development: build only what running the game on this Mac needs (Mac shaders, the Mac host), no iOS shaders,
+                                         #   Xcode project or IPA; keeps the extracted files and prints the command that runs the game (needs Apple silicon)
+ MAC_SIGN = ''                            # PLATFORM 'mac-app': the codesign identity for the app, e.g. 'Developer ID Application: <name> (<team>)' (empty = ad-hoc); never with the hardened runtime
+-TEAM_ID = ''                            # optional Apple team ID; empty = DM_TEAM_ID environment, saved Xcode selection, or select in Xcode
++TEAM_ID = ''                            # optional Apple team ID (empty = DM_TEAM_ID environment, saved Xcode selection, sole local Apple Development cert on Xcode prepare, or select in Xcode)
+ XCODE_WORKSPACE = ''                    # shared .xcworkspace (empty = NxNative.xcworkspace beside the game's NSP folder)
+ LANGUAGE = ''                           # game language, a code or a name: 'ja', 'fr', 'de', 'es', 'zh-Hans', 'zh-Hant', 'ko', 'Japanese', ... (empty = English); it must be one the game supports (the console line lists them);
+                                         #   DM_LANG=<code> in the app's Documents/env.txt changes it without a rebuild
 @@ -3497,60 +3497,192 @@ class PsoLines:
  
  
@@ -2054,7 +2786,14 @@ index 0192c7c..dd56f1e 100755
  
  
  def env_file_pairs(path):   # an environment file's switches (one KEY=VALUE per line, # starts a comment), read as the iOS app reads them (dm/ios/Sources/main.m)
-@@ -3826,6 +3958,10 @@ def parse_args(argv):
+@@ -3820,12 +3952,16 @@ def parse_args(argv):
+     ap.add_argument('-p', '--package', help='version packed into the IPA, e.g. v327680 / v0 (default: the newest in the folder)')
+     ap.add_argument('-o', '--out', help='output IPA, or app with --platform mac-app (default: <the profile\'s ipa>, or <game name>.app, in the NSP folder)')
+     ap.add_argument('--app-name', help='app name on the home screen (default: the game name in the base NSP)')
+-    ap.add_argument('--bundle-id', help='the app\'s bundle ID (default: saved Xcode ID when preparing again, else org.nxnative.<base game title ID in lowercase>)')
++    ap.add_argument('--bundle-id', help='the app\'s bundle ID (default: DM_BUNDLE_ID or saved Xcode ID when preparing again, else org.nxnative.<base game title ID in lowercase>, with .<team ID> on single-game iOS builds when a real team is resolved)')
+     ap.add_argument('--romfs', choices=('bundle', 'separate'), help='bundle = the game files go into the IPA (default: the ROMFS setting, bundle); separate = they stay out of the IPA and the Xcode app: the build is small and fast, and the RomFS image '
+                     'is copied to the phone once per game version with the scripts/push_romfs.sh command printed at the end (the app refuses an image of another version)')
      ap.add_argument('--shader-files', action=argparse.BooleanOptionalAction, help='an NVN game\'s shader library goes into the IPA as its separate files, not as one file, for install tools that cannot copy '
                      'a large file (AltServer: 2 GiB; the game files then need --romfs separate too) (default: the SHADER_FILES setting, off)')
      ap.add_argument('--prepare-xcode', action='store_true', help='prepare a per-game Xcode project and add it to the shared workspace instead of packing an IPA (requires keeping extracted files)')
@@ -2065,7 +2804,106 @@ index 0192c7c..dd56f1e 100755
      ap.add_argument('--platform', choices=('ios', 'mac', 'mac-app'), help='ios = the IPA (or the Xcode project); mac = for development: build only what running the game on this Mac needs (the Mac shaders and the Mac host, '
                      'no iOS shaders, Xcode project or IPA), keep the extracted files and print the command that runs the game; mac-app = what mac builds, then a self-contained, double-clickable '
                      'Mac app of the game (default: <game name>.app in the NSP folder, -o names another) (default: the PLATFORM setting, ios)')
-@@ -4074,6 +4210,11 @@ def _main(args, cleanup):
+@@ -3833,7 +3969,7 @@ def parse_args(argv):
+     ap.add_argument('--fallback-icon', help='the app icon only when --icon / ICON is not given and the game has none of its own (a dump or NUP without one), a JPEG or PNG of any size: a game with its own icon '
+                     'keeps it, so a front end can pass a stand-in without knowing what the game carries (default: the FALLBACK_ICON setting, else such an app\'s icon is blank)')
+     ap.add_argument('--mac-sign', help='--platform mac-app: the codesign identity for the app, e.g. "Developer ID Application: <name> (<team>)" (default: the MAC_SIGN setting, else ad-hoc)')
+-    ap.add_argument('--team-id', help='Apple developer team ID (default: TEAM_ID setting, DM_TEAM_ID environment, or saved Xcode selection)')
++    ap.add_argument('--team-id', help='Apple developer team ID (default: TEAM_ID setting, DM_TEAM_ID environment, saved Xcode selection, or sole local Apple Development cert when preparing Xcode)')
+     ap.add_argument('--xcode-workspace', help='workspace collecting prepared games (default: NxNative.xcworkspace beside the NSP folder; use with --prepare-xcode)')
+     ap.add_argument('-l', '--language', help='game language, a code or a name: ja, fr, de, es, it, nl, pt, ru, ko, zh-Hans, zh-Hant, en-GB, fr-CA, es-419, pt-BR, pl, th, Japanese, ... (default: the LANGUAGE setting, else English); '
+                     'it must be one the game supports, which the console lists')
+@@ -3871,6 +4007,89 @@ def parse_args(argv):
+     return ap.parse_args(argv)
+ 
+ 
++def real_team_id(value):
++    """Return a non-placeholder Apple team ID, or empty string for unset or 0000000000."""
++    team = (value or '').strip()
++    return team if team and team != '0000000000' else ''
++
++
++def detect_development_team(timeout=5):
++    """Return the sole Apple Development / iPhone Developer OU team ID from Keychain, else empty string."""
++    try:
++        listed = subprocess.run(
++            ['/usr/bin/security', 'find-identity', '-v', '-p', 'codesigning'],
++            capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=timeout,
++        )
++    except (OSError, subprocess.SubprocessError):
++        return ''
++    if listed.returncode != 0:
++        return ''
++    identities, seen = [], set()
++    for line in listed.stdout.splitlines():
++        open_q, close_q = line.find('"'), line.rfind('"')
++        if open_q == -1 or close_q <= open_q:
++            continue
++        name = line[open_q + 1:close_q]
++        if (name.startswith('Apple Development:') or name.startswith('iPhone Developer:')) and name not in seen:
++            seen.add(name)
++            identities.append(name)
++    if not identities:
++        return ''
++    teams = set()
++    for identity in identities:
++        try:
++            cert = subprocess.run(
++                ['/usr/bin/security', 'find-certificate', '-c', identity, '-p'],
++                capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=timeout,
++            )
++            if cert.returncode != 0 or not cert.stdout:
++                return ''
++            subj = subprocess.run(
++                ['/usr/bin/openssl', 'x509', '-noout', '-subject'],
++                input=cert.stdout, capture_output=True, text=True, timeout=timeout,
++            )
++        except (OSError, subprocess.SubprocessError):
++            return ''
++        if subj.returncode != 0:
++            return ''
++        match = re.search(r'(?:^|[,/\s])OU\s*=\s*([A-Z0-9]{10})(?=$|[,/\s])', subj.stdout)
++        if not match:
++            return ''
++        teams.add(match.group(1))
++        if len(teams) > 1:
++            return ''
++    return next(iter(teams)) if len(teams) == 1 else ''
++
++
++def resolve_team_id(args, env, saved_signing, prepare_xcode):
++    """Resolve the Apple team ID from explicit/saved sources or a sole local development cert."""
++    explicit = next((t for t in map(real_team_id, (args.team_id, TEAM_ID, env.get('DM_TEAM_ID'), saved_signing.get('DEVELOPMENT_TEAM'))) if t), '')
++    if explicit:
++        return explicit
++    if prepare_xcode and sys.platform == 'darwin':
++        detected = detect_development_team()
++        if detected:
++            return detected
++    return '0000000000'
++
++
++def resolve_bundle_id(app, args, env, saved_signing, team_id, *, mac=False, shell_fw=None):
++    """Resolve the app bundle ID, appending .<team_id> only for default single-game iOS builds with a real team."""
++    default_id = f'org.nxnative.{app:016x}'
++    explicit = (args.bundle_id or BUNDLE_ID or env.get('DM_BUNDLE_ID') or '').strip()
++    if explicit:
++        return explicit
++    if mac or shell_fw:
++        return default_id
++    saved = (saved_signing.get('PRODUCT_BUNDLE_IDENTIFIER') or '').strip()
++    if saved and saved.lower() != default_id:
++        return saved
++    real_team = real_team_id(team_id)
++    if real_team:
++        return f'{default_id}.{real_team}'
++    return default_id
++
++
+ def icon_file(value, option):
+     """The image an icon option or setting names, None when it is empty. Checked when the build starts, not after the extraction: build_ipa.sh would only log a missing one"""
+     if not value: return None
+@@ -4074,6 +4293,11 @@ def _main(args, cleanup):
      if args.mac_sign and not mac_pack: raise BuildError('--mac-sign signs the Mac app: it needs --platform mac-app')
      if args.prebake and not mac_pack: raise BuildError('--prebake makes the Mac app\'s prewarm pipelines: it needs --platform mac-app')
      if mac and prepare_xcode: raise BuildError(f'--prepare-xcode makes an iPhone project: it cannot be combined with --platform {platform}')
@@ -2077,7 +2915,18 @@ index 0192c7c..dd56f1e 100755
      if mac and not apple_silicon(): raise BuildError(f'--platform {platform} runs the game in the Mac host, which runs the game\'s own arm64 code natively: it needs a Mac with Apple silicon, and this Mac has an Intel processor')
      check_native_python()
      keep = KEEP_EXTRACTED if args.keep_extracted is None else args.keep_extracted
-@@ -4425,6 +4566,7 @@ def _main(args, cleanup):
+@@ -4264,8 +4488,8 @@ def _main(args, cleanup):
+     # the app name comes from the packed version's control data, else the base's, and the bundle ID from the title ID; a setting / the command line overrides them
+     app_name = args.app_name or APP_NAME or nacp.name(game / 'control.nacp') or nacp.name(base / 'control.nacp') or (g.get('name') if dump else '')   # a dump or NUP may have no NACP
+     if not app_name and not (mac and not mac_pack): raise BuildError(f'no game name in the base extraction ({base / "control.nacp"}; an older extraction did not save it: delete extract/ and run again, or give --app-name)')
+-    bundle_id = args.bundle_id or BUNDLE_ID or saved_signing.get('PRODUCT_BUNDLE_IDENTIFIER') or f'org.nxnative.{app:016x}'
+-    team_id = args.team_id or TEAM_ID or env.get('DM_TEAM_ID') or saved_signing.get('DEVELOPMENT_TEAM') or '0000000000'
++    team_id = resolve_team_id(args, env, saved_signing, prepare_xcode)
++    bundle_id = resolve_bundle_id(app, args, env, saved_signing, team_id, mac=mac, shell_fw=shell_fw)
+     if prepare_xcode:
+         try: xcode_projects.check_bundle_id(workspace, project, bundle_id)
+         except ValueError as e: raise BuildError(str(e)) from e
+@@ -4425,6 +4649,7 @@ def _main(args, cleanup):
      ipa_env = dict(env, GAME=g.id, W=str(work / 'ipa'), PATCHED=str(patched), ROMFS=str(romfs), MSL_IOS=str(ios), GFXAPI=gfx, DM_PYTHON=py, DM_DISPLAY_NAME=app_name, DM_BUNDLE_ID=bundle_id, AOC=str(aoc or ''), DM_XCODE_DERIVED_DATA=str(work / 'xcode-derived-data'), DM_TEAM_ID=team_id, DM_LANG=lang, CONTROL=str(control))
      ipa_env.pop('FONT_PY', None)
      if prepare_xcode: ipa_env['DM_XCODE_PROJECT_DIR'] = str(project.parent)
@@ -2085,7 +2934,7 @@ index 0192c7c..dd56f1e 100755
      separate = romfs_mode == 'separate'
      if separate: ipa_env['DM_COPY_ROMFS'] = 'NO'; say('game files: separate (DM_COPY_ROMFS=NO), left out of the app; the image stays at ' + str(romfs))
      if shader_files: ipa_env['DM_SHADER_FILES'] = '1'; say('shader library: its separate files (DM_SHADER_FILES=1), for install tools that cannot copy a large file')
-@@ -4445,6 +4587,19 @@ def _main(args, cleanup):
+@@ -4445,6 +4670,19 @@ def _main(args, cleanup):
          rows = [(0, g.id, patched, romfs, ios, gfx)] + [programs[n]['row'] for n in sorted(programs)]
          tsv.write_text('# program\tprofile\trewritten modules\tRomFS\tiOS shaders\tgraphics API (build_ipa.sh PROGRAMS_TSV)\n' + ''.join('\t'.join(map(str, r)) + '\n' for r in rows))
          say(f'one app holding programs {", ".join(str(r[0]) for r in rows)}')

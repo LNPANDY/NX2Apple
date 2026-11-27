@@ -1,4 +1,4 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From cc6d4fe6ca450040d92b30d3e91bdf0d52010ded Mon Sep 17 00:00:00 2001
 From: Haseenesss <Haseenesss@gmail.com>
 Date: Mon, 9 Nov 2026 09:09:09 +0900
 Subject: [PATCH] Mac app: exit at once with DM_PREFLIGHT, so a front end can

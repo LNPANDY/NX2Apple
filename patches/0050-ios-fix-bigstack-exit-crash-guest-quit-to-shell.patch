@@ -1,4 +1,4 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From f3a65481b5c9c2ba4b9714edcee7cef423c8eb1e Mon Sep 17 00:00:00 2001
 From: LNPANDY <lnp-andy@hotmail.com>
 Date: Sat, 14 Nov 2026 03:46:00 +0800
 Subject: [PATCH] ios: fix bigstack exit crash, guest quit to shell, and - + +
@@ -1219,10 +1219,10 @@ index e7b8eba..f2933a9 100644
  // "system" (the system keeps Home whatever the app asks), "app" (the app decides), "off" (the system does nothing with Home in apps),
  // "unavailable" (could not be read)
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 1a99961..c569e4f 100644
+index a9ab988..96d6ff4 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
-@@ -225,7 +225,7 @@ save-sync: $(B)/t_save_sync $(B)/t_save_sync_metadata $(B)/t_save_sync_apple
+@@ -224,7 +224,7 @@ save-sync: $(B)/t_save_sync $(B)/t_save_sync_metadata $(B)/t_save_sync_apple
  	TMPDIR="$(abspath $(B))" $(B)/t_save_sync_apple $(QUIET)
  AUDIO_INPUT_STUB = ../audio_input.c audio_input_platform_stub.c
  AUDIO_INPUT_DEPS = $(AUDIO_INPUT_STUB) ../audio_input.h

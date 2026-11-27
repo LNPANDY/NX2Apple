@@ -1,4 +1,4 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 581cf4adf149705ca35ea9b51bd99490d77a82d4 Mon Sep 17 00:00:00 2001
 From: thehobbit85 <thehobbit85@gmail.com>
 Date: Fri, 6 Nov 2026 04:21:59 -0800
 Subject: [PATCH] iOS: hide the settings gear during TV play with a controller

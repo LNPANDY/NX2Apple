@@ -1,4 +1,4 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From cf07e0cdc34eb06aa0f27962456d2c1c2992e964 Mon Sep 17 00:00:00 2001
 From: LNPANDY <lnp-andy@hotmail.com>
 Date: Mon, 9 Nov 2026 18:48:29 +0800
 Subject: [PATCH] iOS: fade out the settings gear after 3 idle seconds with a

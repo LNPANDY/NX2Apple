@@ -1,4 +1,4 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 576f10f2562d1aa7ea340f0260f0f80a87206b4b Mon Sep 17 00:00:00 2001
 From: ZhaowTao <zhaowtao@users.noreply.github.com>
 Date: Fri, 6 Nov 2026 01:01:45 +0800
 Subject: [PATCH] Shader prefetch: a launcher setting, and a profile key that
