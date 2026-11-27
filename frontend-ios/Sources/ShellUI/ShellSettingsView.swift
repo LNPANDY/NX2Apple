@@ -164,16 +164,13 @@ struct ShellSettingsView: View {
                     Text(ShellStrings.text("Games without a folder of their own save here. Choose the same iCloud Drive folder you use on your Mac."))
                 }
 
-                Section {
-                    TouchOrientationOverviewCards(store: store)
-                        .listRowInsets(EdgeInsets(top: 10, leading: 12, bottom: 6, trailing: 12))
-                    TouchArrangeRow(arranged: store.isTouchCustomized(for: .landscape) || store.isTouchCustomized(for: .portrait))
-                        .id("shs.arrange")
-                } header: {
-                    Text(ShellStrings.text("Touch controls"))
-                } footer: {
-                    Text(ShellStrings.text("Landscape and portrait layouts are configured and saved independently."))
-                }
+                TouchControlsSection(
+                    store: store,
+                    cardAccessibilityPrefix: "shellSettings.touchCard",
+                    cardTargetPrefix: "shs.touchCard",
+                    arrangeAccessibilityID: "shellSettings.arrange",
+                    arrangeTargetID: "shs.arrange"
+                )
 
                 if actions.supportsSideloadCertificate || sideloadCertificate != nil {
                     sideloadCertificateSection

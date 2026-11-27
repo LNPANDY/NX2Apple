@@ -113,6 +113,7 @@ public struct LibraryView: View {
     @State var pendingMenuAction: (() -> Void)?
     @State var retention = PanelRetention()   // a closed panel stays drawn while the sheet slides out (#664)
     @State var returnFocus: String?
+    @State var touchLayoutReturnFocus: String?
     /// The device that sent the last input, for the glyphs.
     @State var device: InputDevice = .controller(.neutral)
     /// True after a touch: the controller hints and the focus ring step back until the next controller or key press.

@@ -529,12 +529,14 @@ struct TouchLayoutEditorView: View {
 /// that opens the editor.
 struct TouchArrangeRow: View {
     var arranged: Bool
+    var accessibilityID: String = "shellSettings.arrange"
+    var targetID: String = "shs.arrange"
     @Environment(\.shellOpenTouchLayout) private var open
     var body: some View {
         Button { open?() } label: {
             HStack {
                 Label(ShellStrings.text("Touch controls"), systemImage: "hand.draw")
-                    .foregroundStyle(.primary)
+                    .labelStyle(SettingsRowLabelStyle())
                 Spacer(minLength: 8)
                 Text(ShellStrings.text(arranged ? "Your own" : "Built in"))
                     .foregroundStyle(.secondary)
@@ -545,8 +547,8 @@ struct TouchArrangeRow: View {
             }
         }
         .buttonStyle(.automatic)
-        .accessibilityIdentifier("shellSettings.arrange")
-        .shellTarget("shs.arrange") { open?() }
+        .accessibilityIdentifier(accessibilityID)
+        .shellTarget(targetID) { open?() }
     }
 }
 

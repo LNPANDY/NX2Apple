@@ -16,9 +16,11 @@ public struct ControllersView: View {
     public var onBack: () -> Void
     public var canOpenHomeButtonSettings: Bool
     public var onOpenHomeButtonSettings: () -> Void
+    public var store: ShellSettingsStore
     public init(controllers: [ControllerInfo], onBack: @escaping () -> Void = {}, padMap: PadMap = PadMap(),
                 padMerge: Bool = false, onPadMergeChange: @escaping (Bool) -> Void = { _ in },
-                canOpenHomeButtonSettings: Bool = false, onOpenHomeButtonSettings: @escaping () -> Void = {}) {
+                canOpenHomeButtonSettings: Bool = false, onOpenHomeButtonSettings: @escaping () -> Void = {},
+                store: ShellSettingsStore = .current) {
         self.padMap = padMap
         self.padMerge = padMerge
         self.onPadMergeChange = onPadMergeChange
@@ -26,6 +28,7 @@ public struct ControllersView: View {
         self.onBack = onBack
         self.canOpenHomeButtonSettings = canOpenHomeButtonSettings
         self.onOpenHomeButtonSettings = onOpenHomeButtonSettings
+        self.store = store
     }
     public var body: some View {
         ScrollViewReader { proxy in
@@ -90,6 +93,14 @@ public struct ControllersView: View {
                     Text(ShellStrings.text("Buttons"))
                 }
 
+                TouchControlsSection(
+                    store: store,
+                    cardAccessibilityPrefix: "controllers.touchCard",
+                    cardTargetPrefix: "ctl.touchCard",
+                    arrangeAccessibilityID: "controllers.touchLayout",
+                    arrangeTargetID: "ctl.touchLayout"
+                )
+
                 Section {
                     VStack(alignment: .leading, spacing: 14) {
                         hint(Image(systemName: "dpad"), ShellStrings.text("Move between controls"))
@@ -133,7 +144,7 @@ public struct ControllersView: View {
             .scrollContentBackground(.hidden)
             .background(ShellPalette.background)
             .onChange(of: focus.id) { _, id in
-                guard let id, id.hasPrefix("ctl.") else { return }
+                guard focus.visible, let id, id.hasPrefix("ctl.") else { return }
                 withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
                     proxy.scrollTo(id == "ctl.close" ? "ctl.top" : id,
                                    anchor: id == "ctl.close" ? .top : .center)
