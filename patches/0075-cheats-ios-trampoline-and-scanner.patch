@@ -4,28 +4,32 @@ Date: Sun, 22 Nov 2026 18:17:24 +0800
 Subject: [PATCH] cheats/ios: add offline trampolines, VM-driven conditional
  slots, and memory scanner
 
-Add a 16 KB writable cheat_state_page (4,096 single-byte slots + 12 KB Code Cave mirror), offline AArch64 NZCV-preserving trampoline baking and Code Cave switch-table relocation (dm/tools/cheat_bake.py wired into patch_nso.py, build_ipa_from_nsp.py, and build_ipa.sh), runtime VM-driven conditional trampoline dispatch for Opcode 8/C4/1/C0 code cheats on unjailbroken iOS, Zing 20000000/20000001 group markers, Mac memcmp deduplication with automatic original_code restoration on disable, and a safe data-only memory value scanner API.
+Add a 16 KB writable cheat_state_page (4,096 single-byte slots + 12 KB Code Cave mirror), offline AArch64 NZCV-preserving trampoline baking, Code Cave switch-table relocation, and pure-Python ARM64 static dataflow bypass safety screening (dm/tools/cheat_bake.py wired into patch_nso.py, build_ipa_from_nsp.py, and build_ipa.sh), zero-dependency public cheat fetching with user-file SHA-256 protection and bundled iOS seeding (dm/tools/cheat_fetch.py, --fetch-cheats, dm/cheats/), runtime VM-driven conditional trampoline dispatch for Opcode 8/C4/1/C0 code cheats on unjailbroken iOS, Zing 20000000/20000001 group markers, Mac memcmp deduplication with automatic original_code restoration on disable, and a safe data-only memory value scanner API.
 
 Upstream-Status: pending
-Reason: Enable zero-JIT static and conditional code cheats on iOS via 16 KB cheat_state_page trampolines, Zing sections, Mac original_code restore, and a safe data memory scanner
+Reason: Enable zero-JIT static and conditional code cheats on iOS with public cheat fetching, bundled seeding, ARM64 dataflow safety checks, and a safe data memory scanner
 Issue: none
 ---
- dm/host/dm.h                      |   28 +
- dm/host/front.h                   |   26 +
- dm/host/hle_cheats.c              |  886 +++++++++++++++-
- dm/host/hle_hid.c                 |   19 +-
- dm/host/loader.c                  |    8 +
- dm/host/tests/t_cheats.c          |  212 +++-
- dm/host/tests/t_hid.c             |   37 +
- dm/ios/tools/build_ipa.sh         |    1 +
- dm/tools/cheat_bake.py            | 1551 +++++++++++++++++++++++++++++
- dm/tools/patch_nso.py             |   89 +-
- dm/tools/tests/test_cheat_bake.py |  625 ++++++++++++
- dm/tools/tests/test_ipa_tables.py |   10 +
- scripts/build_ipa_from_nsp.py     |   32 +-
- 13 files changed, 3487 insertions(+), 37 deletions(-)
+ dm/host/dm.h                       |   28 +
+ dm/host/front.h                    |   26 +
+ dm/host/hle_cheats.c               |  888 +++++++++++-
+ dm/host/hle_hid.c                  |   19 +-
+ dm/host/loader.c                   |    8 +
+ dm/host/tests/t_cheats.c           |  216 ++-
+ dm/host/tests/t_hid.c              |   37 +
+ dm/ios/tools/build_ipa.sh          |    2 +
+ dm/tools/cheat_bake.py             | 2050 ++++++++++++++++++++++++++++
+ dm/tools/cheat_fetch.py            |  553 ++++++++
+ dm/tools/patch_nso.py              |   89 +-
+ dm/tools/tests/test_cheat_bake.py  |  728 ++++++++++
+ dm/tools/tests/test_cheat_fetch.py |  311 +++++
+ dm/tools/tests/test_ipa_tables.py  |   28 +
+ scripts/build_ipa_from_nsp.py      |  104 +-
+ 15 files changed, 5050 insertions(+), 37 deletions(-)
  create mode 100644 dm/tools/cheat_bake.py
+ create mode 100755 dm/tools/cheat_fetch.py
  create mode 100644 dm/tools/tests/test_cheat_bake.py
+ create mode 100644 dm/tools/tests/test_cheat_fetch.py
 
 diff --git a/dm/host/dm.h b/dm/host/dm.h
 index 5132d84..c25774a 100644
@@ -108,7 +112,7 @@ index 3aadb3e..f7a9ec4 100644
 +int dm_cheat_scan_append_cheat(const char *name, uint8_t region, uint64_t offset, int type, uint64_t value_raw);
 +void dm_cheat_scan_reset(void);
 diff --git a/dm/host/hle_cheats.c b/dm/host/hle_cheats.c
-index 7c9653e..2bf9702 100644
+index 7c9653e..f7e37b9 100644
 --- a/dm/host/hle_cheats.c
 +++ b/dm/host/hle_cheats.c
 @@ -70,6 +70,7 @@
@@ -128,7 +132,7 @@ index 7c9653e..2bf9702 100644
  } cheat_t;
  
  static cheat_t g_cheat[CHEAT_MAX]; static int g_ncheat;
-@@ -532,6 +535,526 @@ static void changed_load(void) { dm_changed_load(&g_changed_tbl, g_main_mod, dm_
+@@ -532,6 +535,528 @@ static void changed_load(void) { dm_changed_load(&g_changed_tbl, g_main_mod, dm_
  // Data is written through the alias too when there is one, else directly (those pages are read + write). The checks
  // run in a dry run too (main_write_check, before the description), so the preview says the write would stop the cheat
  static uint64_t main_rx_end(void) { static long pg; if (!pg) pg = getpagesize(); return (g_main_mod->text_end + pg - 1) & ~(uint64_t)(pg - 1); }
@@ -372,13 +376,15 @@ index 7c9653e..2bf9702 100644
 +        uint64_t kmask = strtoull(fld[8], NULL, 0);
 +        uint8_t bkind = !strcmp(kind, "baked_static") ? DM_CHEAT_BAKED_STATIC
 +                      : !strcmp(kind, "baked_conditional") ? DM_CHEAT_BAKED_CONDITIONAL
-+                      : !strcmp(kind, "unbaked_code") ? DM_CHEAT_BAKED_UNBAKED : DM_CHEAT_BAKED_NONE;
++                      : (!strcmp(kind, "unbaked_code") || !strcmp(kind, "unsafe_code")) ? DM_CHEAT_BAKED_UNBAKED : DM_CHEAT_BAKED_NONE;
 +        if (!strcmp(rtype, "entry")) {
 +            for (int i = 0; i < g_ncheat; i++) {
 +                char k[NAME_MAX + 16]; cheat_key(&g_cheat[i], k, sizeof k);
 +                if (!strcmp(k, ckey)) {
 +                    g_cheat[i].baked_kind = bkind;
 +                    if (kmask) g_cheat[i].key_mask |= kmask;
++                    if (!strcmp(kind, "unsafe_code") && !g_cheat[i].why[0] && detail[0])
++                        snprintf(g_cheat[i].why, sizeof g_cheat[i].why, " (%s)", detail);
 +                    break;
 +                }
 +            }
@@ -655,7 +661,7 @@ index 7c9653e..2bf9702 100644
  static int main_write_check(cheat_t *c, uint64_t addr, uint64_t len) {
      module_t *m = g_main_mod; uint64_t off = addr - (uint64_t)(uintptr_t)m->base;
      if (off + len > m->key_page_off) {
-@@ -553,11 +1076,17 @@ static int main_write_check(cheat_t *c, uint64_t addr, uint64_t len) {
+@@ -553,11 +1078,17 @@ static int main_write_check(cheat_t *c, uint64_t addr, uint64_t len) {
      }
      return 0;
  }
@@ -676,7 +682,7 @@ index 7c9653e..2bf9702 100644
  }
  
  // Read len bytes at a guest address without any consequence for a cheat: 0 and the value, or -1 when unmapped (the dry run
-@@ -614,7 +1143,11 @@ static void cheat_write(cheat_t *c, uint64_t addr, uint64_t len, uint64_t val) {
+@@ -614,7 +1145,11 @@ static void cheat_write(cheat_t *c, uint64_t addr, uint64_t len, uint64_t val) {
              return;
          }
      }
@@ -689,7 +695,7 @@ index 7c9653e..2bf9702 100644
      if (g_dry) {
          char where[48], now[48], new_[48]; uint64_t cur = 0;
          addr_name(addr, where, sizeof where);
-@@ -628,7 +1161,7 @@ static void cheat_write(cheat_t *c, uint64_t addr, uint64_t len, uint64_t val) {
+@@ -628,7 +1163,7 @@ static void cheat_write(cheat_t *c, uint64_t addr, uint64_t len, uint64_t val) {
                                   w.kind == WH_MAIN ? "main NSO" : w.kind == WH_HEAP ? "heap" : w.kind == WH_MODULE ? w.mod->name : "guest page");
      int bad = 0;
      switch (w.kind) {
@@ -698,7 +704,7 @@ index 7c9653e..2bf9702 100644
          // The heap write happens under the memory lock (dm_guest_heap_write), so a concurrent SetHeapSize cannot shrink it
          // out from under the copy; it only refuses if the span shrank since the check a moment ago: a failed access as ever
          case WH_HEAP: bad = dm_guest_heap_write(addr, &val, len) != 0; break;
-@@ -982,6 +1515,10 @@ static void cheats_pass(void) {
+@@ -982,6 +1517,10 @@ static void cheats_pass(void) {
      if (!atomic_load(&g_master)) { pthread_mutex_unlock(&g_lock); return; }   // switched off while this pass waited for the lock
      int fired = 0, ran = 0;
      g_held = dm_cheats_keys();
@@ -709,7 +715,7 @@ index 7c9653e..2bf9702 100644
      memset(g_reg, 0, sizeof g_reg); memset(g_saved, 0, sizeof g_saved);   // the reference's once-per-pass ResetState (the loop tops: per cheat, in vm_run)
      for (int half = 0; half < 2; half++) for (int i = 0; i < g_ncheat; i++) {
          cheat_t *c = &g_cheat[i];
-@@ -991,6 +1528,7 @@ static void cheats_pass(void) {
+@@ -991,6 +1530,7 @@ static void cheats_pass(void) {
          note_settle(c);
          if ((c->once || c->restore_once) && half) { c->on = 0; c->restore_once = 0; fired = 1; }
      }
@@ -717,7 +723,7 @@ index 7c9653e..2bf9702 100644
      if (ran) g_keyold = g_held;
      if (fired) states_save();   // the file writes themselves leave on the files queue: the presenting thread never waits for the disk
      pthread_mutex_unlock(&g_lock);
-@@ -1380,6 +1918,24 @@ static int section_marker(const char *name, char *sec, size_t n) {
+@@ -1380,6 +1920,24 @@ static int section_marker(const char *name, char *sec, size_t n) {
      return kind;
  }
  
@@ -742,7 +748,7 @@ index 7c9653e..2bf9702 100644
  // Parse the file into the cheats array; lines other than [Name] / {Name} headers and 8-hex-digit code words
  // separated by spaces are ignored (the brief), with one [RED] line for a line whose words are code-like but not valid.
  // An entry without code words is a label (its name only: credits, or a section marker that sets the section of the
-@@ -1405,6 +1961,7 @@ static void parse_file(const char *path) {
+@@ -1405,6 +1963,7 @@ static void parse_file(const char *path) {
          if (*p == '[') end = ']';
          else if (*p == '{') end = '}';
          if (end) {   // a header starts a new cheat; the name is what lies inside
@@ -750,7 +756,7 @@ index 7c9653e..2bf9702 100644
              char *q = strchr(p, end);
              size_t nl = q && q > p ? (size_t)(q - p - 1) : 0;
              if (nl == 0 || g_ncheat >= CHEAT_MAX) {
-@@ -1479,6 +2036,7 @@ static void parse_file(const char *path) {
+@@ -1479,6 +2038,7 @@ static void parse_file(const char *path) {
          memcpy(cur->ins + cur->nins, got, sizeof(uint32_t) * (size_t)ngot);
          cur->nins += ngot;
      }
@@ -758,7 +764,7 @@ index 7c9653e..2bf9702 100644
      free(text);
      // The verdict per cheat: no code words at all is a label (the meta file may still make it a host action), unless lines
  // under it were dropped as prose (then it is broken, with the first such line named); anything
-@@ -1495,6 +2053,7 @@ static void parse_file(const char *path) {
+@@ -1495,6 +2055,7 @@ static void parse_file(const char *path) {
              ins_t in;
              int len = ins_dec(c, c->ins + a, c->nins - a, &in);
              if (len <= 0) break;   // the reason is already in c->why and c->broken is set
@@ -766,7 +772,7 @@ index 7c9653e..2bf9702 100644
              a += len;
          }
      }
-@@ -1714,6 +2273,8 @@ static void sources_scan(void) {
+@@ -1714,6 +2275,8 @@ static void sources_scan(void) {
  // (Re)load: choose the file, note the other builds, parse, read the meta file and the values, link pairs, restore the
  // states, build the report. Called at init and from "Reload cheats" (safe mode and the master switch stay as they are)
  static void load_all(void) {
@@ -775,7 +781,7 @@ index 7c9653e..2bf9702 100644
      g_ncheat = 0; g_ncand = 0; g_nothers = 0; g_path[0] = 0; g_nskip = 0; g_have_meta = 0;
      g_junk = g_junk_line = g_glued = 0; g_carried[0] = 0; g_version[0] = 0; g_meta_src[0] = 0;
      memset(g_static, 0, sizeof g_static);   // the reference clears its static registers when it loads cheats
-@@ -1774,6 +2335,8 @@ static void load_all(void) {
+@@ -1774,6 +2337,8 @@ static void load_all(void) {
      pairs_link();
      values_load();
      states_load();
@@ -784,7 +790,7 @@ index 7c9653e..2bf9702 100644
      // the summary: masters are always on, a broken / empty cheat never runs, the rest keep the menu's saved state
      int on = 0, bad = 0, masters = 0, labels = 0;
      for (int i = 0; i < g_ncheat; i++) {
-@@ -1858,6 +2421,25 @@ void dm_cheats_teardown(void) {
+@@ -1858,6 +2423,25 @@ void dm_cheats_teardown(void) {
          g_tick_started = 0;
      }
      files_drain();
@@ -810,7 +816,7 @@ index 7c9653e..2bf9702 100644
  }
  
  // ---------- the Mac cheats menu and panel (callers: front_mac.m; nothing else uses these) ----------
-@@ -1933,7 +2515,10 @@ void dm_cheat_toggle(int i) {
+@@ -1933,7 +2517,10 @@ void dm_cheat_toggle(int i) {
              cheat_t *p = &g_cheat[c->pair];
              if (!c->pair_off) { if (!p->broken && !p->dead) { p->on = (uint8_t)!now; p->restore_once = (uint8_t)!now; } }
              else if (now) p->on = 0;
@@ -821,7 +827,7 @@ index 7c9653e..2bf9702 100644
          states_save();
      }
      pthread_mutex_unlock(&g_lock);
-@@ -2035,6 +2620,8 @@ int dm_cheats_master(void) { return atomic_load(&g_master); }
+@@ -2035,6 +2622,8 @@ int dm_cheats_master(void) { return atomic_load(&g_master); }
  void dm_cheats_master_set(int on) {
      pthread_mutex_lock(&g_lock);
      atomic_store(&g_master, !!on);
@@ -830,7 +836,7 @@ index 7c9653e..2bf9702 100644
      if (g_dir[0]) {
          char p[1100]; flag_file(p, sizeof p, "off");
          if (on) unlink(p);
-@@ -2054,6 +2641,7 @@ void dm_cheats_safe_restore(void) {
+@@ -2054,6 +2643,7 @@ void dm_cheats_safe_restore(void) {
      if (g_safe) {
          g_safe = 0;
          states_load();
@@ -838,7 +844,7 @@ index 7c9653e..2bf9702 100644
          report_build();
          running_update();
      }
-@@ -2071,3 +2659,291 @@ const char *dm_cheats_skipped_why(int i) { return i >= 0 && i < g_nskip ? g_skip
+@@ -2071,3 +2661,291 @@ const char *dm_cheats_skipped_why(int i) { return i >= 0 && i < g_nskip ? g_skip
  int dm_cheats_nsources(void) { return g_nsrc; }
  
  const char *dm_cheats_source(int i) { return i >= 0 && i < g_nsrc ? g_src[i] : ""; }
@@ -1196,7 +1202,7 @@ index 8147ea4..0098806 100644
  
  static void register_gates(module_t *m, const char *dir) {
 diff --git a/dm/host/tests/t_cheats.c b/dm/host/tests/t_cheats.c
-index e52c024..5c08d60 100644
+index e52c024..d5a879a 100644
 --- a/dm/host/tests/t_cheats.c
 +++ b/dm/host/tests/t_cheats.c
 @@ -46,7 +46,7 @@ const char *dm_module_dir(void) { return moddir; }
@@ -1217,7 +1223,7 @@ index e52c024..5c08d60 100644
      snprintf(m->build_id, sizeof m->build_id, "1111111111111111aaaaaaaaaaaaaaaa");
      module_t *s = &g_mod[1];   // the second module's layout is the fixups header's: the engine writes only from data_off on, never the key page
      snprintf(s->name, sizeof s->name, "sdk"); s->base = sdk; s->size = SDK; s->text_end = 0x1000; s->ro_off = 0x1000; s->data_off = 0x2000;
-@@ -652,11 +652,219 @@ int main(void) {
+@@ -652,11 +652,223 @@ int main(void) {
      load_all();
      CHECK(strstr(dm_cheats_report(), "1 cheats over 0x100 words") != NULL, "the report names a cheat over Atmosphère's 0x100 words");
  
@@ -1270,6 +1276,7 @@ index e52c024..5c08d60 100644
 +                "entry\tStandaloneRestore\tStandaloneRestore\tbaked_static\t-1\t0x0\t0x140\t0x91000400\t0x0\t\n"
 +                "entry\tNoopRestore\tNoopRestore\tbaked_static\t-1\t0x0\t0x170\t0x91000800\t0x0\t\n"
 +                "entry\tCaveMirror\tCaveMirror\tbaked_static\t-1\t0x0\t0x2000\t0x12345678\t0x0\t\n"
++                "entry\tUnsafeCode\tUnsafeCode\tunsafe_code\t-1\t0x0\t0x184\t0xaa0203f8\t0x0\tdataflow_bypass: x24 read at +0x194 bypassed def at +0x184\n"
 +                "site\tStaticCode\tStaticCode\tbaked_static\t0\t0x1\t0x140\t0xd503201f\t0x0\torig=0x91000400\n"
 +                "site\tKeyJump\tKeyJump\tbaked_conditional\t1\t0x1\t0x144\t0x52800020\t0x202\torig=0x91000400\n"
 +                "site\tMemCond\tMemCond\tbaked_conditional\t2\t0x2\t0x148\t0x52800040\t0x0\torig=0x91000400\n"
@@ -1291,7 +1298,8 @@ index e52c024..5c08d60 100644
 +              "[NoopRestore]\n04000000 00000170 91000800\n"
 +              "[BadRestore]\n04000000 00000140 12345678\n"
 +              "[CaveMirror]\n04000000 00002000 12345678\n"
-+              "[UnbakedCode]\n04000000 00000180 D503201F\n");
++              "[UnbakedCode]\n04000000 00000180 D503201F\n"
++              "[UnsafeCode]\n04000000 00000184 AA0203F8\n");
 +        uint8_t *saved_alias = g_alias;
 +        load_all();
 +        // Overwrite live .text at 0x160 with a dummy B trampoline word to prove narrow writes use baked orig_word, never live .text!
@@ -1303,7 +1311,9 @@ index e52c024..5c08d60 100644
 +        CHECK(dm_cheats_baked_slots() == 5 && rd32(0x11000) == 0xDEADBEEF, "baked trampolines load slot count and initialize cave mirror bytes");
 +        CHECK(dm_cheat_baked_kind_at(at("StaticCode", 0)) == DM_CHEAT_BAKED_STATIC &&
 +              dm_cheat_baked_kind_at(at("KeyJump", 0)) == DM_CHEAT_BAKED_CONDITIONAL &&
-+              dm_cheat_key_mask_at(at("KeyJump", 0)) == 0x202, "baked_kind and Opcode 8 key_mask metadata are exposed");
++              dm_cheat_baked_kind_at(at("UnsafeCode", 0)) == DM_CHEAT_BAKED_UNBAKED &&
++              strstr(dm_cheat_why_at(at("UnsafeCode", 0)), "dataflow_bypass: x24") != NULL &&
++              dm_cheat_key_mask_at(at("KeyJump", 0)) == 0x202, "baked_kind, unsafe_code detail, and Opcode 8 key_mask metadata are exposed");
 +
 +        // MasterCave (hook + 8-byte cave_code write + mirror write) runs cleanly on iOS without cheat_kill!
 +        int mcave = at("MasterCave", 0);
@@ -1493,23 +1503,24 @@ index 5961bd9..3a92260 100644
      return fails != 0;
  }
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index fb87c0b..6391ef4 100755
+index fb87c0b..fd7aef5 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
-@@ -173,6 +173,7 @@ echo "OTHER_LDFLAGS = \$(inherited) \$(DM_FRAMEWORKS) $F" >> Gen/dm.xcconfig
+@@ -173,6 +173,8 @@ echo "OTHER_LDFLAGS = \$(inherited) \$(DM_FRAMEWORKS) $F" >> Gen/dm.xcconfig
  # One program's tables into TD: the rewriter's, the shader tables and the launcher's settings
  program_tables() {
  cp "$PATCHED"/*.fixups.tsv "$PATCHED"/*.gates.tsv "$PATCHED"/*.cuts.tsv "$PATCHED"/*.obs.tsv $TD/ || die "copy rewriter tables"
++if [ -d "$PATCHED/cheats" ]; then rm -rf "$TD/cheats" && mkdir -p "$TD/cheats" && cp -R "$PATCHED/cheats/." "$TD/cheats/" || die "copy bundled cheats"; fi   # optional bundled <BID>.txt and .cheats-fetch.json for automatic iOS seeding
 +if [ -f "$PATCHED/cheat_trampolines.tsv" ]; then cp "$PATCHED/cheat_trampolines.tsv" $TD/ || die "copy cheat_trampolines.tsv"; fi   # optional offline-baked iOS cheat trampolines and metadata
  if [ -f "$PATCHED/nro.tsv" ]; then cp "$PATCHED/nro.tsv" $TD/ || die "copy the NRO table"; fi   # the NRO modules the game loads with nn::ro (hle_ro.c), embedded by gen_embed.py
  if [ "$GFXAPI" = vulkan ] || [ "$GFXAPI" = gl ]; then cp "$GD/shader_map.tsv" $TD/ || die "copy shader tables"   # empty NVN table: the NVN layer draws nothing
  else cp "$GD/shader_map.tsv" "$GD/c1_full.tsv" $TD/ || die "copy shader tables"
 diff --git a/dm/tools/cheat_bake.py b/dm/tools/cheat_bake.py
 new file mode 100644
-index 0000000..97ede1a
+index 0000000..4193cb5
 --- /dev/null
 +++ b/dm/tools/cheat_bake.py
-@@ -0,0 +1,1551 @@
+@@ -0,0 +1,2050 @@
 +"""Offline Atmosphère cheat trampoline baker and Code Cave switch-table relocator.
 +
 +Used by dm/tools/patch_nso.py when baking cheats into main so unjailbroken iOS
@@ -1638,7 +1649,7 @@ index 0000000..97ede1a
 +    has_dynamic_text_write: bool = False
 +    has_non_main_write: bool = False
 +    key_mask: int = 0
-+    kind: str = 'data'  # data | baked_static | baked_conditional | unbaked_code
++    kind: str = 'data'  # data | baked_static | baked_conditional | unbaked_code | unsafe_code
 +    detail: str = ''
 +
 +
@@ -2280,6 +2291,498 @@ index 0000000..97ede1a
 +    return word == 0x00000000
 +
 +
++# ---- Pure-Python zero-dependency AArch64 dataflow bypass safety analyzer ----
++
++@dataclass
++class A64Insn:
++    reads: set[int] = field(default_factory=set)   # 0..30 = x0..x30, 32..63 = v0..v31
++    writes: set[int] = field(default_factory=set)
++    branch_target: int | None = None
++    is_uncond_jump: bool = False
++    is_cond_branch: bool = False
++    is_return: bool = False
++    is_call: bool = False
++    unknown: bool = False
++
++
++def _gpr_zr(reg: int) -> set[int]:
++    return {reg} if 0 <= reg < 31 else set()
++
++
++def _gpr_sp(reg: int) -> set[int]:
++    return {reg} if 0 <= reg < 31 else set()
++
++
++def _reg_label(reg: int) -> str:
++    return f'x{reg}' if reg < 32 else f'v{reg - 32}'
++
++
++def decode_arm64_insn(word: int, pc: int) -> A64Insn:
++    """Decode register reads/writes and control-flow edges of common AArch64 instructions without Capstone."""
++    w = word & 0xFFFFFFFF
++
++    # Unconditional B / BL imm26
++    if (w & 0x7C000000) == 0x14000000:
++        tgt = pc + _sext(w & 0x3FFFFFF, 26) * 4
++        if (w >> 31) & 1:  # BL: clobbers caller-saved x0..x17, x30 and may read arg regs x0..x7
++            return A64Insn(
++                reads=set(range(8)),
++                writes=set(range(18)) | {30},
++                is_call=True,
++            )
++        return A64Insn(branch_target=tgt, is_uncond_jump=True)
++
++    # Conditional B.cond imm19
++    if (w & 0xFF000010) == 0x54000000:
++        tgt = pc + _sext((w >> 5) & 0x7FFFF, 19) * 4
++        cond = w & 0xF
++        if cond in (0xE, 0xF):  # B.AL / B.NV
++            return A64Insn(branch_target=tgt, is_uncond_jump=True)
++        return A64Insn(branch_target=tgt, is_cond_branch=True)
++
++    # CBZ / CBNZ Rt, imm19
++    if (w & 0x7E000000) == 0x34000000:
++        rt = w & 0x1F
++        tgt = pc + _sext((w >> 5) & 0x7FFFF, 19) * 4
++        return A64Insn(reads=_gpr_zr(rt), branch_target=tgt, is_cond_branch=True)
++
++    # TBZ / TBNZ Rt, #bit, imm14
++    if (w & 0x7E000000) == 0x36000000:
++        rt = w & 0x1F
++        tgt = pc + _sext((w >> 5) & 0x3FFF, 14) * 4
++        return A64Insn(reads=_gpr_zr(rt), branch_target=tgt, is_cond_branch=True)
++
++    # Unconditional register branch / call / return
++    if (w & 0xFFFFFC1F) == 0xD61F0000:  # BR Xn
++        return A64Insn(reads=_gpr_zr((w >> 5) & 0x1F), is_uncond_jump=True)
++    if (w & 0xFFFFFC1F) == 0xD63F0000:  # BLR Xn
++        return A64Insn(
++            reads=_gpr_zr((w >> 5) & 0x1F) | set(range(8)),
++            writes=set(range(18)) | {30},
++            is_call=True,
++        )
++    if (w & 0xFFFFFC1F) == 0xD65F0000:  # RET [Xn]
++        return A64Insn(reads=_gpr_zr((w >> 5) & 0x1F), is_return=True, is_uncond_jump=True)
++    if w in (0xD65F0BFF, 0xD65F0FFF):  # RETAA / RETAB
++        return A64Insn(reads={30}, is_return=True, is_uncond_jump=True)
++
++    # Hints / NOP / barriers
++    if (w & 0xFFFFF01F) == 0xD503201F or (w & 0xFFFFF01F) == 0xD503301F:
++        return A64Insn()
++
++    # UDF / BRK / HLT traps (do not fall through)
++    if (w & 0xFFFF0000) == 0x00000000 or (w & 0xFFE0001F) in (0xD4200000, 0xD4400000):
++        return A64Insn(is_uncond_jump=True)
++
++    # ADR / ADRP Xd, label
++    if (w & 0x1F000000) == 0x10000000:
++        return A64Insn(writes=_gpr_zr(w & 0x1F))
++
++    # ADD / ADDS / SUB / SUBS (immediate)
++    if (w & 0x1F800000) == 0x11000000:
++        rn = (w >> 5) & 0x1F
++        rd = w & 0x1F
++        return A64Insn(reads=_gpr_sp(rn), writes=_gpr_zr(rd))
++
++    # AND / ORR / EOR / ANDS (immediate, incl. MOV bitmask)
++    if (w & 0x1F800000) == 0x12000000:
++        rn = (w >> 5) & 0x1F
++        rd = w & 0x1F
++        return A64Insn(reads=_gpr_zr(rn), writes=_gpr_zr(rd))
++
++    # MOVN / MOVZ / MOVK (wide immediate)
++    if (w & 0x1F800000) == 0x12800000:
++        opc = (w >> 29) & 3
++        if opc == 1:
++            return A64Insn(unknown=True)
++        rd = w & 0x1F
++        return A64Insn(reads=_gpr_zr(rd) if opc == 3 else set(), writes=_gpr_zr(rd))
++
++    # SBFM / BFM / UBFM (bitfield, incl. LSL/LSR/ASR/SXTW/UBFX/BFI)
++    if (w & 0x1F800000) == 0x13000000:
++        opc = (w >> 29) & 3
++        if opc == 3:
++            return A64Insn(unknown=True)
++        rn = (w >> 5) & 0x1F
++        rd = w & 0x1F
++        return A64Insn(reads=_gpr_zr(rn) | (_gpr_zr(rd) if opc == 1 else set()), writes=_gpr_zr(rd))
++
++    # EXTR / ROR (immediate)
++    if (w & 0x1F800000) == 0x13800000:
++        rm = (w >> 16) & 0x1F
++        rn = (w >> 5) & 0x1F
++        rd = w & 0x1F
++        return A64Insn(reads=_gpr_zr(rn) | _gpr_zr(rm), writes=_gpr_zr(rd))
++
++    # Logical (shifted register, incl. MOV Xd, Xm / MVN / TST)
++    if (w & 0x1F000000) == 0x0A000000:
++        rm = (w >> 16) & 0x1F
++        rn = (w >> 5) & 0x1F
++        rd = w & 0x1F
++        return A64Insn(reads=_gpr_zr(rn) | _gpr_zr(rm), writes=_gpr_zr(rd))
++
++    # ADD / ADDS / SUB / SUBS (shifted or extended register, incl. CMP/CMN/NEG)
++    if (w & 0x1F000000) == 0x0B000000:
++        is_ext = ((w >> 21) & 1) == 1
++        if is_ext and ((w >> 22) & 3) != 0:
++            return A64Insn(unknown=True)
++        rm = (w >> 16) & 0x1F
++        rn = (w >> 5) & 0x1F
++        rd = w & 0x1F
++        return A64Insn(reads=(_gpr_sp(rn) if is_ext else _gpr_zr(rn)) | _gpr_zr(rm), writes=_gpr_zr(rd))
++
++    # ADC / ADCS / SBC / SBCS
++    if (w & 0x1FE00000) == 0x1A000000:
++        rm = (w >> 16) & 0x1F
++        rn = (w >> 5) & 0x1F
++        rd = w & 0x1F
++        return A64Insn(reads=_gpr_zr(rn) | _gpr_zr(rm), writes=_gpr_zr(rd))
++
++    # CCMP / CCMN (register or immediate)
++    if (w & 0x1FE00810) == 0x1A400000:
++        is_imm = ((w >> 11) & 1) == 1
++        rm = (w >> 16) & 0x1F
++        rn = (w >> 5) & 0x1F
++        return A64Insn(reads=_gpr_zr(rn) | (set() if is_imm else _gpr_zr(rm)))
++
++    # CSEL / CSINC / CSINV / CSNEG (incl. CSET / CINC / CINV / CNEG)
++    if (w & 0x1FE00000) == 0x1A800000:
++        rm = (w >> 16) & 0x1F
++        rn = (w >> 5) & 0x1F
++        rd = w & 0x1F
++        cond = (w >> 12) & 0xF
++        # CSET / CSETM encode Rn=31, Rm=31 -> _gpr_zr(31) is empty.
++        _ = cond
++        return A64Insn(reads=_gpr_zr(rn) | _gpr_zr(rm), writes=_gpr_zr(rd))
++
++    # Data-processing (2 source): UDIV / SDIV / LSLV / LSRV / ASRV / RORV
++    if (w & 0x5FE00000) == 0x1AC00000:
++        rm = (w >> 16) & 0x1F
++        rn = (w >> 5) & 0x1F
++        rd = w & 0x1F
++        return A64Insn(reads=_gpr_zr(rn) | _gpr_zr(rm), writes=_gpr_zr(rd))
++
++    # Data-processing (1 source): RBIT / REV16 / REV32 / REV / CLZ / CLS
++    if (w & 0x5FE00000) == 0x5AC00000:
++        rn = (w >> 5) & 0x1F
++        rd = w & 0x1F
++        return A64Insn(reads=_gpr_zr(rn), writes=_gpr_zr(rd))
++
++    # Data-processing (3 source): MADD / MSUB / SMADDL / SMSUBL / SMULH / UMADDL / UMSUBL / UMULH
++    if (w & 0x1F000000) == 0x1B000000:
++        rm = (w >> 16) & 0x1F
++        o0 = (w >> 15) & 1
++        ra = (w >> 10) & 0x1F
++        rn = (w >> 5) & 0x1F
++        rd = w & 0x1F
++        op31 = (w >> 21) & 7
++        use_ra = not (op31 in (2, 6) and o0 == 0)
++        return A64Insn(reads=_gpr_zr(rn) | _gpr_zr(rm) | (_gpr_zr(ra) if use_ra else set()), writes=_gpr_zr(rd))
++
++    # LDR (literal, GPR & SIMD/FP)
++    if (w & 0x3B000000) == 0x18000000:
++        opc = (w >> 30) & 3
++        is_fp = ((w >> 26) & 1) == 1
++        rt = w & 0x1F
++        if not is_fp:
++            return A64Insn(writes=set() if opc == 3 else _gpr_zr(rt))
++        if opc == 3:
++            return A64Insn(unknown=True)
++        return A64Insn(writes={32 + rt})
++
++    # Load/Store Pair: LDP / STP / LDPSW / LDNP / STNP (GPR & SIMD/FP)
++    if (w & 0x3A000000) == 0x28000000:
++        is_fp = ((w >> 26) & 1) == 1
++        op2 = (w >> 23) & 3
++        is_load = ((w >> 22) & 1) == 1
++        rt2 = (w >> 10) & 0x1F
++        rn = (w >> 5) & 0x1F
++        rt = w & 0x1F
++        wback = op2 in (1, 3)
++        rds = set(_gpr_sp(rn))
++        wrs = set(_gpr_sp(rn)) if wback else set()
++        regs = {32 + rt, 32 + rt2} if is_fp else (_gpr_zr(rt) | _gpr_zr(rt2))
++        if is_load:
++            wrs |= regs
++        else:
++            rds |= regs
++        return A64Insn(reads=rds, writes=wrs)
++
++    # Load/Store Single Register (unsigned immediate, GPR & SIMD/FP)
++    if (w & 0x3B000000) == 0x39000000:
++        size = (w >> 30) & 3
++        is_fp = ((w >> 26) & 1) == 1
++        opc = (w >> 22) & 3
++        rn = (w >> 5) & 0x1F
++        rt = w & 0x1F
++        rds = set(_gpr_sp(rn))
++        wrs: set[int] = set()
++        if not is_fp:
++            if opc == 0:
++                rds |= _gpr_zr(rt)
++            elif not (size == 3 and opc == 2):  # exclude PRFM
++                wrs |= _gpr_zr(rt)
++        else:
++            if (opc & 1) == 0:  # STR B/H/S/D (opc=0) and STR Q (size=0, opc=2)
++                rds.add(32 + rt)
++            else:
++                wrs.add(32 + rt)
++        return A64Insn(reads=rds, writes=wrs)
++
++    # Load/Store Single Register (unscaled / post-index / pre-index / unpriv / register-offset)
++    if (w & 0x3B000000) == 0x38000000:
++        size = (w >> 30) & 3
++        is_fp = ((w >> 26) & 1) == 1
++        opc = (w >> 22) & 3
++        rn = (w >> 5) & 0x1F
++        rt = w & 0x1F
++        rds = set(_gpr_sp(rn))
++        wrs = set()
++        if (w & 0x00200000) == 0:
++            mode = (w >> 10) & 3
++            if mode in (1, 3):  # post-index / pre-index writeback
++                wrs |= _gpr_sp(rn)
++        elif (w & 0x00200C00) == 0x00200800:  # register offset [Xn, Xm, extend]
++            rm = (w >> 16) & 0x1F
++            rds |= _gpr_zr(rm)
++        else:
++            return A64Insn(unknown=True)
++        if not is_fp:
++            if opc == 0:
++                rds |= _gpr_zr(rt)
++            elif not (size == 3 and opc == 2):
++                wrs |= _gpr_zr(rt)
++        else:
++            if (opc & 1) == 0:
++                rds.add(32 + rt)
++            else:
++                wrs.add(32 + rt)
++        return A64Insn(reads=rds, writes=wrs)
++
++    # Scalar FP <-> Integer conversions & FMOV between GPR and FP registers
++    if (w & 0x5F200000) == 0x1E200000 and (w & 0x0000FC00) == 0x00000000:
++        rmode = (w >> 19) & 3
++        opcode = (w >> 16) & 7
++        rn = (w >> 5) & 0x1F
++        rd = w & 0x1F
++        if opcode in (2, 3) or (opcode == 7 and rmode in (0, 1)):  # GPR -> FP (SCVTF/UCVTF/FMOV Vd, Xn)
++            return A64Insn(reads=_gpr_zr(rn), writes={32 + rd})
++        if opcode in (0, 1, 4, 5) or (opcode == 6 and rmode in (0, 1)):  # FP -> GPR (FCVT*/FMOV Xd, Vn)
++            return A64Insn(reads={32 + rn}, writes=_gpr_zr(rd))
++        return A64Insn(unknown=True)
++
++    # Scalar FP immediate FMOV Sd/Dd, #imm8
++    if (w & 0x5F201FE0) == 0x1E201000:
++        return A64Insn(writes={32 + (w & 0x1F)})
++
++    # Scalar FP 1-source (FMOV Sd, Sn / FABS / FNEG / FSQRT / FCVT)
++    if (w & 0x5F207C00) == 0x1E204000:
++        return A64Insn(reads={32 + ((w >> 5) & 0x1F)}, writes={32 + (w & 0x1F)})
++
++    # Scalar FP 2-source (FMUL / FDIV / FADD / FSUB / FMAX / FMIN)
++    if (w & 0x5F200C00) == 0x1E200800:
++        return A64Insn(reads={32 + ((w >> 5) & 0x1F), 32 + ((w >> 16) & 0x1F)}, writes={32 + (w & 0x1F)})
++
++    # Scalar FP compare (FCMP / FCMPE)
++    if (w & 0x5F203C00) == 0x1E202000:
++        opc2 = w & 0x1F
++        rds = {32 + ((w >> 5) & 0x1F)}
++        if (opc2 & 8) == 0:
++            rds.add(32 + ((w >> 16) & 0x1F))
++        return A64Insn(reads=rds)
++
++    # Scalar FP conditional select (FCSEL)
++    if (w & 0x5F200C00) == 0x1E200C00:
++        return A64Insn(reads={32 + ((w >> 5) & 0x1F), 32 + ((w >> 16) & 0x1F)}, writes={32 + (w & 0x1F)})
++
++    # SIMD MOVI / EOR vD, vN, vM (common zeroing idioms)
++    if (w & 0xBFE0FC00) == 0x0F00E400:
++        return A64Insn(writes={32 + (w & 0x1F)})
++    if (w & 0xBFF89C00) == 0x0F000400:
++        rn = (w >> 5) & 0x1F
++        rm = (w >> 16) & 0x1F
++        rd = w & 0x1F
++        return A64Insn(reads=set() if rn == rm else {32 + rn, 32 + rm}, writes={32 + rd})
++
++    return A64Insn(unknown=True)
++
++
++def _orig_depends_on_reg(orig_text: bytes, start_pc: int, reg: int, limit_end: int, max_steps: int = 256) -> bool:
++    """Return True if original code starting at `start_pc` may read `reg` before overwriting it or returning."""
++    queue = [start_pc]
++    visited: set[int] = set()
++    steps = 0
++    while queue and steps < max_steps:
++        pc = queue.pop(0)
++        if pc in visited or pc < 0 or pc + 4 > limit_end:
++            continue
++        visited.add(pc)
++        steps += 1
++        w = struct.unpack_from('<I', orig_text, pc)[0]
++        ins = decode_arm64_insn(w, pc)
++        if ins.unknown:
++            return True  # Conservative: unknown instruction might read `reg`
++        if reg in ins.reads:
++            return True
++        if reg in ins.writes:
++            continue  # Killed (written before read) along this path
++        if ins.is_return:
++            # Function return: x0/x1 or v0..v3 may hold return values if live across the epilogue;
++            # scratch/callee-saved registers unread up to `ret` are not depended upon by this block.
++            if reg in (0, 1, 32, 33):
++                return True
++            continue
++        if not ins.is_uncond_jump and pc + 4 + 4 <= limit_end:
++            queue.append(pc + 4)
++        if not ins.is_call and ins.branch_target is not None and 0 <= ins.branch_target <= limit_end - 4:
++            queue.append(ins.branch_target)
++    return False
++
++
++def _can_reach_without_write(
++    start_pc: int,
++    goal_pc: int,
++    reg: int,
++    lo_pc: int,
++    hi_pc: int,
++    word_at: Callable[[int], int],
++) -> bool:
++    """Return True if control flow from `start_pc` can reach `goal_pc` within [lo_pc, hi_pc] without writing `reg`."""
++    queue = [start_pc]
++    visited: set[int] = set()
++    while queue:
++        pc = queue.pop(0)
++        if pc in visited or pc < lo_pc or pc > hi_pc:
++            continue
++        visited.add(pc)
++        if pc == goal_pc:
++            return True
++        ins = decode_arm64_insn(word_at(pc), pc)
++        if ins.unknown or reg in ins.writes:
++            continue
++        if not ins.is_uncond_jump and pc + 4 <= hi_pc:
++            queue.append(pc + 4)
++        if not ins.is_call and ins.branch_target is not None and lo_pc <= ins.branch_target <= hi_pc:
++            queue.append(ins.branch_target)
++    return False
++
++
++def check_dataflow_bypass(
++    patch_words: list[tuple[int, int]],
++    orig_text: bytes,
++    text_end: int,
++) -> str:
++    """Conservatively detect ARM64 intra-patch register def-use bypasses.
++
++    Clusters non-cave `.text` writes with adjacent gaps <= 0x20. Reports a non-empty
++    reason string (no semicolons) when a patched write at D defines register R, a
++    downstream patched write at U reads R (while original U did not read R), and
++    original control flow can enter `(D, U]` bypassing D while original code at that
++    entry does not depend on R.
++    """
++    limit_end = min(len(orig_text), text_end)
++    effective: dict[int, int] = {}
++    for off, word in patch_words:
++        if 0 <= off <= limit_end - 4 and (off & 3) == 0:
++            orig_w = struct.unpack_from('<I', orig_text, off)[0]
++            if not _is_cave_padding_word(orig_w):
++                effective[off] = word & 0xFFFFFFFF
++
++    changed_offs = sorted(off for off, w in effective.items() if w != struct.unpack_from('<I', orig_text, off)[0])
++    if len(changed_offs) < 2:
++        return ''
++
++    # Group nearby patch offsets (gap <= 0x20) into contiguous analysis clusters.
++    clusters: list[list[int]] = [[changed_offs[0]]]
++    for off in changed_offs[1:]:
++        if off - clusters[-1][-1] <= 0x20:
++            clusters[-1].append(off)
++        else:
++            clusters.append([off])
++
++    for c_offs in clusters:
++        if len(c_offs) < 2:
++            continue
++        seg_lo, seg_hi = c_offs[0], c_offs[-1]
++        pmap = {off: effective[off] for off in c_offs}
++
++        def _orig_w(pc: int) -> int:
++            return struct.unpack_from('<I', orig_text, pc)[0]
++
++        def _patched_w(pc: int) -> int:
++            return pmap.get(pc, _orig_w(pc))
++
++        win_lo = max(0, (seg_lo - 0x1000) & ~3)
++        win_hi = min((limit_end - 4) & ~3, seg_hi + 0x1000)
++
++        # Pre-scan external original branches targeting addresses inside [seg_lo, seg_hi].
++        ext_branch_targets: set[int] = set()
++        for src_pc in range(win_lo, win_hi + 4, 4):
++            if seg_lo <= src_pc <= seg_hi:
++                continue
++            orig_src = decode_arm64_insn(_orig_w(src_pc), src_pc)
++            if not orig_src.is_call and orig_src.branch_target is not None:
++                if seg_lo <= orig_src.branch_target <= seg_hi:
++                    ext_branch_targets.add(orig_src.branch_target)
++
++        top_falls_in = seg_lo == 0 or (
++            seg_lo >= 4 and not decode_arm64_insn(_patched_w(seg_lo - 4), seg_lo - 4).is_uncond_jump
++        )
++
++        for i, d_pc in enumerate(c_offs):
++            p_def = decode_arm64_insn(pmap[d_pc], d_pc)
++            if p_def.unknown or not p_def.writes:
++                continue
++            for u_pc in c_offs[i + 1:]:
++                p_use = decode_arm64_insn(pmap[u_pc], u_pc)
++                o_use = decode_arm64_insn(_orig_w(u_pc), u_pc)
++                if p_use.unknown or o_use.unknown:
++                    continue
++                for reg in sorted(p_def.writes):
++                    if reg not in p_use.reads or reg in o_use.reads:
++                        continue
++                    # Ensure D's definition actually reaches U without being overwritten in between.
++                    def_reaches_u = False
++                    if not p_def.is_uncond_jump and d_pc + 4 <= u_pc:
++                        if _can_reach_without_write(d_pc + 4, u_pc, reg, d_pc + 4, u_pc, _patched_w):
++                            def_reaches_u = True
++                    if not def_reaches_u and not p_def.is_call and p_def.branch_target is not None:
++                        if d_pc < p_def.branch_target <= u_pc:
++                            if _can_reach_without_write(p_def.branch_target, u_pc, reg, d_pc + 4, u_pc, _patched_w):
++                                def_reaches_u = True
++                    if not def_reaches_u:
++                        continue
++
++                    # Collect candidate bypass entry points in `(d_pc, u_pc]`:
++                    # 1. External branches from `< d_pc` or `> u_pc` jumping into `(d_pc, u_pc]`
++                    bypass_entries: set[int] = {t for t in ext_branch_targets if d_pc < t <= u_pc}
++                    for src_pc in range(seg_lo, seg_hi + 4, 4):
++                        if d_pc <= src_pc <= u_pc:
++                            continue
++                        p_src = decode_arm64_insn(_patched_w(src_pc), src_pc)
++                        o_src = decode_arm64_insn(_orig_w(src_pc), src_pc)
++                        if not p_src.is_call and p_src.branch_target is not None and d_pc < p_src.branch_target <= u_pc:
++                            # Either original code already branched from src_pc into (d_pc, u_pc],
++                            # or sequential fallthrough into seg_lo reaches src_pc before d_pc.
++                            if (not o_src.is_call and o_src.branch_target == p_src.branch_target) or (
++                                top_falls_in
++                                and src_pc < d_pc
++                                and _can_reach_without_write(seg_lo, src_pc, reg, seg_lo, d_pc - 4, _patched_w)
++                            ):
++                                bypass_entries.add(p_src.branch_target)
++
++                    # 2. Sequential fallthrough across `d_pc` when `d_pc` itself is only reachable by branch
++                    # (e.g., original instruction at `d_pc - 4` jumps over `d_pc` directly into `(d_pc, u_pc]`,
++                    # already captured above, or `seg_lo < d_pc` falls into `(d_pc, u_pc]` bypassing `d_pc`).
++                    for entry_pc in sorted(bypass_entries):
++                        if not _can_reach_without_write(entry_pc, u_pc, reg, d_pc + 4, u_pc, _patched_w):
++                            continue
++                        if not _orig_depends_on_reg(orig_text, entry_pc, reg, limit_end):
++                            return f'dataflow_bypass: {_reg_label(reg)} read at +0x{u_pc:x} bypassed def at +0x{d_pc:x}'
++
++    return ''
++
++
 +def _trace_cave_code(
 +    cave_words: dict[int, int],
 +    entry_points: set[int],
@@ -2645,6 +3148,13 @@ index 0000000..97ede1a
 +            ent.kind = 'unbaked_code'
 +            ent.detail = bad_reason
 +            plan.skipped.append((ent.cheat_key, bad_reason))
++            continue
++
++        bypass_reason = check_dataflow_bypass([(off, word) for off, word, _, _ in expanded], orig_text, text_end)
++        if bypass_reason:
++            ent.kind = 'unsafe_code'
++            ent.detail = bypass_reason
++            plan.skipped.append((ent.cheat_key, bypass_reason))
 +            continue
 +
 +        entry_words[ent.cheat_key] = expanded
@@ -3061,6 +3571,565 @@ index 0000000..97ede1a
 +            emit_fn(LDR_X_POST(16, 31, 16))
 +        emit_fn(bx_fn(here_fn(), orig_pc + 4))
 +    return start
+diff --git a/dm/tools/cheat_fetch.py b/dm/tools/cheat_fetch.py
+new file mode 100755
+index 0000000..5b9dd85
+--- /dev/null
++++ b/dm/tools/cheat_fetch.py
+@@ -0,0 +1,553 @@
++#!/usr/bin/env python3
++"""Zero-dependency public Switch cheat fetcher for Atmosphère <BID>.txt files.
++
++Queries static JSON mirrors from HamletDuFromage/switch-cheats-db by 16-hex
++(title_id, build_id), merges entries in source priority order with {Master}
++codes placed first, protects user-supplied or user-edited <BID>.txt files via
++SHA-256 verification against .cheats-fetch.json, and degrades silently on
++offline, timeout, HTTP 404, oversized, or malformed responses so builds never
++fail on network issues.
++"""
++from __future__ import annotations
++
++import argparse
++from dataclasses import dataclass, field
++import hashlib
++import http.client
++import json
++import os
++from pathlib import Path
++import re
++import sys
++import tempfile
++import time
++from typing import Callable
++import urllib.error
++import urllib.request
++
++SCHEMA_VERSION = 1
++RECEIPT_FILENAME = '.cheats-fetch.json'
++DEFAULT_TIMEOUT = 5.0
++MAX_RESPONSE_BYTES = 4 * 1024 * 1024  # 4 MiB hard cap per source response
++USER_AGENT = 'NX2Apple-CheatFetch/1.0'
++
++SOURCES: tuple[tuple[str, str], ...] = (
++    (
++        'HamletDuFromage/switch-cheats-db',
++        'https://raw.githubusercontent.com/HamletDuFromage/switch-cheats-db/master/cheats/{tid}.json',
++    ),
++    (
++        'HamletDuFromage/switch-cheats-db (gbatemp)',
++        'https://raw.githubusercontent.com/HamletDuFromage/switch-cheats-db/master/cheats_gbatemp/{tid}.json',
++    ),
++    (
++        'HamletDuFromage/switch-cheats-db (gfx)',
++        'https://raw.githubusercontent.com/HamletDuFromage/switch-cheats-db/master/cheats_gfx/{tid}.json',
++    ),
++)
++
++_HEX16_RE = re.compile(r'^[0-9A-F]{16}$')
++_HEX_ALL_RE = re.compile(r'^[0-9A-Fa-f]+$')
++
++# Transport callable signature: (url, timeout_sec, max_bytes) -> (http_status, body_bytes)
++TransportFn = Callable[[str, float, int], tuple[int, bytes]]
++
++
++@dataclass
++class FetchResult:
++    schema_version: int = SCHEMA_VERSION
++    title_id: str = ''
++    build_id: str = ''
++    status: str = 'error'  # found | not_found | preserved_user | offline | error
++    sources: list[str] = field(default_factory=list)
++    entry_count: int = 0
++    fetched_at: int = 0
++    file_name: str = ''
++    file_sha256: str = ''
++    origin: str = 'fetched'
++    detail: str = ''
++    file_path: Path | None = None
++    receipt_path: Path | None = None
++
++    def to_receipt_dict(self) -> dict[str, object]:
++        return {
++            'schemaVersion': self.schema_version,
++            'titleID': self.title_id,
++            'buildID': self.build_id,
++            'status': self.status,
++            'sources': list(self.sources),
++            'entryCount': self.entry_count,
++            'fetchedAt': self.fetched_at,
++            'fileName': self.file_name,
++            'fileSHA256': self.file_sha256,
++            'origin': self.origin,
++            'detail': _sanitize_detail(self.detail),
++        }
++
++
++def _sanitize_detail(text: str) -> str:
++    # Keep details single-line and free of ASCII semicolons per repository text rules.
++    return ' '.join(text.replace(';', ',').split())
++
++
++def normalize_ids(title_id: str, build_id: str) -> tuple[str, str] | None:
++    tid_raw = (title_id or '').strip()
++    if tid_raw.lower().startswith('0x'):
++        tid_raw = tid_raw[2:]
++    tid = tid_raw.upper()
++    if not _HEX16_RE.fullmatch(tid):
++        return None
++
++    bid_raw = (build_id or '').strip()
++    if bid_raw.lower().startswith('0x'):
++        bid_raw = bid_raw[2:]
++    if len(bid_raw) < 16 or not _HEX_ALL_RE.fullmatch(bid_raw[:16]):
++        return None
++    bid = bid_raw[:16].upper()
++    return tid, bid
++
++
++def _sha256_bytes(data: bytes) -> str:
++    return hashlib.sha256(data).hexdigest().lower()
++
++
++def _sha256_file(path: Path) -> str | None:
++    try:
++        h = hashlib.sha256()
++        with open(path, 'rb') as f:
++            while True:
++                chunk = f.read(65536)
++                if not chunk:
++                    break
++                h.update(chunk)
++        return h.hexdigest().lower()
++    except OSError:
++        return None
++
++
++def _atomic_write_bytes(dest: Path, payload: bytes) -> None:
++    dest.parent.mkdir(parents=True, exist_ok=True)
++    fd, tmp_name = tempfile.mkstemp(prefix=f'.{dest.name}.tmp.', dir=str(dest.parent))
++    tmp_path = Path(tmp_name)
++    try:
++        with os.fdopen(fd, 'wb') as f:
++            f.write(payload)
++            f.flush()
++        os.replace(tmp_path, dest)
++    except BaseException:
++        try:
++            tmp_path.unlink(missing_ok=True)
++        except OSError:
++            pass
++        raise
++
++
++def _read_receipt(receipt_path: Path) -> dict[str, object] | None:
++    if not receipt_path.is_file():
++        return None
++    try:
++        raw = receipt_path.read_bytes()
++        if len(raw) > 256 * 1024:
++            return None
++        parsed = json.loads(raw.decode('utf-8'))
++        return parsed if isinstance(parsed, dict) else None
++    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
++        return None
++
++
++def _write_receipt(receipt_path: Path, result: FetchResult) -> None:
++    payload = (json.dumps(result.to_receipt_dict(), indent=2) + '\n').encode('utf-8')
++    _atomic_write_bytes(receipt_path, payload)
++
++
++def _find_existing_cheat_file(cheat_dir: Path, bid: str) -> Path | None:
++    exact = cheat_dir / f'{bid}.txt'
++    if exact.is_file():
++        return exact
++    if not cheat_dir.is_dir():
++        return None
++    want = f'{bid.lower()}.txt'
++    try:
++        for item in sorted(cheat_dir.iterdir()):
++            if item.is_file() and item.name.lower() == want:
++                return item
++    except OSError:
++        return None
++    return None
++
++
++def _can_overwrite_existing(
++    existing_file: Path,
++    actual_sha: str | None,
++    receipt: dict[str, object] | None,
++    bid: str,
++    force: bool,
++) -> bool:
++    if force:
++        return True
++    if not actual_sha or not isinstance(receipt, dict):
++        return False
++    if receipt.get('origin') != 'fetched':
++        return False
++    rec_sha = str(receipt.get('fileSHA256') or '').strip().lower()
++    if not rec_sha or rec_sha != actual_sha:
++        return False
++    rec_bid = str(receipt.get('buildID') or '').strip().upper()
++    if rec_bid and rec_bid != bid:
++        return False
++    rec_name = str(receipt.get('fileName') or '').strip()
++    if rec_name and rec_name.lower() != existing_file.name.lower():
++        return False
++    return True
++
++
++def _default_transport(url: str, timeout: float, max_bytes: int) -> tuple[int, bytes]:
++    req = urllib.request.Request(url, headers={'User-Agent': USER_AGENT})
++    try:
++        with urllib.request.urlopen(req, timeout=timeout) as resp:
++            status = getattr(resp, 'status', None) or resp.getcode() or 200
++            data = resp.read(max_bytes + 1)
++            return int(status), data
++    except urllib.error.HTTPError as exc:
++        try:
++            exc.close()
++        except Exception:
++            pass
++        return int(exc.code), b''
++
++
++def _normalize_entry(raw_key: str, raw_val: str) -> tuple[str, bool, str] | None:
++    """Normalize one JSON cheat entry into (dedup_header, is_master, formatted_block)."""
++    if not isinstance(raw_key, str) or not isinstance(raw_val, str):
++        return None
++    key_s = raw_key.strip()
++    val_s = raw_val.replace('\r\n', '\n').replace('\r', '\n').strip()
++    if not val_s:
++        return None
++
++    if len(key_s) >= 3 and (
++        (key_s.startswith('[') and key_s.endswith(']'))
++        or (key_s.startswith('{') and key_s.endswith('}'))
++    ):
++        hdr = key_s
++    elif key_s:
++        hdr = f'[{key_s}]'
++    else:
++        hdr = ''
++
++    first_line, _, rest = val_s.partition('\n')
++    fl = first_line.strip()
++    if fl and fl[0] in ('[', '{'):
++        end_ch = ']' if fl[0] == '[' else '}'
++        q = fl.find(end_ch, 1)
++        if q > 1:
++            fl_hdr = fl[:q + 1]
++            inline_tail = fl[q + 1:].strip()
++            key_inner = key_s[1:-1].strip() if len(key_s) >= 2 and key_s[0] in '[{' and key_s[-1] in ']}' else key_s
++            fl_inner = fl_hdr[1:-1].strip()
++            if not hdr or fl_hdr.lower() == hdr.lower() or fl_inner.lower() == key_inner.lower():
++                final_hdr = fl_hdr if fl_hdr.startswith('{') or not hdr else hdr
++                if hdr.startswith('{') and hdr.endswith('}'):
++                    final_hdr = hdr
++                body_parts: list[str] = []
++                if inline_tail:
++                    body_parts.append(inline_tail)
++                if rest.strip():
++                    body_parts.append('\n'.join(ln.rstrip() for ln in rest.splitlines()).strip())
++                body = '\n'.join(body_parts).strip()
++                if not body:
++                    return None
++                is_master = final_hdr.startswith('{') and final_hdr.endswith('}')
++                return final_hdr, is_master, f'{final_hdr}\n{body}'
++
++    if not hdr:
++        return None
++    body = '\n'.join(ln.rstrip() for ln in val_s.splitlines()).strip()
++    if not body:
++        return None
++    is_master = hdr.startswith('{') and hdr.endswith('}')
++    return hdr, is_master, f'{hdr}\n{body}'
++
++
++def _extract_bid_entries(doc: dict[str, object], bid: str) -> list[dict[str, object]]:
++    """Return matching build-ID entry dicts from a top-level cheat JSON object."""
++    exact_matches: list[dict[str, object]] = []
++    prefix_matches: list[dict[str, object]] = []
++    for k, v in doc.items():
++        if not isinstance(k, str) or not isinstance(v, dict):
++            continue
++        ks = k.strip()
++        if ks.lower() == 'attribution':
++            continue
++        if len(ks) == 16 and ks.upper() == bid:
++            exact_matches.append(v)
++        elif len(ks) > 16 and _HEX_ALL_RE.fullmatch(ks) and ks[:16].upper() == bid:
++            prefix_matches.append(v)
++    return exact_matches + prefix_matches
++
++
++def merge_cheat_sources(
++    source_docs: list[tuple[str, dict[str, object]]],
++    bid: str,
++) -> tuple[str, int, list[str]]:
++    """Merge parsed JSON dicts in source order for `bid`.
++
++    Returns (formatted_txt, entry_count, contributing_sources).
++    """
++    seen_headers: set[str] = set()
++    masters: list[str] = []
++    normals: list[str] = []
++    used_sources: list[str] = []
++
++    for source_name, doc in source_docs:
++        bid_dicts = _extract_bid_entries(doc, bid)
++        if not bid_dicts:
++            continue
++        source_had_valid = False
++        for entries_map in bid_dicts:
++            for raw_title, raw_body in entries_map.items():
++                norm = _normalize_entry(raw_title, raw_body)  # type: ignore[arg-type]
++                if norm is None:
++                    continue
++                source_had_valid = True
++                hdr, is_master, block = norm
++                if hdr in seen_headers:
++                    continue
++                seen_headers.add(hdr)
++                if is_master:
++                    masters.append(block)
++                else:
++                    normals.append(block)
++        if source_had_valid and source_name not in used_sources:
++            used_sources.append(source_name)
++
++    ordered = masters + normals
++    if not ordered:
++        return '', 0, []
++    return '\n\n'.join(ordered) + '\n', len(ordered), used_sources
++
++
++def fetch_cheats(
++    title_id: str,
++    build_id: str,
++    cheat_dir: str | os.PathLike[str],
++    *,
++    timeout: float = DEFAULT_TIMEOUT,
++    force: bool = False,
++    max_bytes: int = MAX_RESPONSE_BYTES,
++    transport: TransportFn | None = None,
++    now_fn: Callable[[], int] | None = None,
++) -> FetchResult:
++    """Fetch and atomically persist <BID>.txt + .cheats-fetch.json without raising."""
++    now_ts = int(now_fn() if now_fn is not None else time.time())
++    norm = normalize_ids(title_id, build_id)
++    if norm is None:
++        return FetchResult(
++            title_id=(title_id or '').strip().upper()[:16],
++            build_id=(build_id or '').strip().upper()[:16],
++            status='error',
++            fetched_at=now_ts,
++            detail='invalid title_id or build_id (expected 16 hex digits)',
++        )
++    tid, bid = norm
++
++    try:
++        cdir = Path(cheat_dir)
++        receipt_path = cdir / RECEIPT_FILENAME
++        prev_receipt = _read_receipt(receipt_path)
++        existing_file = _find_existing_cheat_file(cdir, bid)
++        existing_sha = _sha256_file(existing_file) if existing_file is not None else None
++
++        if existing_file is not None and not _can_overwrite_existing(
++            existing_file, existing_sha, prev_receipt, bid, force
++        ):
++            res = FetchResult(
++                title_id=tid,
++                build_id=bid,
++                status='preserved_user',
++                sources=[],
++                entry_count=0,
++                fetched_at=now_ts,
++                file_name=existing_file.name,
++                file_sha256=existing_sha or '',
++                origin='user',
++                detail='existing cheat file preserved',
++                file_path=existing_file,
++                receipt_path=receipt_path,
++            )
++            _write_receipt(receipt_path, res)
++            return res
++
++        fetch_fn = transport or _default_transport
++        eff_timeout = timeout if timeout > 0 else DEFAULT_TIMEOUT
++        source_docs: list[tuple[str, dict[str, object]]] = []
++        reachable_count = 0
++        network_errors: list[str] = []
++        data_errors: list[str] = []
++
++        for source_name, url_tmpl in SOURCES:
++            url = url_tmpl.format(tid=tid)
++            try:
++                status_code, raw_bytes = fetch_fn(url, eff_timeout, max_bytes)
++            except (urllib.error.URLError, TimeoutError, http.client.HTTPException, OSError, ValueError) as exc:
++                network_errors.append(f'{source_name}: {exc}')
++                continue
++            except Exception as exc:  # Defensive catch-all so builds never abort
++                data_errors.append(f'{source_name}: {exc}')
++                continue
++
++            if status_code == 404:
++                reachable_count += 1
++                continue
++            if status_code != 200:
++                reachable_count += 1
++                data_errors.append(f'{source_name}: HTTP {status_code}')
++                continue
++            reachable_count += 1
++            if len(raw_bytes) > max_bytes:
++                data_errors.append(f'{source_name}: response exceeds {max_bytes} bytes')
++                continue
++            try:
++                parsed = json.loads(raw_bytes.decode('utf-8'))
++            except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
++                data_errors.append(f'{source_name}: invalid JSON ({exc})')
++                continue
++            if not isinstance(parsed, dict):
++                data_errors.append(f'{source_name}: top-level JSON is not an object')
++                continue
++            source_docs.append((source_name, parsed))
++
++        # Re-check existing file after network wait to guard against concurrent user edits.
++        latest_receipt = _read_receipt(receipt_path) or prev_receipt
++        latest_existing = _find_existing_cheat_file(cdir, bid)
++        latest_sha = _sha256_file(latest_existing) if latest_existing is not None else None
++        if latest_existing is not None and not _can_overwrite_existing(
++            latest_existing, latest_sha, latest_receipt, bid, force
++        ):
++            res = FetchResult(
++                title_id=tid,
++                build_id=bid,
++                status='preserved_user',
++                sources=[],
++                entry_count=0,
++                fetched_at=int(now_fn() if now_fn is not None else time.time()),
++                file_name=latest_existing.name,
++                file_sha256=latest_sha or '',
++                origin='user',
++                detail='existing cheat file preserved',
++                file_path=latest_existing,
++                receipt_path=receipt_path,
++            )
++            _write_receipt(receipt_path, res)
++            return res
++
++        merged_text, entry_count, used_sources = merge_cheat_sources(source_docs, bid)
++        done_ts = int(now_fn() if now_fn is not None else time.time())
++
++        if entry_count > 0:
++            out_bytes = merged_text.encode('utf-8')
++            out_sha = _sha256_bytes(out_bytes)
++            canonical_path = cdir / f'{bid}.txt'
++            _atomic_write_bytes(canonical_path, out_bytes)
++            if latest_existing is not None and latest_existing.name != canonical_path.name:
++                try:
++                    if not os.path.samefile(latest_existing, canonical_path):
++                        latest_existing.unlink(missing_ok=True)
++                except OSError:
++                    pass
++            res = FetchResult(
++                title_id=tid,
++                build_id=bid,
++                status='found',
++                sources=used_sources,
++                entry_count=entry_count,
++                fetched_at=done_ts,
++                file_name=canonical_path.name,
++                file_sha256=out_sha,
++                origin='fetched',
++                detail='',
++                file_path=canonical_path,
++                receipt_path=receipt_path,
++            )
++            _write_receipt(receipt_path, res)
++            return res
++
++        if reachable_count == 0:
++            status = 'offline'
++            detail = network_errors[0] if network_errors else 'network unreachable'
++        elif data_errors:
++            status = 'error'
++            detail = ', '.join(data_errors)
++        else:
++            status = 'not_found'
++            detail = ''
++
++        kept_name = latest_existing.name if (latest_existing is not None and latest_sha) else ''
++        kept_sha = latest_sha if (latest_existing is not None and latest_sha) else ''
++        kept_path = latest_existing if (latest_existing is not None and latest_sha) else None
++        res = FetchResult(
++            title_id=tid,
++            build_id=bid,
++            status=status,
++            sources=[],
++            entry_count=0,
++            fetched_at=done_ts,
++            file_name=kept_name,
++            file_sha256=kept_sha,
++            origin='fetched',
++            detail=detail,
++            file_path=kept_path,
++            receipt_path=receipt_path,
++        )
++        _write_receipt(receipt_path, res)
++        return res
++    except Exception as exc:
++        return FetchResult(
++            title_id=tid,
++            build_id=bid,
++            status='error',
++            fetched_at=now_ts,
++            detail=str(exc),
++        )
++
++
++def format_log_summary(res: FetchResult) -> str:
++    """Format a concise single-line build log summary (no semicolons)."""
++    prefix = f'cheats fetch ({res.title_id} / {res.build_id})'
++    if res.status == 'found':
++        srcs = ', '.join(res.sources)
++        return f'{prefix}: {res.entry_count} cheat(s) from {srcs} -> {res.file_name}'
++    if res.status == 'preserved_user':
++        return f'{prefix}: preserved user cheat file {res.file_name}'
++    if res.status == 'not_found':
++        return f'{prefix}: not listed in public cheat databases'
++    if res.status == 'offline':
++        return f'{prefix}: offline or timed out, skipped'
++    why = f' ({res.detail})' if res.detail else ''
++    return f'{prefix}: skipped{why}'
++
++
++def main(argv: list[str] | None = None) -> int:
++    ap = argparse.ArgumentParser(
++        description='Fetch public Switch Atmosphère <BID>.txt cheats into --cheat-dir with user-file protection.',
++    )
++    ap.add_argument('--title-id', required=True, help='16-hex-digit Switch application title ID')
++    ap.add_argument('--build-id', required=True, help='Switch main NSO build ID (at least 16 hex digits)')
++    ap.add_argument('--cheat-dir', required=True, help='target directory for <BID>.txt and .cheats-fetch.json')
++    ap.add_argument('--timeout', type=float, default=DEFAULT_TIMEOUT, help='per-source HTTP timeout in seconds (default: 5)')
++    ap.add_argument('--force', action='store_true', help='overwrite an existing <BID>.txt even if user-supplied or edited')
++    args = ap.parse_args(argv)
++
++    res = fetch_cheats(
++        args.title_id,
++        args.build_id,
++        args.cheat_dir,
++        timeout=args.timeout,
++        force=args.force,
++    )
++    print(format_log_summary(res))
++    return 0
++
++
++if __name__ == '__main__':
++    sys.exit(main())
 diff --git a/dm/tools/patch_nso.py b/dm/tools/patch_nso.py
 index 7eb097c..9831f90 100644
 --- a/dm/tools/patch_nso.py
@@ -3233,10 +4302,10 @@ index 7eb097c..9831f90 100644
      if FPS_TARGET_F32: f.write('# FPS_TARGET_F32\t0x1\n')
 diff --git a/dm/tools/tests/test_cheat_bake.py b/dm/tools/tests/test_cheat_bake.py
 new file mode 100644
-index 0000000..6635cef
+index 0000000..803e54a
 --- /dev/null
 +++ b/dm/tools/tests/test_cheat_bake.py
-@@ -0,0 +1,625 @@
+@@ -0,0 +1,728 @@
 +"""Unit tests for dm/tools/cheat_bake.py: AArch64 NZCV-preserving trampolines,
 +PC-relative instruction relocation, multi-variant (>8) dispatch, key-mask
 +extraction, EdiZon/Zing sections, protected-site conflict skipping, and
@@ -3859,17 +4928,455 @@ index 0000000..6635cef
 +        self.assertEqual(by_name['IntraEntryWrapArithAboveRxEnd'].kind, 'unbaked_code')
 +        self.assertEqual(by_name['IntraEntrySubAboveRxEnd'].kind, 'unbaked_code')
 +
++    def test_arm64_dataflow_bypass_blocks_unsafe_patch_and_allows_safe_patches(self):
++        # 1. Pure-Python AArch64 decoder sanity checks across branch/alu/mem/mov/fp families.
++        self.assertEqual(cb.decode_arm64_insn(0xAA0203F8, 0x100).writes, {24})  # mov x24, x2
++        self.assertEqual(cb.decode_arm64_insn(0xAA0203F8, 0x100).reads, {2})
++        self.assertEqual(cb.decode_arm64_insn(0xB9400B00, 0x104).reads, {24})   # ldr w0, [x24, #8]
++        self.assertEqual(cb.decode_arm64_insn(0xB9400B00, 0x104).writes, {0})
++        self.assertTrue(cb.decode_arm64_insn(0xD65F03C0, 0x108).is_return)      # ret
++
++        # 2. Construct realistic AArch64 function layout:
++        #    UnsafeBypass:
++        #      0x0200: cbz x0, 0x0210        ; external conditional branch jumping into (D, U]!
++        #      0x0208 (D): patched to `mov x24, x2` (0xAA0203F8), orig `add x1, x1, #1` (0x91000421)
++        #      0x020C:     orig `mov w3, #0` (0x52800003)
++        #      0x0210:     branch landing target inside (D, U] (`add x3, x3, #1`, 0x91000463)
++        #      0x0218 (U): patched to `ldr w0, [x24, #8]` (0xB9400B00), orig `ldr w0, [x19, #8]` (0xB9400A60)
++        #      0x021C:     orig `ret` (0xD65F03C0) -> original code after 0x0210 never reads x24!
++        #
++        #    SafeSequential:
++        #      0x0300 (D): patched to `mov x24, x2` (0xAA0203F8)
++        #      0x0308 (U): patched to `ldr w0, [x24, #8]` (0xB9400B00)
++        #      0x030C:     orig `ret` (0xD65F03C0) -> no branch bypasses 0x0300!
++        #
++        #    SafeAlreadyLive:
++        #      0x0400: cbz x0, 0x0410        ; external branch into (D, U], BUT original code at 0x0414
++        #      0x0408 (D): patched `mov x24, x2` ; ALREADY reads x24 before returning, proving x24 was
++        #      0x0410 (U): patched `ldr w5, [x24, #4]` (0xB9400705), orig `nop` ; live on entry!
++        #      0x0414:     orig `ldr w6, [x24, #12]` (0xB9400F06)
++        #      0x0418:     orig `ret` (0xD65F03C0)
++        #
++        #    TopFallthroughBypass:
++        #      0x0500: patched `cbnz w0, 0x050C` (0x35000060) ; cluster top falls in from 0x04FC and jumps over D!
++        #      0x0504 (D): patched `movz x25, #0x10` (0xD2800219)
++        #      0x050C (U): patched `add x1, x1, x25` (0x8B190021), orig `add x1, x1, #1`
++        #      0x0510:     orig `ret` (0xD65F03C0)
++        orig_words = {
++            0x0200: 0xB4000080,  # cbz x0, +0x10 (0x0210)
++            0x0208: 0x91000421,  # add x1, x1, #1
++            0x020C: 0x52800003,  # movz w3, #0
++            0x0210: 0x91000463,  # add x3, x3, #1
++            0x0218: 0xB9400A60,  # ldr w0, [x19, #8]
++            0x021C: 0xD65F03C0,  # ret
++
++            0x0300: 0x91000421,
++            0x0308: 0xB9400A60,
++            0x030C: 0xD65F03C0,
++
++            0x0400: 0xB4000080,  # cbz x0, +0x10 (0x0410)
++            0x0408: 0x91000421,
++            0x0410: 0xD503201F,  # nop
++            0x0414: 0xB9400F06,  # ldr w6, [x24, #12] -> x24 is live in original code!
++            0x0418: 0xD65F03C0,
++
++            0x0500: 0xD503201F,
++            0x0504: 0x91000421,
++            0x050C: 0x91000421,
++            0x0510: 0xD65F03C0,
++        }
++        cheat_txt = (
++            '[UnsafeBypass]\n'
++            '04000000 00000208 AA0203F8\n'
++            '04000000 00000218 B9400B00\n'
++            '[SafeSequential]\n'
++            '04000000 00000300 AA0203F8\n'
++            '04000000 00000308 B9400B00\n'
++            '[SafeAlreadyLive]\n'
++            '04000000 00000408 AA0203F8\n'
++            '04000000 00000410 B9400705\n'
++            '[TopFallthroughBypass]\n'
++            '04000000 00000500 35000060\n'
++            '04000000 00000504 D2800219\n'
++            '04000000 0000050C 8B190021\n'
++        )
++        plan, img, _, _, _ = run_bake_synthetic(cheat_txt, orig_words)
++        by_key = {e.cheat_key: e for e in plan.entries}
++
++        # Unsafe entries MUST be blocked as unsafe_code with exact diagnostic and no semicolon!
++        self.assertEqual(by_key['UnsafeBypass'].kind, 'unsafe_code')
++        self.assertEqual(
++            by_key['UnsafeBypass'].detail,
++            'dataflow_bypass: x24 read at +0x218 bypassed def at +0x208',
++        )
++        self.assertNotIn(';', by_key['UnsafeBypass'].detail)
++        # Original instructions at 0x208 and 0x218 must remain untouched (no trampoline emitted)!
++        self.assertEqual(struct.unpack_from('<I', img, 0x0208)[0], 0x91000421)
++        self.assertEqual(struct.unpack_from('<I', img, 0x0218)[0], 0xB9400A60)
++
++        self.assertEqual(by_key['TopFallthroughBypass'].kind, 'unsafe_code')
++        self.assertEqual(
++            by_key['TopFallthroughBypass'].detail,
++            'dataflow_bypass: x25 read at +0x50c bypassed def at +0x504',
++        )
++
++        # Safe entries MUST still bake cleanly as baked_static!
++        self.assertEqual(by_key['SafeSequential'].kind, 'baked_static')
++        self.assertEqual(by_key['SafeAlreadyLive'].kind, 'baked_static')
++
++        tsv = cb.format_trampolines_tsv(plan)
++        self.assertIn(
++            'entry\tUnsafeBypass\tUnsafeBypass\tunsafe_code\t-1\t0x0\t0x208\t0xaa0203f8\t0x0\t'
++            'dataflow_bypass: x24 read at +0x218 bypassed def at +0x208\n',
++            tsv,
++        )
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/dm/tools/tests/test_cheat_fetch.py b/dm/tools/tests/test_cheat_fetch.py
+new file mode 100644
+index 0000000..90d1f41
+--- /dev/null
++++ b/dm/tools/tests/test_cheat_fetch.py
+@@ -0,0 +1,311 @@
++"""Unit tests for dm/tools/cheat_fetch.py: multi-source aggregation, deduplication,
++{Master} ordering, user-file SHA-256 protection, atomic .cheats-fetch.json receipt
++schema, 4 MiB response cap, offline/timeout/404/malformed JSON degradation, and CLI.
++"""
++from __future__ import annotations
++
++import hashlib
++import json
++from pathlib import Path
++import subprocess
++import sys
++import tempfile
++import unittest
++import urllib.error
++
++REPO = Path(__file__).resolve().parents[3]
++sys.path.insert(0, str(REPO / 'dm/tools'))
++import cheat_fetch as cf  # noqa: E402
++
++
++TID = '01006F8002326000'
++BID = '20CA968C082118C2'
++FULL_BID = '20ca968c082118c29988776655443322'
++
++
++def _make_transport(routes: dict[str, tuple[int, bytes] | Exception]):
++    calls: list[str] = []
++
++    def transport(url: str, timeout: float, max_bytes: int) -> tuple[int, bytes]:
++        calls.append(url)
++        item = routes.get(url)
++        if item is None:
++            return 404, b''
++        if isinstance(item, Exception):
++            raise item
++        status, body = item
++        return status, body[: max_bytes + 1]
++
++    return transport, calls
++
++
++class CheatFetchTests(unittest.TestCase):
++    def test_aggregates_three_sources_deduplicates_and_orders_master_first(self):
++        u1 = cf.SOURCES[0][1].format(tid=TID)
++        u2 = cf.SOURCES[1][1].format(tid=TID)
++        u3 = cf.SOURCES[2][1].format(tid=TID)
++
++        doc1 = {
++            'attribution': {'author.txt': 'some credit'},
++            BID.lower(): {
++                '[Infinite Stamina]': '[Infinite Stamina]\r\n04000000 00100000 D503201F\r\n\r\n',
++                '[Empty Entry]': '[Empty Entry]\n   \n',
++                '[Shared Name]': '[Shared Name]\n04000000 00200000 00000001\n',
++            },
++        }
++        doc2 = {
++            BID: {
++                # Duplicate title -> source 1 must win!
++                '[Shared Name]': '[Shared Name]\n04000000 00200000 00000099\n',
++                # Master code in source 2 -> must move to top of output!
++                '{Master Code}': '{Master Code}\n04000000 00001000 52800020\n',
++                'Bare Title': '04000000 00300000 00000007',
++            },
++        }
++        doc3 = {
++            BID: {
++                '[60 FPS GFX]': '[60 FPS GFX]\n04000000 00400000 00000001\n',
++            },
++        }
++        transport, calls = _make_transport({
++            u1: (200, json.dumps(doc1).encode('utf-8')),
++            u2: (200, json.dumps(doc2).encode('utf-8')),
++            u3: (200, json.dumps(doc3).encode('utf-8')),
++        })
++
++        with tempfile.TemporaryDirectory() as d:
++            cdir = Path(d) / 'cheats'
++            res = cf.fetch_cheats(
++                TID.lower(), FULL_BID, cdir, transport=transport, now_fn=lambda: 1795770000,
++            )
++            self.assertEqual(len(calls), 3)
++            self.assertEqual(res.status, 'found')
++            self.assertEqual(res.entry_count, 5)
++            self.assertEqual(
++                res.sources,
++                [
++                    'HamletDuFromage/switch-cheats-db',
++                    'HamletDuFromage/switch-cheats-db (gbatemp)',
++                    'HamletDuFromage/switch-cheats-db (gfx)',
++                ],
++            )
++
++            txt_path = cdir / f'{BID}.txt'
++            self.assertTrue(txt_path.is_file())
++            raw_bytes = txt_path.read_bytes()
++            self.assertNotIn(b'\r', raw_bytes, 'output must use LF line endings only')
++            txt = raw_bytes.decode('utf-8')
++
++            # {Master Code} must appear first, no doubled headers, first-seen [Shared Name] wins, empty skipped.
++            expected = (
++                '{Master Code}\n'
++                '04000000 00001000 52800020\n\n'
++                '[Infinite Stamina]\n'
++                '04000000 00100000 D503201F\n\n'
++                '[Shared Name]\n'
++                '04000000 00200000 00000001\n\n'
++                '[Bare Title]\n'
++                '04000000 00300000 00000007\n\n'
++                '[60 FPS GFX]\n'
++                '04000000 00400000 00000001\n'
++            )
++            self.assertEqual(txt, expected)
++            self.assertFalse((cdir / f'{BID}.enabled').exists(), 'must never write .enabled')
++
++            # Verify .cheats-fetch.json schema exact match.
++            receipt = json.loads((cdir / '.cheats-fetch.json').read_text(encoding='utf-8'))
++            self.assertEqual(
++                receipt,
++                {
++                    'schemaVersion': 1,
++                    'titleID': TID,
++                    'buildID': BID,
++                    'status': 'found',
++                    'sources': [
++                        'HamletDuFromage/switch-cheats-db',
++                        'HamletDuFromage/switch-cheats-db (gbatemp)',
++                        'HamletDuFromage/switch-cheats-db (gfx)',
++                    ],
++                    'entryCount': 5,
++                    'fetchedAt': 1795770000,
++                    'fileName': f'{BID}.txt',
++                    'fileSHA256': hashlib.sha256(raw_bytes).hexdigest().lower(),
++                    'origin': 'fetched',
++                    'detail': '',
++                },
++            )
++
++    def test_preserves_user_supplied_and_user_edited_files_across_repeated_runs(self):
++        u1 = cf.SOURCES[0][1].format(tid=TID)
++        remote_doc = {BID: {'[Remote Cheat]': '[Remote Cheat]\n04000000 00001000 00000002\n'}}
++        transport, calls = _make_transport({u1: (200, json.dumps(remote_doc).encode('utf-8'))})
++
++        with tempfile.TemporaryDirectory() as d:
++            cdir = Path(d)
++            user_txt = cdir / f'{BID}.txt'
++            user_content = '[My Custom Cheat]\n04000000 00009999 00000042\n'
++            user_txt.write_text(user_content, encoding='utf-8')
++            user_sha = hashlib.sha256(user_content.encode('utf-8')).hexdigest()
++
++            # 1. User-supplied file with no receipt -> preserved_user, never overwritten!
++            r1 = cf.fetch_cheats(TID, BID, cdir, transport=transport, now_fn=lambda: 100)
++            self.assertEqual(r1.status, 'preserved_user')
++            self.assertEqual(user_txt.read_text(encoding='utf-8'), user_content)
++            self.assertEqual(len(calls), 0, 'need not even hit network when user file is locked')
++
++            # 2. Second run against preserved_user receipt -> STILL preserved_user!
++            r2 = cf.fetch_cheats(TID, BID, cdir, transport=transport, now_fn=lambda: 200)
++            self.assertEqual(r2.status, 'preserved_user')
++            self.assertEqual(user_txt.read_text(encoding='utf-8'), user_content)
++            rec = json.loads((cdir / '.cheats-fetch.json').read_text(encoding='utf-8'))
++            self.assertEqual(rec['origin'], 'user')
++            self.assertEqual(rec['fileSHA256'], user_sha)
++
++            # 3. Explicit --force overwrites and marks origin == "fetched".
++            r3 = cf.fetch_cheats(TID, BID, cdir, transport=transport, force=True, now_fn=lambda: 300)
++            self.assertEqual(r3.status, 'found')
++            self.assertIn('[Remote Cheat]', user_txt.read_text(encoding='utf-8'))
++
++            # 4. Unmodified fetched file CAN be updated cleanly when upstream adds cheats.
++            remote_doc_v2 = {
++                BID: {
++                    '[Remote Cheat]': '[Remote Cheat]\n04000000 00001000 00000002\n',
++                    '[New Upstream Cheat]': '[New Upstream Cheat]\n04000000 00001004 00000003\n',
++                },
++            }
++            transport2, _ = _make_transport({u1: (200, json.dumps(remote_doc_v2).encode('utf-8'))})
++            r4 = cf.fetch_cheats(TID, BID, cdir, transport=transport2, now_fn=lambda: 400)
++            self.assertEqual(r4.status, 'found')
++            self.assertEqual(r4.entry_count, 2)
++
++            # 5. User edits the fetched file -> SHA-256 changes -> subsequent fetch preserves user edits!
++            edited = user_txt.read_text(encoding='utf-8') + '\n[Hand Added]\n04000000 00002000 00000001\n'
++            user_txt.write_text(edited, encoding='utf-8')
++            r5 = cf.fetch_cheats(TID, BID, cdir, transport=transport2, now_fn=lambda: 500)
++            self.assertEqual(r5.status, 'preserved_user')
++            self.assertEqual(user_txt.read_text(encoding='utf-8'), edited)
++
++    def test_degrades_silently_on_not_found_offline_oversized_and_malformed_json(self):
++        u1 = cf.SOURCES[0][1].format(tid=TID)
++        u2 = cf.SOURCES[1][1].format(tid=TID)
++        u3 = cf.SOURCES[2][1].format(tid=TID)
++
++        with tempfile.TemporaryDirectory() as d:
++            cdir = Path(d)
++
++            # A. 404 + 200 with another build ID -> status == "not_found"
++            t_nf, _ = _make_transport({
++                u1: (200, json.dumps({'AAAAAAAAAAAAAAAA': {'[X]': '[X]\n04000000 00000100 00000001\n'}}).encode()),
++                u2: (404, b''),
++                u3: (404, b''),
++            })
++            res_nf = cf.fetch_cheats(TID, BID, cdir, transport=t_nf, now_fn=lambda: 10)
++            self.assertEqual(res_nf.status, 'not_found')
++            self.assertFalse((cdir / f'{BID}.txt').exists())
++
++            # B. All sources raise URLError / TimeoutError -> status == "offline"
++            t_off, _ = _make_transport({
++                u1: urllib.error.URLError('offline'),
++                u2: TimeoutError('timed out'),
++                u3: OSError('network unreachable'),
++            })
++            res_off = cf.fetch_cheats(TID, BID, cdir, transport=t_off, now_fn=lambda: 20)
++            self.assertEqual(res_off.status, 'offline')
++            self.assertNotIn(';', res_off.detail)
++
++            # C. Malformed JSON + oversized response (> max_bytes) -> status == "error" (never raises!)
++            t_err, _ = _make_transport({
++                u1: (200, b'{broken json'),
++                u2: (200, b'x' * 2048),
++                u3: (404, b''),
++            })
++            res_err = cf.fetch_cheats(TID, BID, cdir, max_bytes=1024, transport=t_err, now_fn=lambda: 30)
++            self.assertEqual(res_err.status, 'error')
++            self.assertIn('exceeds 1024 bytes', res_err.detail)
++            self.assertNotIn(';', res_err.detail)
++
++            # D. Partial failure: source 1 malformed, source 2 succeeds -> status == "found"!
++            t_partial, _ = _make_transport({
++                u1: (200, b'not json'),
++                u2: (200, json.dumps({BID: {'[Fallback Hit]': '[Fallback Hit]\n04000000 00000100 00000001\n'}}).encode()),
++                u3: TimeoutError('slow'),
++            })
++            res_ok = cf.fetch_cheats(TID, BID, cdir, transport=t_partial, now_fn=lambda: 40)
++            self.assertEqual(res_ok.status, 'found')
++            self.assertEqual(res_ok.sources, ['HamletDuFromage/switch-cheats-db (gbatemp)'])
++            self.assertEqual(res_ok.entry_count, 1)
++
++            # E. Subsequent offline run keeps previously fetched <BID>.txt and its fetched origin/hash!
++            prev_bytes = (cdir / f'{BID}.txt').read_bytes()
++            res_off2 = cf.fetch_cheats(TID, BID, cdir, transport=t_off, now_fn=lambda: 50)
++            self.assertEqual(res_off2.status, 'offline')
++            self.assertEqual((cdir / f'{BID}.txt').read_bytes(), prev_bytes)
++            rec_off2 = json.loads((cdir / '.cheats-fetch.json').read_text(encoding='utf-8'))
++            self.assertEqual(rec_off2['origin'], 'fetched')
++            self.assertEqual(rec_off2['fileSHA256'], hashlib.sha256(prev_bytes).hexdigest())
++
++    def test_cli_entry_point_handles_existing_user_file_without_network(self):
++        with tempfile.TemporaryDirectory() as d:
++            cdir = Path(d)
++            (cdir / f'{BID}.txt').write_text('[User]\n04000000 00000100 00000001\n', encoding='utf-8')
++            r = subprocess.run(
++                [
++                    sys.executable,
++                    str(REPO / 'dm/tools/cheat_fetch.py'),
++                    '--title-id', TID,
++                    '--build-id', FULL_BID,
++                    '--cheat-dir', str(cdir),
++                    '--timeout', '1',
++                ],
++                capture_output=True,
++                text=True,
++            )
++            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
++            self.assertIn('preserved user cheat file', r.stdout)
++            self.assertTrue((cdir / '.cheats-fetch.json').is_file())
++
++    def test_build_ipa_from_nsp_cli_flags_and_bundled_cheats_staging(self):
++        import importlib.util
++        spec = importlib.util.spec_from_file_location('build_ipa_from_nsp', REPO / 'scripts/build_ipa_from_nsp.py')
++        assert spec and spec.loader
++        mod = importlib.util.module_from_spec(spec)
++        spec.loader.exec_module(mod)
++
++        # Default --fetch-cheats is False; --fetch-cheats / --no-fetch-cheats toggle cleanly.
++        a_def = mod.parse_args([])
++        self.assertFalse(a_def.fetch_cheats)
++        a_on = mod.parse_args(['--fetch-cheats', '--cheat-dir', '/tmp/custom-cheats'])
++        self.assertTrue(a_on.fetch_cheats)
++        a_off = mod.parse_args(['--fetch-cheats', '--no-fetch-cheats'])
++        self.assertFalse(a_off.fetch_cheats)
++
++        with tempfile.TemporaryDirectory() as d:
++            root = Path(d)
++            out_patched = root / 'patched_v0'
++            out_patched.mkdir()
++            cdir = root / 'cheats_src'
++            cdir.mkdir()
++            cheat_file = cdir / f'{BID.lower()}.txt'
++            cheat_file.write_text('[Test]\n04000000 00001000 00000001\n', encoding='utf-8')
++            good_receipt = {'schemaVersion': 1, 'titleID': TID, 'buildID': BID, 'status': 'found'}
++            (cdir / '.cheats-fetch.json').write_text(json.dumps(good_receipt), encoding='utf-8')
++
++            # Stages canonical uppercase <BID>.txt and matching .cheats-fetch.json into $PATCHED/cheats/
++            mod._stage_bundled_cheats(out_patched, FULL_BID, cheat_file, cdir)
++            self.assertTrue((out_patched / 'cheats' / f'{BID}.txt').is_file())
++            self.assertTrue((out_patched / 'cheats' / '.cheats-fetch.json').is_file())
++
++            # Mismatched buildID in .cheats-fetch.json must NOT be staged (anti-cross-build guard).
++            bad_receipt = {'schemaVersion': 1, 'titleID': TID, 'buildID': 'DEADBEEFDEADBEEF', 'status': 'found'}
++            (cdir / '.cheats-fetch.json').write_text(json.dumps(bad_receipt), encoding='utf-8')
++            mod._stage_bundled_cheats(out_patched, FULL_BID, cheat_file, cdir)
++            self.assertTrue((out_patched / 'cheats' / f'{BID}.txt').is_file())
++            self.assertFalse((out_patched / 'cheats' / '.cheats-fetch.json').exists())
++
++            # Removing both cheat_file and matching receipt cleans up stale $PATCHED/cheats/
++            mod._stage_bundled_cheats(out_patched, FULL_BID, None, cdir)
++            self.assertFalse((out_patched / 'cheats').exists())
++
 +
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/dm/tools/tests/test_ipa_tables.py b/dm/tools/tests/test_ipa_tables.py
-index fb1793b..be20504 100644
+index fb1793b..0601577 100644
 --- a/dm/tools/tests/test_ipa_tables.py
 +++ b/dm/tools/tests/test_ipa_tables.py
-@@ -79,5 +79,15 @@ class IpaTables(unittest.TestCase):
+@@ -79,5 +79,33 @@ class IpaTables(unittest.TestCase):
          self.assertNotEqual(check('# chain b-0123456789ab inputs aaaaaaaaaaaa0\n'), 0)
          self.assertNotEqual(check('# chain b-0123456789ab inputs bbbbbbbbbbbb\n'), 0)
  
++    def test_bundled_cheats_folder_is_optional_and_copied_when_present(self):
++        result = self.stage('nvn')
++        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
++        self.assertFalse((self.tables / 'cheats').exists())
++        cdir = self.patched / 'cheats'
++        cdir.mkdir()
++        cheat_txt = b'[Inf Coins]\n04000000 00100000 0000270F\n'
++        receipt_json = b'{"schemaVersion": 1, "status": "found"}\n'
++        (cdir / '1122334455667788.txt').write_bytes(cheat_txt)
++        (cdir / '.cheats-fetch.json').write_bytes(receipt_json)
++        result = self.stage('nvn')
++        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
++        self.assertEqual((self.tables / 'cheats' / '1122334455667788.txt').read_bytes(), cheat_txt)
++        self.assertEqual((self.tables / 'cheats' / '.cheats-fetch.json').read_bytes(), receipt_json)
++        fail = self.stage('nvn', 'cp() { for arg in "$@"; do case "$arg" in */cheats/.) return 1;; esac; done; command cp "$@"; }\n')
++        self.assertNotEqual(fail.returncode, 0)
++        self.assertIn('FAIL:', fail.stdout)
++
 +    def test_cheat_trampolines_tsv_is_optional_and_copied_when_present(self):
 +        result = self.stage('nvn')
 +        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -3883,14 +5390,79 @@ index fb1793b..be20504 100644
  
  if __name__ == '__main__': unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index ba997e1..6b90897 100755
+index ba997e1..a29b5e7 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -2040,12 +2040,13 @@ def provisional_modules(g, exe_dir, nros):
+@@ -2040,12 +2040,78 @@ def provisional_modules(g, exe_dir, nros):
      return set_keys(g, {'modules': (' '.join(mods), f'the NROs the game loads at run time import from {why}, which main does not')} if add else {}, 'After the NRO collection', edit=row)
  
  
 -def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
++def _default_cheat_dir(app, work):
++    if sys.platform == 'darwin':
++        cand = Path.home() / 'Library/Application Support/nxnative' / f'{app:016X}' / 'cheats'
++        try:
++            cand.mkdir(parents=True, exist_ok=True)
++            return cand
++        except OSError:
++            pass
++    fallback = work / 'cheats'
++    fallback.mkdir(parents=True, exist_ok=True)
++    return fallback
++
++
++def _maybe_fetch_cheats(args, app, exe_dir, work):
++    raw_cdir = getattr(args, 'cheat_dir', None)
++    eff_cdir = str(Path(os.path.expanduser(raw_cdir)).resolve()) if raw_cdir else None
++    if not getattr(args, 'fetch_cheats', False):
++        return eff_cdir
++    main_nso = exe_dir / 'main'
++    if not main_nso.is_file():
++        return eff_cdir
++    if eff_cdir is None:
++        eff_cdir = str(_default_cheat_dir(app, work))
++    import cheat_fetch
++    res = cheat_fetch.fetch_cheats(f'{app:016X}', build_id(main_nso), eff_cdir)
++    say(cheat_fetch.format_log_summary(res))
++    return eff_cdir
++
++
++def _stage_bundled_cheats(out, bid, resolved_cheat, cheat_dir):
++    dst_dir = out / 'cheats'
++    bid16 = bid[:16].upper() if len(bid) >= 16 else ''
++    rec_src = None
++    for cand_dir in (
++        resolved_cheat.parent if resolved_cheat is not None else None,
++        Path(cheat_dir) if cheat_dir else None,
++    ):
++        if cand_dir is None:
++            continue
++        cand = cand_dir / '.cheats-fetch.json'
++        if not cand.is_file():
++            continue
++        try:
++            rec_obj = json.loads(cand.read_text(encoding='utf-8'))
++            rec_bid = str(rec_obj.get('buildID') or '').strip().upper() if isinstance(rec_obj, dict) else ''
++            if isinstance(rec_obj, dict) and (not rec_bid or rec_bid == bid16):
++                rec_src = cand
++                break
++        except (OSError, ValueError):
++            continue
++    has_cheat = resolved_cheat is not None and resolved_cheat.is_file() and bool(bid16)
++    if not has_cheat and rec_src is None:
++        if dst_dir.exists():
++            rmtree(dst_dir)
++        return
++    tmp_c = out / 'cheats.partial'
++    rmtree(tmp_c)
++    tmp_c.mkdir(parents=True, exist_ok=True)
++    if has_cheat:
++        shutil.copy2(resolved_cheat, tmp_c / f'{bid16}.txt')
++    if rec_src is not None:
++        shutil.copy2(rec_src, tmp_c / '.cheats-fetch.json')
++    swap_in(tmp_c, dst_dir)
++
++
 +def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False, cheat_file=None, cheat_dir=None, title_id=None):
      """patch_nso.py on every code module (each writes its own <module>.* files, all the same build_src.sha256 line), each with its log, as many at once as the Mac has cores.
      The modules are the profile's and the NROs the game registers (collect_nros; nro.tsv beside them lists those); a provisional profile first gets the subsdks those NROs import from, and its build row every module it lists (provisional_modules).
@@ -3901,7 +5473,7 @@ index ba997e1..6b90897 100755
      try: workers = int(env['DM_REWRITE_J']) if env.get('DM_REWRITE_J') else None
      except ValueError: raise BuildError('DM_REWRITE_J must be a positive integer') from None
      if workers is not None and workers < 1: raise BuildError('DM_REWRITE_J must be a positive integer')
-@@ -2058,14 +2059,18 @@ def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
+@@ -2058,14 +2124,20 @@ def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
      src = {m: exe_dir / m for m in mods} | nros
      names = list(src)
      kf = out.with_name(out.name + '.key')
@@ -3918,13 +5490,15 @@ index ba997e1..6b90897 100755
 +                      {k: env.get(k) for k in ('DM_PATCH_FRONT', 'DM_GAME')}, own, bool(resolved_cheat))
 +    _cheat_kw = {'cheat_file': cheat_file, 'cheat_dir': cheat_dir, 'title_id': title_id} if (cheat_file or cheat_dir) else {}
 +    if all((out / f'{m}.patched.bin').is_file() for m in names) and (resolved_cheat is None or (out / 'cheat_trampolines.tsv').is_file()) and reused(kf, key) is not None:
++        if 'main' in src:
++            _stage_bundled_cheats(out, build_id(src['main']), resolved_cheat, cheat_dir)
          PROG.end(f'{", ".join(mods)}{f" and {len(nros)} NROs" if nros else ""}, reused (inputs unchanged)')
 -        return capture_nro(py, repo, exe_dir, out, nro_dir, env, logs, g, provisional)
 +        return capture_nro(py, repo, exe_dir, out, nro_dir, env, logs, g, provisional, **_cheat_kw)
      tmp = out.with_name(out.name + '.partial'); rmtree(tmp); tmp.mkdir(parents=True); logs.mkdir(parents=True, exist_ok=True)
      if manifest.is_file(): shutil.copyfile(manifest, tmp / 'nro.tsv')   # refused-only manifests preserve the game's offline registration path too
      PROG.set(step=', '.join(mods) + (f' and {len(nros)} NROs' if nros else ''), done=0, total=len(names), unit='modules')
-@@ -2082,7 +2087,10 @@ def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
+@@ -2082,7 +2154,10 @@ def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
              while todo and len(groups) < cores:
                  m = todo.pop(0); f = open(logs / f'rewrite_{m}.log', 'w')
                  try:
@@ -3936,9 +5510,12 @@ index ba997e1..6b90897 100755
                  except BaseException:
                      f.close(); raise
                  groups[m] = (grp, f)
-@@ -2121,13 +2129,13 @@ def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
+@@ -2120,14 +2195,16 @@ def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
+     finally:   # an error or an interrupt stops the other rewrite groups
          stop_remaining()
      rmtree(kf); swap_in(tmp, out); kf.write_text(f'{key}\n')
++    if 'main' in src:
++        _stage_bundled_cheats(out, build_id(src['main']), resolved_cheat, cheat_dir)
      PROG.end(', '.join(mods) + (f' and {len(nros)} NROs' if nros else ''))
 -    return capture_nro(py, repo, exe_dir, out, nro_dir, env, logs, g, provisional)
 +    return capture_nro(py, repo, exe_dir, out, nro_dir, env, logs, g, provisional, **_cheat_kw)
@@ -3952,7 +5529,7 @@ index ba997e1..6b90897 100755
      """An NRO its NRR registers and no file holds (nro_collect.py's missing.tsv): the game decodes it at run time, so boot the rewritten modules with DM_NRO_CAPTURE (dm/host/hle_ro.c), which writes the image
      of the first LoadModule the host has no rewritten copy of, by its SHA-256, and ends the run. That image joins the collected NROs, kept for the next build as they are, and the rewrite runs again with it.
      Mario Tennis Fever: main is a boot stub, and the game's code is one NRO in main's data segment. Returns the profile"""
-@@ -2159,7 +2167,8 @@ def capture_nro(py, repo, exe_dir, out, nro_dir, env, logs, g, provisional):
+@@ -2159,7 +2236,8 @@ def capture_nro(py, repo, exe_dir, out, nro_dir, env, logs, g, provisional):
      missing.write_text(''.join(f'{h}\t{n}\n' for h, n in want.items()))
      rmtree(cap); rmtree(rd)
      PROG.end(f'{name}, {(nro_dir / f"{name}.nro").stat().st_size / 2**20:.1f} MB')
@@ -3962,21 +5539,24 @@ index ba997e1..6b90897 100755
  
  
  def captured_nros(patched):   # the folder of the NROs of a build that captured some (capture_nro): the shader split reads them, as it reads main, and the file table of Camelot's archive is in one
-@@ -3901,6 +3910,8 @@ def parse_args(argv):
+@@ -3901,6 +3979,10 @@ def parse_args(argv):
      ap.add_argument('--from-seed', nargs='?', const='auto', default=None, metavar='SEED_DIR',
                      help='fast refresh from a persistent build seed without NSPs or prod.keys (uses --title-id in --seed-cache-dir, or pass a seed folder directly)')
      ap.add_argument('--seed-cache-dir', help='folder holding persistent build seeds (default: app support build-seeds)')
 +    ap.add_argument('--cheat-file', metavar='FILE', help='Atmosphère <BID>.txt cheat file to bake into main as iOS trampolines (compatible with --from-seed fast refresh)')
 +    ap.add_argument('--cheat-dir', metavar='DIR', help='folder containing Atmosphère <BID>.txt cheat files to bake into main as iOS trampolines')
++    ap.add_argument('--fetch-cheats', action=argparse.BooleanOptionalAction, default=False,
++                    help='fetch public Atmosphère <BID>.txt cheats for main\'s build ID before rewriting and bundle them for iOS seeding (default: off)')
      ap.add_argument('--prefill-msl', action='append', default=[], metavar='PATH',
                      help='existing .app, .img with a DMMSLTR1 shader trailer, msl folder, or b-<chain>[.img] used for DMSH_PREFILL on shader chain changes (may be given more than once)')
      ap.add_argument('--keep-extracted', action=argparse.BooleanOptionalAction, help='keep the extracted game files after the IPA is built, for the next build (default: the KEEP_EXTRACTED setting, on)')
-@@ -4934,7 +4945,8 @@ def _main(args, cleanup):
+@@ -4934,7 +5016,9 @@ def _main(args, cleanup):
          + (f'; the game\'s languages: {" ".join(have_langs)}' if have_langs else '; the control data lists no languages (not checked)') + (' (DM_LANG=<code> in the run command changes it)' if mac else ' (DM_LANG=<code> in the app\'s Documents/env.txt changes it)'))
  
      patched = work / f'patched_{pkg_ver}'
 -    g = rewrite(py, repo, game / 'ExeFS', patched, env, logs, g, provisional)
-+    _cheat_kw = {'cheat_file': args.cheat_file, 'cheat_dir': args.cheat_dir, 'title_id': f'{app:016X}'} if (args.cheat_file or args.cheat_dir) else {}
++    _eff_cheat_dir = _maybe_fetch_cheats(args, app, game / 'ExeFS', work)
++    _cheat_kw = {'cheat_file': getattr(args, 'cheat_file', None), 'cheat_dir': _eff_cheat_dir, 'title_id': f'{app:016X}'} if (getattr(args, 'cheat_file', None) or _eff_cheat_dir) else {}
 +    g = rewrite(py, repo, game / 'ExeFS', patched, env, logs, g, provisional, **_cheat_kw)
      if nd := captured_nros(patched): env = dict(env, DM_NRO_DIR=str(nd))
      chain_header(py, repo, env, logs)   # before any host is built
