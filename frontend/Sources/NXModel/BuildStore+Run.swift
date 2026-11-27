@@ -160,6 +160,11 @@ extension BuildStore {
                     say("Applied macOS launcher compatibility guard for Kid with Sword (MicTesterView)")
                 }
             }
+            if buildUpstream == .noLagKart && target == BuildTarget.mac {
+                if NoLagKartCompat.ensureMacMakefileCompatibility(in: engineRoot) {
+                    say("Applied macOS Makefile compatibility guard for No Lag Kart (quoted PGO profile path)")
+                }
+            }
         } else {
             guard repo.isRepo else {
                 fail(repo.path.isEmpty ? t("msg.repoInvalidEmpty") : String(format: t("msg.repoInvalid"), shortPath(repo.path)))

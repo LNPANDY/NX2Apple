@@ -145,6 +145,8 @@ package struct UpstreamEngineStore: Sendable {
             _ = KidWithSwordCompat.ensureMacPackCompatibility(in: source.path)
         } else if kind == .macNativeGames {
             _ = MacNativeGamesCompat.ensureOotAppIconCompatibility(in: source.path)
+        } else if kind == .noLagKart {
+            _ = NoLagKartCompat.ensureMacMakefileCompatibility(in: source.path)
         }
 
         if shouldCancel?() == true {
