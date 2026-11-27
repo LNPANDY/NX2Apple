@@ -279,8 +279,9 @@ extension BuildStore {
             var romfsCandidates: [String] = []
             var seenRomfs = Set<String>()
             func addRomfs(_ path: String) {
-                guard !path.isEmpty, !seenRomfs.contains(path), FileManager.default.fileExists(atPath: path) else { return }
-                seenRomfs.insert(path)
+                guard !path.isEmpty, FileManager.default.fileExists(atPath: path) else { return }
+                let key = BuildSeedCache.canonicalFileIdentityKey(atPath: path)
+                guard seenRomfs.insert(key).inserted else { return }
                 romfsCandidates.append(path)
             }
             let prefillApp = !nxnativeExistingApp.isEmpty ? nxnativeExistingApp : (FileManager.default.fileExists(atPath: macOutput.builderURL.path) ? macOutput.builderURL.path : nil)
@@ -465,20 +466,23 @@ extension BuildStore {
                         return
                     }
                     var launchArgs = immutableBaseArgs
+                    var seenPrefill = Set<String>()
+                    func appendPrefill(_ path: String) {
+                        guard !path.isEmpty else { return }
+                        let key = BuildSeedCache.canonicalFileIdentityKey(atPath: path)
+                        guard seenPrefill.insert(key).inserted else { return }
+                        launchArgs += ["--prefill-msl", path]
+                    }
                     for cand in finalCandidates {
-                        launchArgs += ["--prefill-msl", cand]
+                        appendPrefill(cand)
                     }
                     if !isMac {
                         if let extImg = validExternalImg {
                             self.fastRefreshExternalImgPath = extImg
-                            if !finalCandidates.contains(extImg) {
-                                launchArgs += ["--prefill-msl", extImg]
-                            }
+                            appendPrefill(extImg)
                         } else if let driveImg = matchedDriveImg {
                             self.fastRefreshExternalImgPath = driveImg
-                            if !finalCandidates.contains(driveImg) {
-                                launchArgs += ["--prefill-msl", driveImg]
-                            }
+                            appendPrefill(driveImg)
                             self.say(String(format: self.t("imgGuide.driveReused"), (driveImg as NSString).lastPathComponent))
                         }
                     }
@@ -495,14 +499,19 @@ extension BuildStore {
             return
         }
 
+        var seenSyncPrefill = Set<String>()
+        func appendSyncPrefill(_ path: String) {
+            guard !path.isEmpty else { return }
+            let key = BuildSeedCache.canonicalFileIdentityKey(atPath: path)
+            guard seenSyncPrefill.insert(key).inserted else { return }
+            args += ["--prefill-msl", path]
+        }
         for cand in syncCandidates {
-            args += ["--prefill-msl", cand]
+            appendSyncPrefill(cand)
         }
         if !isMac, let extImg = validExternalImg {
             fastRefreshExternalImgPath = extImg
-            if !syncCandidates.contains(extImg) {
-                args += ["--prefill-msl", extImg]
-            }
+            appendSyncPrefill(extImg)
             if initialInspection.record?.romfsIdentity?.isEmpty != false,
                RepoLayout.supportsRomfsFrom(repoPath) {
                 args += ["--romfs-from", extImg]

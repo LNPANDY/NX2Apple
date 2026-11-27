@@ -3329,11 +3329,12 @@ class Model(QObject):
                 self.ipa_path = lib.one_game_ipa_path(out_d, tid)
                 args += ['-o', self.ipa_path]
 
-            seen_prefill: set[str] = set()
+            seen_prefill: set[tuple[object, ...]] = set()
             for cand in prefill_cands:
                 c_str = str(cand)
-                if c_str not in seen_prefill:
-                    seen_prefill.add(c_str)
+                c_key = build_seed_cache.file_identity_key(cand)
+                if c_key not in seen_prefill:
+                    seen_prefill.add(c_key)
                     args += ['--prefill-msl', c_str]
 
             if drive_reused_name:

@@ -286,6 +286,32 @@ final class FastRefreshBuildCacheTests: XCTestCase {
         XCTAssertFalse(candidates.contains(outDir + "/nonexistent.img"))
     }
 
+    func testPrefillCandidatesAndReusableImagesDeduplicateCaseVariantsAndHardlinks() throws {
+        let mixedTID = "01006D0017F7A000"
+        let outDir = tempDir.appendingPathComponent("dedup-output").path
+        let upperImg = outDir + "/games/" + mixedTID + "/romfs.img"
+        let lowerImg = outDir + "/games/" + mixedTID.lowercased() + "/romfs.img"
+        try fm.createDirectory(atPath: (upperImg as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        try "romfs-payload".write(toFile: upperImg, atomically: true, encoding: .utf8)
+        try "{\"title\":\"\(mixedTID)\"}\n".write(toFile: upperImg + ".id", atomically: true, encoding: .utf8)
+
+        let hardlinkImg = outDir + "/linked-romfs.img"
+        try fm.linkItem(atPath: upperImg, toPath: hardlinkImg)
+
+        let candidates = BuildSeedCache.prefillCandidates(
+            titleID: mixedTID,
+            outDir: outDir,
+            archivePath: hardlinkImg,
+            fm: fm
+        )
+        let imgMatches = candidates.filter { $0.hasSuffix(".img") }
+        XCTAssertEqual(imgMatches.count, 1, "Same-inode / case-variant RomFS images must appear only once in prefillCandidates: \(imgMatches)")
+        XCTAssertFalse(candidates.contains(upperImg) && candidates.contains(lowerImg))
+
+        let reusable = RomFSArchive.reusableImages(root: outDir, key: mixedTID.lowercased())
+        XCTAssertEqual(reusable.count, 1, "Case-variant title ID lookup must not duplicate the same romfs.img: \(reusable)")
+    }
+
     func testTrailerStatusAndAction() {
         let matchJSON = """
         {
