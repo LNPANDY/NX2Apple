@@ -20,7 +20,7 @@ enum GallerySheet: String, CaseIterable {
     case batchRefresh, batchRefreshEmpty, imgGuide, imgGuideNoPackage, rebuildMode, refreshCompletion
     case saves, saveImport
     case skippedItems, appUpdate, playerName, playerRename, buildSteps, sendSelectedDevice, shellCopy
-    case cheats, invalidXcode
+    case cheats, cheatsFetchPreview, invalidXcode
     case activityLog, activityLogEmpty
     case seedCompressionPrompt, seedCompressionProgress, seedCompressionDone, seedCompressionDonePartial, seedCompressionDoneStopped
     case mngSaveMigration
@@ -75,6 +75,7 @@ enum GallerySheet: String, CaseIterable {
         case .sendSelectedDevice: return "Send game data: no shared app"
         case .shellCopy: return "Copy game data: USB link speed"
         case .cheats: return "Cheats: no files yet"
+        case .cheatsFetchPreview: return "Cheats: online comparison preview"
         case .invalidXcode: return "Chosen app is not Xcode"
         case .activityLog: return "Activity Log: a game open"
         case .activityLogEmpty: return "Activity Log: no play history"
@@ -97,6 +98,7 @@ enum GallerySheet: String, CaseIterable {
         case .saves: return CGSize(width: 640, height: 700)
         case .buildSteps: return CGSize(width: 600, height: 440)
         case .cheats: return CGSize(width: 600, height: 700)
+        case .cheatsFetchPreview: return CGSize(width: 640, height: 720)
         case .activityLog: return CGSize(width: ActivityLogSheet.width, height: 780)
         case .sendSelectedDevice: return CGSize(width: 680, height: 720)
         default: return nil
@@ -313,6 +315,48 @@ extension GalleryFixtures {
             return AnyView(ShellCopySheet(devices: stores.deviceStore, previewPlan: plan))
         case .cheats:
             return AnyView(CheatsView(m: stores.build, library: library, gameID: game.id))
+        case .cheatsFetchPreview:
+            let localSample = """
+            [Infinite HP]
+            04000000 00180020 000003E7
+            [Custom Speed]
+            04000000 00180080 3F800000
+            """
+            let onlineSample = """
+            {Master Code}
+            04000000 00000010 00000001
+
+            [Infinite HP]
+            04000000 00180020 000003E7
+
+            [Moon Jump]
+            80000202
+            04000000 00000400 D503201F
+            20000000
+
+            [Max Rupees]
+            04100000 00004200 000F423F
+            """
+            let diff = CheatFetcher.diffSummary(localText: localSample, onlineText: onlineSample, rxEnd: 0x100000, buildID: "CD57B23FA4BBAD65")
+            let preview = CheatOnlinePreview(
+                titleID: game.titleID,
+                buildID: "CD57B23FA4BBAD65",
+                localText: localSample,
+                onlineText: onlineSample,
+                sources: ["switch-cheats-db", "cheats_gbatemp"],
+                entryCount: diff.onlineCount,
+                diff: diff
+            )
+            let expanded = Set(diff.entries.first.map { [$0.id] } ?? [])
+            return AnyView(
+                CheatsFetchPreviewSheet(
+                    preview: preview,
+                    initialExpandedIDs: expanded,
+                    onKeepLocal: {},
+                    onMergeAdded: {},
+                    onReplaceWithOnline: {}
+                )
+            )
         case .invalidXcode:   // Settings › Tools, Choose… with an app that is not Xcode (ToolsCard)
             return AnyView(DSSheet(title: t("xcodeChoice.invalid")) { EmptyView() } buttons: { DSSheetPrimaryButton(t("library.ok")) {} })
         case .confirmTestedValues:

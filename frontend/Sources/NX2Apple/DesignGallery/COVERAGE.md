@@ -4,9 +4,9 @@ Written by `GalleryCoverageTests` from `GalleryCoverage.swift`: every View type 
 popover and alert, every notice and every case of the state enums the views switch on, with the gallery's scenes
 (`GalleryScene.id`) that show it, or the reason none can. After a change:
 `NX_WRITE_COVERAGE=1 swift test --package-path frontend --filter GalleryCoverageTests`. The gallery has
-343 scenes.
+344 scenes.
 
-## Views: 241 of 251 in a scene
+## Views: 242 of 252 in a scene
 
 | View | Scenes |
 |---|---|
@@ -54,6 +54,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `CheatTriggerKeyPill` | `cheats` |
 | `CheatsCountPill` | `cheats` |
 | `CheatsFetchCard` | `cheats` |
+| `CheatsFetchPreviewSheet` | `cheatsFetchPreview` |
 | `CheatsOverviewCard` | `cheats` |
 | `CheatsView` | `cheats` |
 | `CloudSaveSheet` | `cloudChoose`, `cloudFetching` |
@@ -262,7 +263,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `UpstreamPicker` | `nxkitEngine`, `desktop-mngBlocked` |
 | `UpstreamVersionPill` | `buildsIdle`, `desktop-engineDropdown` |
 
-## Presentations: 34 of 40 in a scene
+## Presentations: 35 of 41 in a scene
 
 | Presentation | Scenes |
 |---|---|
@@ -271,6 +272,7 @@ popover and alert, every notice and every case of the state enums the views swit
 | `BuildPage.swift .sheet BuildProcessStepsSheet` | `buildSteps` |
 | `BuildPage.swift .sheet LauncherConfirmSheet` | `confirmCancelDraft` |
 | `BuildPage.swift .sheet LauncherConfirmSheet 2` | `confirmCancelQueue` |
+| `CheatsView.swift .sheet CheatsFetchPreviewSheet` | `cheatsFetchPreview` |
 | `CloudSavesCard.swift .sheet CloudSyncConflictSheet` | `cloudSyncConflict` |
 | `Controls.swift .sheet LauncherConfirmSheet` | `controlsDiscard` |
 | `EngineSwitcherCard.swift .popover EngineDropdownPanel` | Reason: A popover or an alert: AppKit draws it in its own window, which a capture of the scene cannot hold. The scene shows what opens it. |
