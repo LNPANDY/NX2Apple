@@ -141,6 +141,22 @@ package enum BuildFailureClassifier {
             }
     }
 
+    /// Matches Xcode errors reporting a missing or signed-out Apple ID or an expired signing session.
+    private static let noSigningAccountPattern =
+        #"(?i)(?:No Accounts:\s*Add a new account in Accounts settings|No Account for Team\b|Your session has expired\b|\bPlease log in\b|\bAccount\b[^\n]{0,80}\bis not signed in\b)"#
+
+    /// Returns whether tool output reports a missing or signed-out Xcode signing account.
+    package static func noSigningAccount(in log: String) -> Bool {
+        log.range(of: noSigningAccountPattern, options: .regularExpression) != nil
+    }
+
+    /// Returns the line in tool output describing a missing or signed-out Xcode signing account.
+    package static func noSigningAccountLine(in log: String) -> String? {
+        log.split(whereSeparator: \.isNewline)
+            .map { String($0).trimmingCharacters(in: .whitespaces) }
+            .last { noSigningAccount(in: $0) }
+    }
+
     /// nil when the launcher has no better words than the tool's own line. `teamListed`: whether the chosen team is still one
     /// the Mac knows (an account signed in to Xcode, or a development certificate in the keychain).
     package static func classifyInstall(_ step: InstallStep, error: String, teamListed: Bool) -> BuildFailure? {
@@ -152,6 +168,7 @@ package enum BuildFailureClassifier {
         if freeAccountLimitReached(error) { return BuildFailure(kind: .freeAccountLimit, gameName: nil) }
         switch step {
         case .sign:
+            if noSigningAccount(in: error) { return BuildFailure(kind: .noSigningAccount, gameName: nil) }
             if signingTeamTaken(error) { return BuildFailure(kind: .teamTaken, gameName: nil) }
             return teamListed ? nil : BuildFailure(kind: .noSigningAccount, gameName: nil)
         case .install, .copy:

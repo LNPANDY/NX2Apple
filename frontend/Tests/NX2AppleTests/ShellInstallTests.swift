@@ -1898,4 +1898,56 @@ import NXModel
         XCTAssertFalse(fm.fileExists(atPath: oldCached), "successful xcodebuild must commit and discard >= 24h cached profile")
         XCTAssertEqual(AppSignature.expiration(ofApp: app), freshExpiry)
     }
+
+    @MainActor func testNoSigningAccountSkipsTeamVariantRetryAndSurfacesCardInInstallAndResign() throws {
+        let f = try makeFixture()
+        let twoLineError = """
+        /tmp/shell/project/DmShell.xcodeproj: error: No Accounts: Add a new account in Accounts settings. (in target 'DmShell' from project 'DmShell')
+        /tmp/shell/project/DmShell.xcodeproj: error: No profiles for 'org.nxnative.shell' were found: Xcode couldn't find any iOS App Development provisioning profiles matching 'org.nxnative.shell'. (in target 'DmShell' from project 'DmShell')
+        """
+        // 1. ShellInstaller path: reports .noSigningAccount, keeps "No Accounts:" message, and skips team-variant retry
+        try write(state + "/xcodebuild-error", twoLineError + "\n")
+        var inst = installer(f)
+        inst.allowHotInstall = false
+        let failedInstall = install(inst, f)
+        try fm.removeItem(atPath: state + "/xcodebuild-error")
+        XCTAssertFalse(failedInstall.ok)
+        XCTAssertEqual(failedInstall.step, .sign)
+        XCTAssertEqual(failedInstall.failure, .noSigningAccount)
+        XCTAssertTrue(failedInstall.message.contains("No Accounts: Add a new account in Accounts settings."), failedInstall.message)
+        XCTAssertEqual(calls.filter { $0.hasPrefix("xcodebuild") }.count, 1)
+
+        // 2. Resign path (BuildStore.resignOnDevice): succeeds first to create DmShell.app, then fails with No Accounts even with teamListed == true
+        let stores = LauncherStores(xcrun: f.xcrun, defaults: testDefaults)
+        let model = stores.build
+        let signingTeam = team
+        stores.repo.path = f.repo
+        stores.deviceStore.devices = [AppleDevice(id: device, name: "iPhone", model: "iPhone16,1", os: "18.0", reachable: true, transport: "wired")]
+        stores.deviceStore.installDevice = device
+        stores.deviceStore.signingTeam = signingTeam
+        stores.deviceStore.readTeams = { [SigningTeam(id: signingTeam, identity: "Apple Development")] }
+        model.home = f.root
+
+        var seed = installer(f)
+        seed.allowHotInstall = false
+        seed.decideCopy = { _ in .skip }
+        XCTAssertTrue(install(seed, f).ok)
+        let appPath = ShellInstall.appPath(root: f.root)
+        try fm.createDirectory(atPath: appPath + "/_CodeSignature", withIntermediateDirectories: true)
+        try write(appPath + "/_CodeSignature/CodeResources", "old-sig")
+
+        let twoLineVariantError = """
+        /tmp/shell/project/DmShell.xcodeproj: error: No Accounts: Add a new account in Accounts settings. (in target 'DmShell' from project 'DmShell')
+        /tmp/shell/project/DmShell.xcodeproj: error: No profiles for 'org.nxnative.shell.\(team)' were found: Xcode couldn't find any iOS App Development provisioning profiles matching 'org.nxnative.shell.\(team)'. (in target 'DmShell' from project 'DmShell')
+        """
+        try write(state + "/xcodebuild-error", twoLineVariantError + "\n")
+        let resigned = expectation(description: "Resign fails with noSigningAccount")
+        model.resignOnDevice(app: appPath, device: device) { resigned.fulfill() }
+        wait(for: [resigned], timeout: 30)
+        try fm.removeItem(atPath: state + "/xcodebuild-error")
+
+        XCTAssertEqual(model.failure?.kind, .noSigningAccount)
+        XCTAssertEqual(model.doneNote, model.t("fail.noSigningAccount.what"))
+        XCTAssertEqual(try String(contentsOfFile: appPath + "/_CodeSignature/CodeResources"), "old-sig")
+    }
 }

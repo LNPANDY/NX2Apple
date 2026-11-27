@@ -331,4 +331,40 @@ import NXModel
             }
         }
     }
+
+    @MainActor func testNoSigningAccountBeatsTeamListedAndTrailingNoProfiles() {
+        let twoLineTeamVariant = """
+        /tmp/shell/project/DmShell.xcodeproj: error: No Accounts: Add a new account in Accounts settings. (in target 'DmShell' from project 'DmShell')
+        /tmp/shell/project/DmShell.xcodeproj: error: No profiles for 'org.nxnative.shell.MG2FF22535' were found: Xcode couldn't find any iOS App Development provisioning profiles matching 'org.nxnative.shell.MG2FF22535'. (in target 'DmShell' from project 'DmShell')
+        """
+        let twoLineBare = """
+        /tmp/shell/project/DmShell.xcodeproj: error: No Accounts: Add a new account in Accounts settings. (in target 'DmShell' from project 'DmShell')
+        /tmp/shell/project/DmShell.xcodeproj: error: No profiles for 'org.nxnative.shell' were found: Xcode couldn't find any iOS App Development provisioning profiles matching 'org.nxnative.shell'. (in target 'DmShell' from project 'DmShell')
+        """
+        for log in [
+            twoLineTeamVariant,
+            twoLineBare,
+            "error: No Account for Team \"MG2FF22535\". Add a new account in the Accounts preference pane.",
+            "error: Your session has expired. Please log in.",
+            "error: Account \"dev@example.com\" is not signed in.",
+        ] {
+            XCTAssertTrue(BuildFailureClassifier.noSigningAccount(in: log), log)
+            XCTAssertEqual(BuildFailureClassifier.classifyInstall(.sign, error: log, teamListed: true)?.kind, .noSigningAccount, log)
+        }
+        XCTAssertFalse(ShellInstall.retryUnderTeamVariant(twoLineBare, attempted: "org.nxnative.shell", variant: "org.nxnative.shell.MG2FF22535"))
+        XCTAssertFalse(ShellInstall.retryUnderTeamVariant(twoLineTeamVariant, attempted: "org.nxnative.shell", variant: "org.nxnative.shell.MG2FF22535"))
+
+        // Existing classifications remain intact when signed in
+        XCTAssertEqual(BuildFailureClassifier.classifyInstall(.sign, error: "error: No profiles for 'org.nxnative.shell' were found", teamListed: true)?.kind, .teamTaken)
+        XCTAssertEqual(BuildFailureClassifier.classifyInstall(.sign, error: "error: Developer Mode disabled", teamListed: true)?.kind, .developerMode)
+
+        // BuildStore recovers .noSigningAccount from logTail even when trailing error only carries No profiles
+        let mStores = LauncherStores(defaults: testDefaults); let m = mStores.build
+        mStores.deviceStore.signingTeam = "MG2FF22535"
+        mStores.deviceStore.readTeams = { [SigningTeam(id: "MG2FF22535", identity: "Apple Development")] }
+        m.logTail = twoLineBare + "\n"
+        m.noteInstallFailure(.sign, error: "Signing failed: error: No profiles for 'org.nxnative.shell' were found")
+        XCTAssertEqual(m.failure?.kind, .noSigningAccount)
+        XCTAssertEqual(m.doneNote, m.t("fail.noSigningAccount.what"))
+    }
 }

@@ -609,7 +609,7 @@ extension BuildStore {
         let launch = ProcessLaunch(command, environment: env,
                                    groupPython: resolvedGroupPy.isEmpty ? "/usr/bin/python3" : resolvedGroupPy)
         let utf8 = UTF8StreamDecoder.Locked()
-        var buffer = "", lastError = "", devModeError = ""
+        var buffer = "", lastError = "", devModeError = "", noAccountError = ""
         let handleLine: @MainActor (BuildStore, String) -> Void = { store, raw in
             var line = raw
             if line.unicodeScalars.last == "\r" { line.unicodeScalars.removeLast() }
@@ -617,6 +617,7 @@ extension BuildStore {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if line.contains("error:") || line.hasPrefix("ERROR:") { lastError = trimmed }
             if BuildFailureClassifier.isDeveloperModeDisabled(trimmed) { devModeError = trimmed }
+            if BuildFailureClassifier.noSigningAccount(in: trimmed) { noAccountError = trimmed }
             if let s = step(line), let i = store.stages.firstIndex(where: { $0.id == id }) {
                 store.stages[i].detail = s.detail
                 if let percent = s.percent { store.stages[i].percent = percent }
@@ -660,7 +661,9 @@ extension BuildStore {
                     self.stages[i].state = ok ? .done : .failed
                     if ok { self.stages[i].percent = 100; self.stages[i].detail = "" }
                 }
-                let resolvedError = !devModeError.isEmpty ? devModeError : (lastError.isEmpty ? String(format: self.t("msg.exitCode"), status) : lastError)
+                let resolvedError = !devModeError.isEmpty ? devModeError
+                    : (!noAccountError.isEmpty ? noAccountError
+                        : (lastError.isEmpty ? String(format: self.t("msg.exitCode"), status) : lastError))
                 then(ok ? nil : resolvedError)
             }
         }
