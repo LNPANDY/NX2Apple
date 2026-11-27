@@ -47,6 +47,7 @@ import XCTest
     private final class RecordingRunner: ProcessRunner, @unchecked Sendable {
         var launches: [ProcessLaunch] = []
         var onStart: ((ProcessLaunch) -> Void)?
+        var nextExitStatus: Int32 = 0
         func capture(_ launch: ProcessLaunch) -> ProcessResult { ProcessResult(status: 0, out: "") }
         func stream(_ launch: ProcessLaunch, line: @escaping (String) -> Void) -> Bool { true }
         func streamLines(_ launch: ProcessLaunch, started: @escaping (RunningProcess) -> Void, line: @escaping (String) -> Void) -> ProcessResult {
@@ -56,7 +57,7 @@ import XCTest
         func start(_ launch: ProcessLaunch, onOutput: @escaping (Data) -> Void, onExit: @escaping (Int32) -> Void) throws -> RunningProcess {
             launches.append(launch)
             onStart?(launch)
-            onExit(0)
+            onExit(nextExitStatus)
             return FakeRunningProcess()
         }
     }
@@ -551,5 +552,251 @@ import XCTest
             launcherHomeAtLaunch.contains("#if os(iOS)\n            if m.rows(in: current).contains(where: { $0.env == \"DM_MIC\" }) {"),
             "Test Microphone section must also be guarded for macOS"
         )
+    }
+
+    func testKidWithSwordIOSSeparateRomfsDefaultToggleAndBundleFallback() throws {
+        let kwsTree = try makeVariantTree(name: "kws-separate", flags: "\"--work-dir\" \"--bundle-id\" \"--env-file\" \"--romfs\"")
+        let nxRepo = temporary.appendingPathComponent("nx-repo-separate", isDirectory: true)
+        try FileManager.default.createDirectory(at: nxRepo.appendingPathComponent("dm/tools/nx_extract"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: nxRepo.appendingPathComponent("scripts"), withIntermediateDirectories: true)
+        try Data("// cs\n".utf8).write(to: nxRepo.appendingPathComponent("dm/tools/nx_extract/Program.cs"))
+        try Data("# romfs_image\n".utf8).write(to: nxRepo.appendingPathComponent("dm/tools/romfs_image.py"))
+        try Data("# \"--work-dir\" \"--romfs\"\n".utf8).write(to: nxRepo.appendingPathComponent("scripts/build_ipa_from_nsp.py"))
+        repo.path = nxRepo.path
+        repo.isRepo = true
+
+        let runner = RecordingRunner()
+        let outDir = temporary.appendingPathComponent("out-kws-separate", isDirectory: true)
+        try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+
+        let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
+        store.home = temporary.path
+        store.kidWithSwordPath = kwsTree
+        store.outDir = outDir.path
+        devices.signingTeam = "TEAMKWS1"
+
+        let oot = temporary.appendingPathComponent("Ocarina [0400486024DEC000].nsp")
+        let keys = temporary.appendingPathComponent("prod.keys")
+        try Data([0]).write(to: oot)
+        try Data([0]).write(to: keys)
+        store.updateSlot("base") { $0.paths = [oot.path] }
+        store.updateSlot("keys") { $0.paths = [keys.path] }
+        store.target = BuildTarget.ios
+        store.selectUpstream(.kidWithSword)
+
+        XCTAssertTrue(store.kwsSeparateRomfs, "Separate romfs.img must default on for Kid with Sword")
+        XCTAssertTrue(store.supportsSeparateRomfsOption)
+        XCTAssertTrue(store.usesSeparateRomfsForCurrentBuild)
+
+        let expectedWork = outDir.path + "/0400486024DEC000_kidwithsword_build"
+        let extractedImg = URL(fileURLWithPath: expectedWork).appendingPathComponent("extract/v131072/RomFS.img")
+        let romfsBytes = Data("DMROMFS1kws-test-image".utf8)
+        runner.onStart = { launch in
+            if let idx = launch.arguments.firstIndex(of: "-o"), idx + 1 < launch.arguments.count {
+                try? Data("ipa".utf8).write(to: URL(fileURLWithPath: launch.arguments[idx + 1]))
+            }
+            try? FileManager.default.createDirectory(at: extractedImg.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? romfsBytes.write(to: extractedImg)
+        }
+
+        // 1. Default Kid with Sword iOS build uses `--romfs separate` and `DM_COPY_ROMFS=NO`.
+        store.startBuild()
+        XCTAssertTrue(waitUntil { store.done && !store.running })
+        let sepLaunch = try XCTUnwrap(runner.launches.last)
+        let romfsArgIdx = try XCTUnwrap(sepLaunch.arguments.firstIndex(of: "--romfs"))
+        XCTAssertEqual(sepLaunch.arguments[romfsArgIdx + 1], "separate")
+        XCTAssertEqual(sepLaunch.environment?["DM_COPY_ROMFS"], "NO")
+        XCTAssertNil(sepLaunch.environment?["DM_FULL_ROMFS"])
+        XCTAssertTrue(store.completedOneGameSeparateRomfs)
+        XCTAssertTrue(store.completedSeparateRomfsIPA)
+        XCTAssertFalse(store.externalRomfsImagePath.isEmpty)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.externalRomfsImagePath))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: extractedImg.path), "Separate mode must preserve extracted RomFS.img")
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: store.externalRomfsImagePath)), romfsBytes)
+        let stagedRomfsDir = OneGameIPA.separateRomfsDirectory(forIPA: store.exportedIPAPath)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: stagedRomfsDir))
+
+        // 2. Switching toggle off falls back to bundled `--romfs bundle` + `DM_FULL_ROMFS=1` and cleans both extracted and staged RomFS.
+        store.kwsSeparateRomfs = false
+        XCTAssertFalse(store.usesSeparateRomfsForCurrentBuild)
+        store.startBuild()
+        XCTAssertTrue(waitUntil { runner.launches.count == 2 && store.done && !store.running })
+        let bundleLaunch = try XCTUnwrap(runner.launches.last)
+        let bundleArgIdx = try XCTUnwrap(bundleLaunch.arguments.firstIndex(of: "--romfs"))
+        XCTAssertEqual(bundleLaunch.arguments[bundleArgIdx + 1], "bundle")
+        XCTAssertEqual(bundleLaunch.environment?["DM_FULL_ROMFS"], "1")
+        XCTAssertNil(bundleLaunch.environment?["DM_COPY_ROMFS"])
+        XCTAssertFalse(store.completedOneGameSeparateRomfs)
+        XCTAssertFalse(store.completedSeparateRomfsIPA)
+        XCTAssertEqual(store.externalRomfsImagePath, "")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: extractedImg.path), "Bundle mode cleans extracted RomFS after packing")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stagedRomfsDir), "Bundle mode cleans stale -romfs directory")
+
+        // 3. Standard nxnative one-game IPA stays unaffected even when `kwsSeparateRomfs` is true.
+        store.kwsSeparateRomfs = true
+        store.selectUpstream(.nxnative)
+        devices.exportIPA = true
+        devices.exportOneGame = true
+        XCTAssertFalse(store.supportsSeparateRomfsOption)
+        XCTAssertFalse(store.usesSeparateRomfsForCurrentBuild)
+        store.startBuild()
+        XCTAssertTrue(waitUntil { runner.launches.count == 3 && store.done && !store.running })
+        let nxLaunch = try XCTUnwrap(runner.launches.last)
+        let nxArgIdx = try XCTUnwrap(nxLaunch.arguments.firstIndex(of: "--romfs"))
+        XCTAssertEqual(nxLaunch.arguments[nxArgIdx + 1], "bundle")
+        XCTAssertEqual(nxLaunch.environment?["DM_FULL_ROMFS"], "1")
+        XCTAssertFalse(store.completedOneGameSeparateRomfs)
+    }
+
+    func testQueuedKidWithSwordIOSPreservesSeparateRomfsSnapshot() throws {
+        let kwsTree = try makeVariantTree(name: "kws-queue-sep", flags: "\"--work-dir\" \"--bundle-id\" \"--romfs\"")
+        let runner = RecordingRunner()
+        let outDir = temporary.appendingPathComponent("out-kws-q-sep", isDirectory: true)
+        try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+
+        let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
+        store.home = temporary.path
+        store.kidWithSwordPath = kwsTree
+        store.outDir = outDir.path
+
+        let oot = temporary.appendingPathComponent("Ocarina [0400486024DEC000].nsp")
+        let keys = temporary.appendingPathComponent("prod.keys")
+        try Data([0]).write(to: oot)
+        try Data([0]).write(to: keys)
+
+        let queue = BuildQueueStore(file: nil, engineID: { "main" }, busy: { store.running }, start: { store.startQueued($0) })
+        store.queue = queue
+        store.selectUpstream(.kidWithSword)
+
+        let entry = QueueEntry(
+            titleID: "0400486024DEC000",
+            name: "Ocarina of Time",
+            target: BuildTarget.ios,
+            inputs: ["base": [oot.path], "keys": [keys.path]],
+            outputDirectory: outDir.path,
+            engineID: "main",
+            upstream: .kidWithSword,
+            separateRomfs: true
+        )
+        // Verify Codable round-trip preserves `separateRomfs` and handles legacy entries missing it.
+        let encoded = try JSONEncoder().encode(entry)
+        let decoded = try JSONDecoder().decode(QueueEntry.self, from: encoded)
+        XCTAssertEqual(decoded.separateRomfs, true)
+
+        queue.enqueue([entry])
+        // Flip the form toggle off after queueing: the queued snapshot must win!
+        store.kwsSeparateRomfs = false
+
+        let extractedImg = outDir.appendingPathComponent("0400486024DEC000_kidwithsword_build/extract/v131072/RomFS.img")
+        runner.onStart = { launch in
+            if let idx = launch.arguments.firstIndex(of: "-o"), idx + 1 < launch.arguments.count {
+                try? Data("ipa".utf8).write(to: URL(fileURLWithPath: launch.arguments[idx + 1]))
+            }
+            try? FileManager.default.createDirectory(at: extractedImg.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? Data("DMROMFS1queued".utf8).write(to: extractedImg)
+        }
+
+        store.startBuildOrQueue()
+        XCTAssertTrue(waitUntil { !runner.launches.isEmpty && store.done && !store.running })
+        let launch = try XCTUnwrap(runner.launches.first)
+        let idx = try XCTUnwrap(launch.arguments.firstIndex(of: "--romfs"))
+        XCTAssertEqual(launch.arguments[idx + 1], "separate")
+        XCTAssertEqual(launch.environment?["DM_COPY_ROMFS"], "NO")
+        XCTAssertTrue(store.completedOneGameSeparateRomfs)
+        XCTAssertFalse(store.externalRomfsImagePath.isEmpty)
+    }
+
+    func testFailedSeparateRomfsBuildResetsStateBeforeFastRefreshAndShellExport() throws {
+        let kwsTree = try makeVariantTree(name: "kws-fail-reset", flags: "\"--work-dir\" \"--bundle-id\" \"--env-file\" \"--romfs\"")
+        let nxRepo = temporary.appendingPathComponent("nx-repo-fail-reset", isDirectory: true)
+        try FileManager.default.createDirectory(at: nxRepo.appendingPathComponent("dm/tools/nx_extract"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: nxRepo.appendingPathComponent("scripts"), withIntermediateDirectories: true)
+        try Data("// cs\n".utf8).write(to: nxRepo.appendingPathComponent("dm/tools/nx_extract/Program.cs"))
+        try Data("# romfs_image\n".utf8).write(to: nxRepo.appendingPathComponent("dm/tools/romfs_image.py"))
+        try Data("# \"--from-seed\" \"--work-dir\" \"--progress\" \"--romfs\"\n".utf8).write(to: nxRepo.appendingPathComponent("scripts/build_ipa_from_nsp.py"))
+        repo.path = nxRepo.path
+        repo.isRepo = true
+
+        let runner = RecordingRunner()
+        let outDir = temporary.appendingPathComponent("out-kws-fail-reset", isDirectory: true)
+        try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+
+        let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
+        store.home = temporary.path
+        store.kidWithSwordPath = kwsTree
+        store.outDir = outDir.path
+        devices.signingTeam = "TEAMKWS2"
+
+        let oot = temporary.appendingPathComponent("Ocarina [0400486024DEC000].nsp")
+        let keys = temporary.appendingPathComponent("prod.keys")
+        try Data([0]).write(to: oot)
+        try Data([0]).write(to: keys)
+        store.updateSlot("base") { $0.paths = [oot.path] }
+        store.updateSlot("keys") { $0.paths = [keys.path] }
+        store.target = BuildTarget.ios
+        store.selectUpstream(.kidWithSword)
+
+        let nxExtractedImg = outDir.appendingPathComponent("0400486024DEC000_build/extract/v131072/RomFS.img")
+        let kwsExtractedImg = outDir.appendingPathComponent("0400486024DEC000_kidwithsword_build/extract/v131072/RomFS.img")
+        runner.onStart = { launch in
+            if let idx = launch.arguments.firstIndex(of: "-o"), idx + 1 < launch.arguments.count {
+                try? Data("ipa".utf8).write(to: URL(fileURLWithPath: launch.arguments[idx + 1]))
+            }
+            let work = (launch.arguments.firstIndex(of: "--work-dir").flatMap { $0 + 1 < launch.arguments.count ? launch.arguments[$0 + 1] : nil })
+                ?? outDir.appendingPathComponent("0400486024DEC000_kidwithsword_build").path
+            let img = URL(fileURLWithPath: work).appendingPathComponent("extract/v131072/RomFS.img")
+            try? FileManager.default.createDirectory(at: img.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? Data("DMROMFS1reset-test".utf8).write(to: img)
+        }
+
+        // 1. Failing KWS separate build must clear `activeSeparateRomfsBuild` and all external RomFS completion state.
+        runner.nextExitStatus = 1
+        store.startBuild()
+        XCTAssertTrue(waitUntil { runner.launches.count == 1 && !store.running })
+        XCTAssertFalse(store.done)
+        XCTAssertFalse(store.activeSeparateRomfsBuild)
+        XCTAssertFalse(store.completedOneGameSeparateRomfs)
+        XCTAssertFalse(store.completedSeparateRomfsIPA)
+        XCTAssertEqual(store.externalRomfsImagePath, "")
+
+        // 2. Subsequent nxnative iOS One-Game IPA fast refresh must NOT inherit stale separate-RomFS state.
+        runner.nextExitStatus = 0
+        devices.exportIPA = true
+        devices.exportOneGame = true
+        let seedDir = URL(fileURLWithPath: store.seedCacheRoot).appendingPathComponent("0400486024DEC000", isDirectory: true)
+        try FileManager.default.createDirectory(at: seedDir, withIntermediateDirectories: true)
+        try Data("seed".utf8).write(to: seedDir.appendingPathComponent("seed.json"))
+
+        store.startFastRefresh(
+            titleID: "0400486024DEC000",
+            targetName: BuildTarget.ios,
+            outDir: outDir.path,
+            gameName: "Ocarina of Time"
+        )
+        XCTAssertTrue(waitUntil { runner.launches.count == 2 && store.done && !store.running })
+        XCTAssertFalse(store.activeSeparateRomfsBuild)
+        XCTAssertFalse(store.completedOneGameSeparateRomfs)
+        XCTAssertFalse(store.completedSeparateRomfsIPA)
+        XCTAssertEqual(store.externalRomfsImagePath, "")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: nxExtractedImg.path), "Fast refresh bundle IPA must clean extracted RomFS")
+
+        // 3. After a successful KWS separate build, launching a non-separate export clears external RomFS completion state.
+        store.selectUpstream(.kidWithSword)
+        store.kwsSeparateRomfs = true
+        store.startBuild()
+        XCTAssertTrue(waitUntil { runner.launches.count == 3 && store.done && !store.running })
+        XCTAssertTrue(store.completedOneGameSeparateRomfs)
+        XCTAssertFalse(store.externalRomfsImagePath.isEmpty)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: kwsExtractedImg.path))
+
+        let fakeFramework = temporary.appendingPathComponent("Ocarina.framework", isDirectory: true)
+        try FileManager.default.createDirectory(at: fakeFramework, withIntermediateDirectories: true)
+        store.exportShell(framework: fakeFramework.path, titleID: "0400486024DEC000", name: "Ocarina of Time")
+        XCTAssertFalse(store.completedOneGameSeparateRomfs)
+        XCTAssertFalse(store.completedSeparateRomfsIPA)
+        XCTAssertEqual(store.externalRomfsImagePath, "")
+        XCTAssertTrue(waitUntil { !store.running })
+        XCTAssertFalse(store.completedOneGameSeparateRomfs)
+        XCTAssertEqual(store.externalRomfsImagePath, "")
     }
 }

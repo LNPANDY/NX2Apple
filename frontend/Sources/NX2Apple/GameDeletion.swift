@@ -38,6 +38,10 @@ struct GameDeletion: Equatable {
             if let targetIPA = game.ipaBuilds[upstream.rawValue], exists(targetIPA),
                (targetIPA as NSString).lastPathComponent.lowercased() != "nx2apple.ipa" {
                 items.append(Item(kind: .ipa, paths: [targetIPA]))
+                let separateRomfsDir = OneGameIPA.separateRomfsDirectory(forIPA: targetIPA)
+                if upstream == .kidWithSword, exists(separateRomfsDir) {
+                    items.append(Item(kind: .archive, paths: [separateRomfsDir]))
+                }
             }
             let builds = BuildFolder.locations(for: game, upstream: upstream)
             let sources = Set(game.inputs.values.flatMap { $0 }.map(BuildFolder.resolved))
@@ -94,6 +98,7 @@ struct GameDeletion: Equatable {
         // An app of its own (an older iPhone build). The shared app holds other games too and is never deleted here.
         if game.hasIOSApp && ShellInstall.paths(ofApp: game.iosAppPath) == nil { items.append(Item(kind: .iosApp, paths: [game.iosAppPath])) }
         // The game data the shared app's install sends: <output folder>/games/<title ID> or <output folder>/games/<SafeName>
+        var archivePaths: [String] = []
         if exists(game.archivePath) {
             let archClean = (game.archivePath as NSString).standardizingPath
             let archBN = (archClean as NSString).lastPathComponent
@@ -113,14 +118,22 @@ struct GameDeletion: Equatable {
                 shouldDelete = true
             }
             if shouldDelete {
-                var paths = [game.archivePath]
+                archivePaths.append(game.archivePath)
                 if archParentBN == "games" {
                     for dir in RomFSArchive.archiveDirectories(forTitleID: game.titleID, gamesRoot: parent, fm: fm) {
-                        if !paths.contains(dir) { paths.append(dir) }
+                        if !archivePaths.contains(dir) { archivePaths.append(dir) }
                     }
                 }
-                items.append(Item(kind: .archive, paths: paths))
             }
+        }
+        for ipa in ipaPaths {
+            let separateRomfsDir = OneGameIPA.separateRomfsDirectory(forIPA: ipa)
+            if !separateRomfsDir.isEmpty, exists(separateRomfsDir), !archivePaths.contains(separateRomfsDir) {
+                archivePaths.append(separateRomfsDir)
+            }
+        }
+        if !archivePaths.isEmpty {
+            items.append(Item(kind: .archive, paths: archivePaths))
         }
         var root: String?
         if !shellRoot.isEmpty, ShellLibrary.load(root: shellRoot).games.contains(where: { $0.titleID == game.titleID }) {

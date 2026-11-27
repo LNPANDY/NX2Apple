@@ -206,6 +206,7 @@ extension BuildStore {
         installedAppPath = ""
         shellUpdatedOnDevice = false
         exportedIPAPath = ""
+        clearSeparateRomfsState()
         if !deferShellPackaging {
             needsReplaceOldImgReminder = false
             updatedImgPath = ""
@@ -604,6 +605,7 @@ extension BuildStore {
                     }
                 } else {
                     self.clearFastRefreshContext()
+                    self.clearSeparateRomfsState()
                     if let i = self.stages.lastIndex(where: { $0.state == .running }) {
                         self.stages[i].state = .failed
                         self.stages[i].detail = String(format: self.t("msg.exitCode"), status)

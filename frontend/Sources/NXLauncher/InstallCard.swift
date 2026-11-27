@@ -131,6 +131,38 @@ package struct InstallCard: View {
                                        adjust: { stepFrameworkTeam($0, options: frameworkTeamOptions, current: selectedFrameworkTeam) })
                         }
                     }
+                    if !forQueue && build.supportsSeparateRomfsOption && build.kwsSupportsSeparateRomfs {
+                        CardDivider()
+                        CardRow(loc.t("upstream.kwsSeparateRomfs"), detail: loc.t("upstream.kwsSeparateRomfs.note")) {
+                            Toggle(loc.t("upstream.kwsSeparateRomfs"), isOn: Binding(
+                                get: { build.kwsSeparateRomfs },
+                                set: { next in
+                                    guard next != build.kwsSeparateRomfs else { return }
+                                    build.kwsSeparateRomfs = next
+                                    build.exportedIPAPath = ""
+                                    build.clearSeparateRomfsState(includeActiveBuild: false)
+                                }
+                            ))
+                            .toggleStyle(LauncherSwitchStyle())
+                            .labelsHidden()
+                            .disabled(build.running)
+                            .padTarget("set.build.kwsSeparateRomfs", scope: "main", enabled: !build.running,
+                                       activate: {
+                                           if !build.running {
+                                               build.kwsSeparateRomfs.toggle()
+                                               build.exportedIPAPath = ""
+                                               build.clearSeparateRomfsState(includeActiveBuild: false)
+                                           }
+                                       },
+                                       adjust: { _ in
+                                           if !build.running {
+                                               build.kwsSeparateRomfs.toggle()
+                                               build.exportedIPAPath = ""
+                                               build.clearSeparateRomfsState(includeActiveBuild: false)
+                                           }
+                                       })
+                        }
+                    }
                     if !forQueue {
                         CardDivider()
                         ExportSteps(build: build, devices: devices)
@@ -417,6 +449,7 @@ package struct InstallCard: View {
         devices.exportOneGame = oneGame
         devices.exportFramework = framework
         build.exportedIPAPath = ""
+        build.clearSeparateRomfsState(includeActiveBuild: false)
         build.send = .idle
     }
 }

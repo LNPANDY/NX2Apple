@@ -80,6 +80,7 @@ extension BuildStore {
         effectiveWorkDir = workDir
         oneGameIPAPath = ""
         macAppPath = ""
+        clearSeparateRomfsState()
 
         let finalSourceInput = sourceInput
         let eventsFile = s2armEventsPath
@@ -472,6 +473,7 @@ extension BuildStore {
             markAllDone()
             running = false
             done = true
+            clearSeparateRomfsState()
             exportedIPAPath = ipa
             say("✓ " + shortPath(ipa))
             doneNote = String(format: t("msg.ipaAt"), shortPath(ipa))

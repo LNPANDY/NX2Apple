@@ -69,6 +69,8 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
     package var archivePath: String? = nil
     /// Per-entry `.img` update and transfer disposition after completion.
     package var imgStatus: QueueEntryImgStatus? = nil
+    /// Snapshotted separate-RomFS preference for standalone Kid with Sword iOS builds; nil follows the Build form switch.
+    package var separateRomfs: Bool? = nil
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -98,6 +100,7 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
         case autoFetchCheats
         case archivePath
         case imgStatus
+        case separateRomfs
     }
 
     package init(
@@ -126,7 +129,8 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
         iosSeenShaders: Bool? = nil,
         autoFetchCheats: Bool? = nil,
         archivePath: String? = nil,
-        imgStatus: QueueEntryImgStatus? = nil
+        imgStatus: QueueEntryImgStatus? = nil,
+        separateRomfs: Bool? = nil
     ) {
         self.id = id
         self.gameID = gameID
@@ -154,6 +158,7 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
         self.autoFetchCheats = autoFetchCheats
         self.archivePath = archivePath
         self.imgStatus = imgStatus
+        self.separateRomfs = separateRomfs
     }
 
     package init(from decoder: Decoder) throws {
@@ -185,6 +190,7 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
         self.autoFetchCheats = try c.decodeIfPresent(Bool.self, forKey: .autoFetchCheats)
         self.archivePath = try c.decodeIfPresent(String.self, forKey: .archivePath)
         self.imgStatus = try c.decodeIfPresent(QueueEntryImgStatus.self, forKey: .imgStatus)
+        self.separateRomfs = try c.decodeIfPresent(Bool.self, forKey: .separateRomfs)
     }
 
     package var finished: Bool { status == .done || status == .failed || status == .skipped || status == .stopped }

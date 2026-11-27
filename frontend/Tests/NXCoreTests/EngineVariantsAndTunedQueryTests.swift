@@ -166,4 +166,64 @@ final class EngineVariantsAndTunedQueryTests: XCTestCase {
         try PropertyListSerialization.data(fromPropertyList: mutated, format: .xml, options: 0).write(to: plistURL)
         XCTAssertEqual(try MacGameBundle.read(app).upstream, .nxnative)
     }
+
+    func testOneGameIPASeparateRomfsArgumentsEnvironmentAndStaging() throws {
+        let scriptRoot = temporary.appendingPathComponent("kws-romfs-probe", isDirectory: true)
+        try FileManager.default.createDirectory(at: scriptRoot.appendingPathComponent("scripts"), withIntermediateDirectories: true)
+        let scriptURL = scriptRoot.appendingPathComponent("scripts/build_ipa_from_nsp.py")
+        try Data("# no romfs flag\n".utf8).write(to: scriptURL)
+        XCTAssertFalse(RepoLayout.supportsRomfsMode(scriptRoot.path))
+        try Data("# '--romfs' ('bundle', 'separate')\n".utf8).write(to: scriptURL)
+        XCTAssertTrue(RepoLayout.supportsRomfsMode(scriptRoot.path))
+
+        XCTAssertEqual(
+            OneGameIPA.arguments(ipa: "/tmp/out.ipa", bundleID: "org.nxnative.test", separateRomfs: true),
+            ["--platform", "ios", "--romfs", "separate", "-o", "/tmp/out.ipa", "--bundle-id", "org.nxnative.test"]
+        )
+        XCTAssertEqual(
+            OneGameIPA.arguments(ipa: "/tmp/out.ipa", bundleID: nil, separateRomfs: true, includeRomfsFlag: false),
+            ["--platform", "ios", "-o", "/tmp/out.ipa"]
+        )
+        XCTAssertEqual(OneGameIPA.environment(separateRomfs: true), ["DM_COPY_ROMFS": "NO"])
+        XCTAssertEqual(OneGameIPA.environment(separateRomfs: false), ["DM_FULL_ROMFS": "1"])
+
+        let outDir = temporary.appendingPathComponent("out", isDirectory: true)
+        let workDir = outDir.appendingPathComponent("0400486024DEC000_kidwithsword_build", isDirectory: true)
+        let extractedImg = workDir.appendingPathComponent("extract/v131072/RomFS.img")
+        try FileManager.default.createDirectory(at: extractedImg.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let payload = Data("DMROMFS1synthetic-oot-romfs".utf8)
+        try payload.write(to: extractedImg)
+
+        let ipaPath = outDir.appendingPathComponent("0400486024DEC000-kidwithsword.ipa").path
+        XCTAssertEqual(
+            OneGameIPA.separateRomfsDirectory(forIPA: ipaPath),
+            outDir.appendingPathComponent("0400486024DEC000-kidwithsword-romfs").path
+        )
+        XCTAssertEqual(OneGameIPA.locateExtractedRomFSImage(in: workDir.path), extractedImg.path)
+
+        let stagedPath = try XCTUnwrap(OneGameIPA.stageSeparateRomFSImage(workDir: workDir.path, ipaPath: ipaPath))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: stagedPath))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: extractedImg.path), "Extracted RomFS.img must remain for fast rebuilds")
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: stagedPath)), payload)
+
+        // Cross-volume fallback must delete any stale `<ipa-stem>-romfs/romfs.img` and empty directory instead of leaving old images behind.
+        try Data("stale-old-romfs".utf8).write(to: URL(fileURLWithPath: stagedPath))
+        let fallbackPath = OneGameIPA.stageSeparateRomFSImage(workDir: workDir.path, ipaPath: ipaPath, sameVolumeOverride: false)
+        XCTAssertEqual(fallbackPath, extractedImg.path)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stagedPath))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: OneGameIPA.separateRomfsDirectory(forIPA: ipaPath)))
+
+        // Direct cleanup helper removes staged image and empty directory, while keeping unrelated files in the directory.
+        let restagedPath = try XCTUnwrap(OneGameIPA.stageSeparateRomFSImage(workDir: workDir.path, ipaPath: ipaPath))
+        XCTAssertEqual(restagedPath, stagedPath)
+        let dirURL = URL(fileURLWithPath: OneGameIPA.separateRomfsDirectory(forIPA: ipaPath), isDirectory: true)
+        let markerURL = dirURL.appendingPathComponent("README.txt")
+        try Data("keep".utf8).write(to: markerURL)
+        OneGameIPA.cleanupSeparateRomFSArtifacts(forIPA: ipaPath)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stagedPath))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: markerURL.path))
+        try FileManager.default.removeItem(at: markerURL)
+        OneGameIPA.cleanupSeparateRomFSArtifacts(forIPA: ipaPath)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dirURL.path))
+    }
 }

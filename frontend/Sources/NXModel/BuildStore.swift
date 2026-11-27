@@ -53,6 +53,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     nonisolated package static let targetKey = "buildTarget"
     nonisolated package static let bcOnCPUKey = "bcOnCPU"
     nonisolated package static let autoFetchCheatsKey = "autoFetchCheats"
+    nonisolated package static let kwsSeparateRomfsKey = "kwsSeparateRomfs"
     nonisolated package static let savedKeysKey = "savedKeysPath"
     nonisolated package static let buildUpstreamKey = "buildUpstream"
     nonisolated package static let macNativeGamesPathKey = "macNativeGamesPath"
@@ -166,6 +167,9 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package var peakOverallProgress: Double = 0
     @Published package var macAppPath = ""   // --platform mac-app: the .app this build produced
     package var oneGameIPAPath = ""   // the IPA a one-game export writes (#540), empty for any other build
+    package var activeSeparateRomfsBuild = false
+    @Published package var externalRomfsImagePath = ""
+    @Published package var completedOneGameSeparateRomfs = false
     /// BuildTarget.ios = the game's framework in the one shared app on an iPhone or iPad, BuildTarget.mac = a double-clickable
     /// Mac app (upstream's --platform mac-app). A Mac app is a different output of the same pipeline, not a
     /// different pipeline: same extraction, rewrite and shaders, then dm/mac/pack_app.py.
@@ -200,6 +204,11 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     @Published package var autoFetchCheats: Bool {
         didSet { defaults.set(autoFetchCheats, forKey: Self.autoFetchCheatsKey) }
     }
+    /// Keep `romfs.img` out of standalone Kid with Sword iOS IPAs (`--romfs separate`) so sideloaders can sign them. Defaults to `true`.
+    @Published package var kwsSeparateRomfs: Bool {
+        didSet { defaults.set(kwsSeparateRomfs, forKey: Self.kwsSeparateRomfsKey) }
+    }
+    @Published package internal(set) var kwsSupportsSeparateRomfs = true
     @Published package var seenShadersOnly: Bool { didSet { defaults.set(seenShadersOnly, forKey: Self.seenShadersOnlyKey) } }
     @Published package var iosSeenShadersOnly: Bool { didSet { defaults.set(iosSeenShadersOnly, forKey: Self.iosSeenShadersKey) } }
     @Published package internal(set) var cachedSeenShaders: SeenShadersInfo?
@@ -253,6 +262,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
             defaults.set(kidWithSwordPath, forKey: Self.kidWithSwordPathKey)
             kidWithSwordInstalled = UpstreamEngineStore.isUsableTree(kidWithSwordPath, kind: .kidWithSword)
             refreshUpstreamLocalVersion(for: .kidWithSword)
+            refreshKWSSeparateRomfsSupport()
         }
     }
     @Published package internal(set) var kidWithSwordInstalled = false
@@ -427,6 +437,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package var queuedExportIPA: Bool?
     package var queuedExportOneGame: Bool?
     package var queuedExportFramework: Bool?
+    package var queuedSeparateRomfs: Bool?
     var skipStaleCheckForQueuedEntry = false
     var afterStaleFrameworks: (() -> Void)?
     package var activeQueuedGameID: UUID?
@@ -521,6 +532,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         runningTarget = savedTarget
         bcOnCPU = defaults.bool(forKey: Self.bcOnCPUKey)
         autoFetchCheats = defaults.object(forKey: Self.autoFetchCheatsKey) as? Bool ?? true
+        kwsSeparateRomfs = defaults.object(forKey: Self.kwsSeparateRomfsKey) as? Bool ?? true
         seenShadersOnly = defaults.bool(forKey: Self.seenShadersOnlyKey)
         iosSeenShadersOnly = defaults.bool(forKey: Self.iosSeenShadersKey)
         savedKeys = defaults.string(forKey: Self.savedKeysKey) ?? ""
@@ -556,6 +568,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
             target = BuildTarget.mac   // the saved choice stays for the engine that builds for iOS
             runningTarget = BuildTarget.mac
         }
+        refreshKWSSeparateRomfsSupport()
         refreshUpstreamLocalVersions()
     }
 
@@ -596,6 +609,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package func fail(_ why: String) {
         archiveGeneration &+= 1
         fastRefreshExternalImgPath = nil
+        clearSeparateRomfsState()
         stopPSOPoll()
         running = false
         doneNote = why
@@ -633,6 +647,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         fastRefreshExternalImgPath = nil
         needsReplaceOldImgReminder = false
         updatedImgPath = ""
+        clearSeparateRomfsState()
         shellUpdatedOnDevice = false
         stopPSOPoll()
         stages = []

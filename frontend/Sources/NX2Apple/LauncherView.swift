@@ -458,7 +458,7 @@ struct LauncherView: View {
         .libraryDiagnosticsWiring(library: library, repo: repo, engine: engine, verified: verifiedProfiles, skippedOpen: $skippedItemsOpen, pad: padFocus, scope: { currentPadScope }, openKeysSettings: openKeysSettingsFromDiagnostics)
         .sheet(isPresented: $selectingGames) {
             BuildSelectedSheet(library: library, queue: stores.queue, engineID: engine.selection.engineID, target: m.target, packagesSharedApp: !(devices.exportIPA && (devices.exportOneGame || devices.exportFramework)), exportsFramework: devices.exportIPA && !devices.exportOneGame && devices.exportFramework,
-                macOnlyNoteKey: m.isMacOnlyUpstreamSelected ? m.macOnlyNoteKey : nil, macNativeGamesSelected: m.isMacNativeGamesSelected, mngSupportsGenericNUP: MacNativeGamesBuilder.supportsGenericNUP(in: m.macNativeGamesPath), mngSupportsSharedSave: m.isMacNativeGamesSharedSaveSupported, activeUpstream: m.buildUpstream, autoFetchCheats: $m.autoFetchCheats,
+                macOnlyNoteKey: m.isMacOnlyUpstreamSelected ? m.macOnlyNoteKey : nil, macNativeGamesSelected: m.isMacNativeGamesSelected, mngSupportsGenericNUP: MacNativeGamesBuilder.supportsGenericNUP(in: m.macNativeGamesPath), mngSupportsSharedSave: m.isMacNativeGamesSharedSaveSupported, activeUpstream: m.buildUpstream, autoFetchCheats: $m.autoFetchCheats, kwsSeparateRomfs: m.kwsSeparateRomfs,
                 added: { target in m.target = target; buildEditorOpen = true; page = .builds }) { selectingGames = false }
                 .environmentObject(loc).environmentObject(padFocus)
         }

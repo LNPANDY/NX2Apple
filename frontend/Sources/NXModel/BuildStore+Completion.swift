@@ -21,4 +21,5 @@ extension BuildStore {
     }
     package var completedFramework: Bool { !exportedIPAPath.isEmpty && URL(fileURLWithPath: exportedIPAPath).pathExtension.lowercased() == "framework" }
     package var completedOneGameIPA: Bool { !oneGameIPAPath.isEmpty && oneGameIPAPath == exportedIPAPath }
+    package var completedSeparateRomfsIPA: Bool { completedOneGameIPA && completedOneGameSeparateRomfs }
 }

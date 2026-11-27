@@ -179,6 +179,11 @@ import NXCore
                 entry.exportIPA = true
                 entry.exportFramework = false
                 entry.destinationName = nil
+                if entry.upstream != .kidWithSword {
+                    entry.separateRomfs = nil
+                }
+            } else {
+                entry.separateRomfs = nil
             }
             let key = QueueKey(titleID: entry.titleID, target: entry.target)
             let group = entries.filter { QueueKey(titleID: $0.titleID, target: $0.target).titleID == key.titleID }
@@ -323,6 +328,7 @@ import NXCore
                     entries[index].exportIPA = nil
                     entries[index].exportFramework = nil
                     entries[index].destinationName = nil
+                    entries[index].separateRomfs = nil
                     continue
                 }
                 if entries[index].upstream?.buildsIOSStandaloneOnly == true {
@@ -346,6 +352,7 @@ import NXCore
                     entries[index].exportIPA = nil
                     entries[index].exportFramework = nil
                     entries[index].destinationName = nil
+                    entries[index].separateRomfs = nil
                 }
             }
         }
