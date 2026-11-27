@@ -6,8 +6,14 @@ import Testing
 @MainActor @Suite struct CheatsSheetUITests {
     @Test func shellActionsReportsCheatsSupportWhenLoadCallbackIsWired() {
         #expect(!ShellActions().supportsCheats)
-        let actions = ShellActions(onLoadCheats: { id in GameCheatsSnapshot(gameID: id, gameTitle: "Demo") })
+        let actions = ShellActions(
+            onLoadCheats: { id in GameCheatsSnapshot(gameID: id, gameTitle: "Demo") },
+            onMergeOnlineCheats: { _, _ in .failed("") },
+            onReplaceOnlineCheats: { _, _ in .failed("") }
+        )
         #expect(actions.supportsCheats)
+        #expect(actions.onMergeOnlineCheats != nil)
+        #expect(actions.onReplaceOnlineCheats != nil)
     }
 
     @Test func snapshotCountsCapabilitiesAndGatesCodeNeedsBakeSwitches() {
@@ -79,5 +85,69 @@ import Testing
         #expect(FocusLayer.isLive("cht.fetch", under: .cheats))
         #expect(FocusLayer.isLive("cht.delete", under: .cheats))
         #expect(!FocusLayer.isLive("set.cheats", under: .cheats))
+    }
+
+    @Test func onlinePreviewSheetAndFetchCardHandleFetchedAndPreservedStates() {
+        let preview = GameCheatOnlinePreview(
+            titleID: "0100000000010000",
+            buildID: "CD57B23FA4BBAD65",
+            sources: ["HamletDuFromage/switch-cheats-db"],
+            onlineText: "[Infinite Health]\n04000000 00180020 000003E7\n\n[New Speed]\n04000000 00000800 1E202800\n",
+            localCount: 1,
+            onlineCount: 2,
+            addedCount: 1,
+            sameNameCount: 1,
+            localOnlyCount: 0,
+            entries: [
+                GameCheatOnlineEntry(
+                    id: "Infinite Health",
+                    name: "Infinite Health",
+                    isAdded: false,
+                    rawLines: ["04000000 00180020 000003E7"],
+                    capability: .dataReady
+                ),
+                GameCheatOnlineEntry(
+                    id: "New Speed",
+                    name: "New Speed",
+                    isAdded: true,
+                    rawLines: ["04000000 00000800 1E202800"],
+                    capability: .codeNeedsBake
+                ),
+            ]
+        )
+        let previewSheet = CheatsOnlinePreviewSheet(
+            preview: preview,
+            onKeep: {},
+            onMerge: {},
+            onReplace: {}
+        )
+        _ = previewSheet.body
+
+        let macFetchedReceipt = GameCheatFetchReceipt(
+            titleID: "0100000000010000",
+            buildID: "CD57B23FA4BBAD65",
+            status: "fetched",
+            sources: ["switch-cheats-db"],
+            entryCount: 2,
+            fetchedAt: 1_795_770_000,
+            fileName: "CD57B23FA4BBAD65.txt",
+            origin: "fetched"
+        )
+        #expect(macFetchedReceipt.isFoundStatus)
+        let fetchedCard = CheatsFetchStatusCard(receipt: macFetchedReceipt)
+        _ = fetchedCard.body
+
+        let preservedReceipt = GameCheatFetchReceipt(
+            titleID: "0100000000010000",
+            buildID: "CD57B23FA4BBAD65",
+            status: "preserved_user",
+            sources: ["HamletDuFromage/switch-cheats-db"],
+            entryCount: 2,
+            fetchedAt: 1_795_770_000,
+            fileName: "CD57B23FA4BBAD65.txt",
+            origin: "user"
+        )
+        let preservedCard = CheatsFetchStatusCard(receipt: preservedReceipt, onReviewOnlineResult: {})
+        _ = preservedCard.body
     }
 }

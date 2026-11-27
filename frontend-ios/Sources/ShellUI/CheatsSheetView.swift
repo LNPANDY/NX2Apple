@@ -17,6 +17,7 @@ public struct CheatsSheetView: View {
     public let initialSnapshot: GameCheatsSnapshot
     public var actions: ShellActions
     public var onClose: () -> Void
+    public var onModalPresentedChange: ((Bool) -> Void)?
 
     @State private var snapshot: GameCheatsSnapshot
     @State private var importing = false
@@ -24,6 +25,10 @@ public struct CheatsSheetView: View {
     @State private var deleting = false
     @State private var showDeleteConfirm = false
     @State private var lastFetchReceipt: GameCheatFetchReceipt?
+    @State private var cachedOnlinePreview: GameCheatOnlinePreview?
+    @State private var activeOnlinePreview: GameCheatOnlinePreview?
+    @State private var applyingOnlinePreview = false
+    @State private var previewApplyError: String?
     @State private var statusMessage: (text: String, isWarning: Bool)?
     @State private var pendingMismatch: PendingMismatch?
     @State private var opGeneration: UInt64 = 0
@@ -36,10 +41,16 @@ public struct CheatsSheetView: View {
         let token: String
     }
 
-    public init(snapshot: GameCheatsSnapshot, actions: ShellActions, onClose: @escaping () -> Void) {
+    public init(
+        snapshot: GameCheatsSnapshot,
+        actions: ShellActions,
+        onClose: @escaping () -> Void,
+        onModalPresentedChange: ((Bool) -> Void)? = nil
+    ) {
         self.initialSnapshot = snapshot
         self.actions = actions
         self.onClose = onClose
+        self.onModalPresentedChange = onModalPresentedChange
         _snapshot = State(initialValue: snapshot)
     }
 
@@ -53,7 +64,13 @@ public struct CheatsSheetView: View {
                 headerCard
 
                 if let receipt = effectiveFetchReceipt {
-                    CheatsFetchStatusCard(receipt: receipt)
+                    CheatsFetchStatusCard(
+                        receipt: receipt,
+                        onReviewOnlineResult: cachedOnlinePreview != nil ? {
+                            previewApplyError = nil
+                            activeOnlinePreview = cachedOnlinePreview
+                        } : nil
+                    )
                 }
 
                 if let statusMessage {
@@ -79,6 +96,10 @@ public struct CheatsSheetView: View {
         }
         .onDisappear {
             opGeneration &+= 1
+            onModalPresentedChange?(false)
+        }
+        .onChange(of: activeOnlinePreview != nil) { _, presented in
+            onModalPresentedChange?(presented)
         }
         .onChange(of: initialSnapshot) { _, updated in
             if updated.gameID != snapshot.gameID {
@@ -86,12 +107,34 @@ public struct CheatsSheetView: View {
                 pendingMismatch = nil
                 statusMessage = nil
                 lastFetchReceipt = nil
+                cachedOnlinePreview = nil
+                activeOnlinePreview = nil
+                applyingOnlinePreview = false
+                previewApplyError = nil
                 importing = false
                 fetching = false
                 deleting = false
                 showDeleteConfirm = false
                 snapshot = updated
             }
+        }
+        .sheet(item: $activeOnlinePreview) { preview in
+            CheatsOnlinePreviewSheet(
+                preview: preview,
+                applying: applyingOnlinePreview,
+                errorMessage: previewApplyError,
+                onKeep: {
+                    activeOnlinePreview = nil
+                    previewApplyError = nil
+                    statusMessage = (ShellStrings.text("Your own cheat file was kept instead of overwriting it."), true)
+                },
+                onMerge: {
+                    Task { await applyOnlinePreview(merge: true, preview: preview) }
+                },
+                onReplace: {
+                    Task { await applyOnlinePreview(merge: false, preview: preview) }
+                }
+            )
         }
         .alert(
             ShellStrings.text("Delete cheat file?"),
@@ -786,22 +829,65 @@ public struct CheatsSheetView: View {
         case .completed(let updated, let receipt):
             snapshot = updated
             lastFetchReceipt = receipt
-            switch receipt.status {
-            case "found":
+            if receipt.isFoundStatus {
+                cachedOnlinePreview = nil
+                activeOnlinePreview = nil
+                previewApplyError = nil
                 statusMessage = (ShellStrings.text("Fetched \(receipt.entryCount) cheats from online sources."), false)
-            case "preserved_user":
-                statusMessage = (ShellStrings.text("Your own cheat file was kept instead of overwriting it."), true)
-            case "not_found":
-                statusMessage = (ShellStrings.text("No matching cheats exist in the online database for this build."), false)
-            case "offline":
-                statusMessage = (ShellStrings.text("Offline, could not check online"), true)
-            default:
-                statusMessage = (ShellStrings.text("Online fetch unavailable"), true)
+            } else {
+                switch receipt.status {
+                case "preserved_user":
+                    statusMessage = (ShellStrings.text("Your own cheat file was kept instead of overwriting it."), true)
+                case "not_found":
+                    statusMessage = (ShellStrings.text("No matching cheats exist in the online database for this build."), false)
+                case "offline":
+                    statusMessage = (ShellStrings.text("Offline, could not check online"), true)
+                default:
+                    statusMessage = (ShellStrings.text("Online fetch unavailable"), true)
+                }
             }
+        case .previewRequired(let updated, let receipt, let preview):
+            snapshot = updated
+            lastFetchReceipt = receipt
+            cachedOnlinePreview = preview
+            previewApplyError = nil
+            activeOnlinePreview = preview
+            statusMessage = (ShellStrings.text("Your own cheat file was kept instead of overwriting it."), true)
         case .failed(let message):
             if !message.isEmpty {
                 statusMessage = (message, true)
             }
+        }
+    }
+
+    private func applyOnlinePreview(merge: Bool, preview: GameCheatOnlinePreview) async {
+        let handler = merge ? actions.onMergeOnlineCheats : actions.onReplaceOnlineCheats
+        guard let handler, !applyingOnlinePreview else { return }
+        let targetID = snapshot.gameID
+        let gen = nextGeneration()
+        applyingOnlinePreview = true
+        previewApplyError = nil
+        let outcome = await handler(targetID, preview)
+        guard !Task.isCancelled, opGeneration == gen, snapshot.gameID == targetID else {
+            applyingOnlinePreview = false
+            return
+        }
+        applyingOnlinePreview = false
+        switch outcome {
+        case .applied(let updated):
+            snapshot = updated
+            lastFetchReceipt = updated.fetchReceipt
+            cachedOnlinePreview = nil
+            activeOnlinePreview = nil
+            previewApplyError = nil
+            statusMessage = (
+                merge
+                    ? ShellStrings.text("Merged \(preview.addedCount) new cheats (backup saved).")
+                    : ShellStrings.text("Replaced with online cheats (backup saved)."),
+                false
+            )
+        case .failed(let message):
+            previewApplyError = message.isEmpty ? ShellStrings.text("Online fetch unavailable") : message
         }
     }
 
@@ -816,12 +902,16 @@ public struct CheatsSheetView: View {
                 deleting = false
                 snapshot = updated
                 lastFetchReceipt = nil
+                cachedOnlinePreview = nil
+                activeOnlinePreview = nil
                 statusMessage = (ShellStrings.text("Deleted cheat file. Bundled cheats will not be restored automatically."), false)
             }
         } else if let updated = actions.onDeleteCheatFile?(targetID) {
             guard opGeneration == gen, snapshot.gameID == targetID else { return }
             snapshot = updated
             lastFetchReceipt = nil
+            cachedOnlinePreview = nil
+            activeOnlinePreview = nil
             statusMessage = (ShellStrings.text("Deleted cheat file. Bundled cheats will not be restored automatically."), false)
         }
     }

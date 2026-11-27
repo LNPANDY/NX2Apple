@@ -60,6 +60,11 @@ public struct IOSCheatFetcher: Sendable {
         return prefix
     }
 
+    public enum ManualFetchResult: Equatable, Sendable {
+        case saved(GameCheatFetchReceipt)
+        case preview(receipt: GameCheatFetchReceipt, preview: GameCheatOnlinePreview)
+    }
+
     /// Fetches, merges, and persists cheats for `(titleID, buildID)` into `cheatsFolder`, preserving user-created files.
     public func fetchAndSave(
         titleID rawTitleID: String,
@@ -67,19 +72,48 @@ public struct IOSCheatFetcher: Sendable {
         to cheatsFolder: URL,
         forceOverwriteUserFile: Bool = false
     ) async -> GameCheatFetchReceipt {
-        let timestamp = Int64(now().timeIntervalSince1970)
-        guard let tid = Self.normalizeHex16(rawTitleID),
-              let bid = Self.normalizeHex16(rawBuildID) else {
-            return GameCheatFetchReceipt(
-                titleID: rawTitleID.uppercased(),
-                buildID: rawBuildID.uppercased(),
-                status: "error",
-                fetchedAt: TimeInterval(timestamp),
-                origin: "fetched",
-                detail: "invalid_id"
-            )
+        let result = await performFetch(
+            titleID: rawTitleID,
+            buildID: rawBuildID,
+            to: cheatsFolder,
+            frameworkURL: nil,
+            forceOverwriteUserFile: forceOverwriteUserFile,
+            includePreview: false
+        )
+        switch result {
+        case .saved(let receipt), .preview(let receipt, _):
+            return receipt
         }
+    }
 
+    /// Fetches online cheats for manual user action.
+    /// If a user-created or user-modified `<BID>.txt` already exists and online cheats are found,
+    /// preserves the local file and returns `.preview(...)` so the UI can present Compare / Merge / Replace.
+    public func fetchForManualReview(
+        titleID rawTitleID: String,
+        buildID rawBuildID: String,
+        to cheatsFolder: URL,
+        frameworkURL: URL? = nil
+    ) async -> ManualFetchResult {
+        await performFetch(
+            titleID: rawTitleID,
+            buildID: rawBuildID,
+            to: cheatsFolder,
+            frameworkURL: frameworkURL,
+            forceOverwriteUserFile: false,
+            includePreview: true
+        )
+    }
+
+    private struct FetchedPayload {
+        var mergedEntries: [(header: String, text: String, isMaster: Bool)]
+        var hitSources: [String]
+        var reachableResponses: Int
+        var networkFailures: Int
+        var parseOrSizeErrors: Int
+    }
+
+    private func fetchMergedPayload(titleID tid: String, buildID bid: String) async -> FetchedPayload {
         var mergedEntries: [(header: String, text: String, isMaster: Bool)] = []
         var seenHeaders = Set<String>()
         var hitSources: [String] = []
@@ -136,18 +170,51 @@ public struct IOSCheatFetcher: Sendable {
             }
         }
 
+        return FetchedPayload(
+            mergedEntries: mergedEntries,
+            hitSources: hitSources,
+            reachableResponses: reachableResponses,
+            networkFailures: networkFailures,
+            parseOrSizeErrors: parseOrSizeErrors
+        )
+    }
+
+    private func performFetch(
+        titleID rawTitleID: String,
+        buildID rawBuildID: String,
+        to cheatsFolder: URL,
+        frameworkURL: URL?,
+        forceOverwriteUserFile: Bool,
+        includePreview: Bool
+    ) async -> ManualFetchResult {
+        let timestamp = Int64(now().timeIntervalSince1970)
+        guard let tid = Self.normalizeHex16(rawTitleID),
+              let bid = Self.normalizeHex16(rawBuildID) else {
+            return .saved(GameCheatFetchReceipt(
+                titleID: rawTitleID.uppercased(),
+                buildID: rawBuildID.uppercased(),
+                status: "error",
+                fetchedAt: TimeInterval(timestamp),
+                origin: "fetched",
+                detail: "invalid_id"
+            ))
+        }
+
+        let payload = await fetchMergedPayload(titleID: tid, buildID: bid)
         let fileName = "\(bid).txt"
         let destURL = cheatsFolder.appendingPathComponent(fileName)
         let fm = FileManager.default
-        let store = GameCheatsStore(titleID: tid, cheatsFolder: cheatsFolder, frameworkURL: nil)
+        let store = GameCheatsStore(titleID: tid, cheatsFolder: cheatsFolder, frameworkURL: frameworkURL)
+        let existingURL = store.existingCheatURL(for: bid, fileManager: fm) ?? destURL
+        let existingExists = fm.fileExists(atPath: existingURL.path)
 
-        if mergedEntries.isEmpty {
+        if payload.mergedEntries.isEmpty {
             let status: String
-            if reachableResponses == 0 && networkFailures > 0 {
+            if payload.reachableResponses == 0 && payload.networkFailures > 0 {
                 status = "offline"
-            } else if parseOrSizeErrors > 0 && reachableResponses == parseOrSizeErrors {
+            } else if payload.parseOrSizeErrors > 0 && payload.reachableResponses == payload.parseOrSizeErrors {
                 status = "error"
-            } else if networkFailures > 0 && reachableResponses == 0 {
+            } else if payload.networkFailures > 0 && payload.reachableResponses == 0 {
                 status = "offline"
             } else {
                 status = "not_found"
@@ -166,65 +233,79 @@ public struct IOSCheatFetcher: Sendable {
                 detail: ""
             )
             // Keep existing local cheat file & valid found receipt intact when offline.
-            if status != "offline" || !fm.fileExists(atPath: destURL.path) {
+            if status != "offline" || !existingExists {
                 try? store.writeFetchReceipt(receipt)
             }
-            return receipt
+            return .saved(receipt)
         }
 
         // Order Master Codes `{...}` first, preserving relative order within each bucket.
-        let ordered = mergedEntries.filter(\.isMaster) + mergedEntries.filter { !$0.isMaster }
+        let ordered = payload.mergedEntries.filter(\.isMaster) + payload.mergedEntries.filter { !$0.isMaster }
         let renderedText = ordered.map(\.text).joined(separator: "\n\n") + "\n"
         let renderedData = Data(renderedText.utf8)
         guard renderedData.count <= GameCheatsStore.maxFileBytes else {
-            return GameCheatFetchReceipt(
+            return .saved(GameCheatFetchReceipt(
                 titleID: tid,
                 buildID: bid,
                 status: "error",
-                sources: hitSources,
+                sources: payload.hitSources,
                 entryCount: ordered.count,
                 fetchedAt: TimeInterval(timestamp),
                 origin: "fetched",
                 detail: "file_too_large"
-            )
+            ))
         }
         let newSHA256 = Self.sha256Hex(renderedData)
 
         // User-file protection: only overwrite if target does not exist, or matches managed fetched/bundled SHA256.
-        if !forceOverwriteUserFile, fm.fileExists(atPath: destURL.path),
-           let existingData = try? Data(contentsOf: destURL) {
+        if !forceOverwriteUserFile, existingExists,
+           let existingData = try? Data(contentsOf: existingURL) {
             let existingSHA = Self.sha256Hex(existingData).lowercased()
             let existingReceipt = store.readFetchReceipt(currentBuildID: bid)
             let seededHashes = store.readSeededHashes()
 
             let matchesManagedFetch = existingReceipt.map {
-                $0.fileName == fileName
+                $0.fileName.caseInsensitiveCompare(existingURL.lastPathComponent) == .orderedSame
                     && ($0.origin == "fetched" || $0.origin == "bundled")
                     && $0.fileSHA256.lowercased() == existingSHA
             } ?? false
-            let matchesSeeded = seededHashes[fileName]?.lowercased() == existingSHA
+            let matchesSeeded = seededHashes[existingURL.lastPathComponent]?.lowercased() == existingSHA
+                || seededHashes[fileName]?.lowercased() == existingSHA
 
             if !matchesManagedFetch && !matchesSeeded {
                 let preserved = GameCheatFetchReceipt(
                     titleID: tid,
                     buildID: bid,
                     status: "preserved_user",
-                    sources: hitSources,
+                    sources: payload.hitSources,
                     entryCount: ordered.count,
                     fetchedAt: TimeInterval(timestamp),
-                    fileName: fileName,
+                    fileName: existingURL.lastPathComponent,
                     fileSHA256: existingSHA,
                     origin: "user",
                     detail: "Existing user cheat file preserved"
                 )
                 try? store.writeFetchReceipt(preserved)
-                return preserved
+                if includePreview {
+                    let preview = store.buildOnlinePreview(
+                        titleID: tid,
+                        buildID: bid,
+                        sources: payload.hitSources,
+                        onlineText: renderedText,
+                        onlineSHA256: newSHA256
+                    )
+                    return .preview(receipt: preserved, preview: preview)
+                }
+                return .saved(preserved)
             }
         }
 
         do {
             try fm.createDirectory(at: cheatsFolder, withIntermediateDirectories: true)
             try renderedData.write(to: destURL, options: .atomic)
+            if existingURL.deletingLastPathComponent() == cheatsFolder && existingURL.lastPathComponent != fileName {
+                try? fm.removeItem(at: existingURL)
+            }
             // Explicit user fetch re-enables a previously deleted file name so it isn't blocked later.
             try? store.unmarkDeletedCheatFile(named: fileName)
             try? store.unmarkSeededCheatFile(named: fileName)
@@ -232,7 +313,7 @@ public struct IOSCheatFetcher: Sendable {
                 titleID: tid,
                 buildID: bid,
                 status: "found",
-                sources: hitSources,
+                sources: payload.hitSources,
                 entryCount: ordered.count,
                 fetchedAt: TimeInterval(timestamp),
                 fileName: fileName,
@@ -241,18 +322,18 @@ public struct IOSCheatFetcher: Sendable {
                 detail: ""
             )
             try store.writeFetchReceipt(receipt)
-            return receipt
+            return .saved(receipt)
         } catch {
-            return GameCheatFetchReceipt(
+            return .saved(GameCheatFetchReceipt(
                 titleID: tid,
                 buildID: bid,
                 status: "error",
-                sources: hitSources,
+                sources: payload.hitSources,
                 entryCount: 0,
                 fetchedAt: TimeInterval(timestamp),
                 origin: "fetched",
                 detail: error.localizedDescription
-            )
+            ))
         }
     }
 

@@ -3,9 +3,10 @@ import SwiftUI
 /// Top online-fetch status card shown inside `CheatsSheetView` when a `.cheats-fetch.json` receipt exists.
 struct CheatsFetchStatusCard: View {
     let receipt: GameCheatFetchReceipt
+    var onReviewOnlineResult: (() -> Void)? = nil
 
     var body: some View {
-        let style = statusStyle(for: receipt.status)
+        let style = statusStyle(for: receipt)
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center, spacing: 10) {
                 Image(systemName: style.symbol)
@@ -17,7 +18,7 @@ struct CheatsFetchStatusCard: View {
                     .foregroundStyle(.white)
                     .accessibilityIdentifier("cheats.fetchTitle")
                 Spacer(minLength: 8)
-                if receipt.entryCount > 0 && (receipt.status == "found" || receipt.status == "preserved_user") {
+                if receipt.entryCount > 0 && (receipt.isFoundStatus || receipt.status == "preserved_user") {
                     Text(ShellStrings.text("\(receipt.entryCount) entries"))
                         .shellText(11.5, .semibold, relativeTo: .caption)
                         .foregroundStyle(.white.opacity(0.9))
@@ -49,6 +50,20 @@ struct CheatsFetchStatusCard: View {
                     .shellText(11.5, .medium, relativeTo: .caption)
                     .foregroundStyle(.secondary)
             }
+
+            if receipt.status == "preserved_user", let onReviewOnlineResult {
+                Button(action: onReviewOnlineResult) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "doc.text.magnifyingglass")
+                        Text(ShellStrings.text("Review online result"))
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(ShellButtonStyle(fills: true))
+                .padding(.top, 2)
+                .accessibilityIdentifier("cheats.reviewOnline")
+                .shellTarget("cht.reviewOnline", action: onReviewOnlineResult)
+            }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -58,9 +73,9 @@ struct CheatsFetchStatusCard: View {
         .accessibilityIdentifier("cheats.fetchCard")
     }
 
-    private func statusStyle(for status: String) -> (color: Color, symbol: String, title: String, hint: String?) {
-        switch status {
-        case "found":
+    private func statusStyle(for receipt: GameCheatFetchReceipt) -> (color: Color, symbol: String, title: String, hint: String?) {
+        switch receipt.status {
+        case "found", "fetched":
             return (
                 ShellPalette.ready,
                 "checkmark.icloud.fill",
@@ -75,11 +90,14 @@ struct CheatsFetchStatusCard: View {
                 ShellStrings.text("No matching cheats exist in the online database for this build.")
             )
         case "preserved_user":
+            let hint = receipt.fileName.isEmpty
+                ? ShellStrings.text("Your own cheat file was kept instead of overwriting it.")
+                : ShellStrings.text("Kept your existing \(receipt.fileName) instead of overwriting it.")
             return (
                 ShellPalette.attention,
                 "person.crop.circle.badge.checkmark",
                 ShellStrings.text("Custom cheat file kept"),
-                ShellStrings.text("Your own cheat file was kept instead of overwriting it.")
+                hint
             )
         case "offline":
             return (
@@ -88,7 +106,7 @@ struct CheatsFetchStatusCard: View {
                 ShellStrings.text("Offline, could not check online"),
                 ShellStrings.text("Connect to the internet and tap Fetch online to try again.")
             )
-            default:
+        default:
             return (
                 ShellPalette.attention,
                 "exclamationmark.icloud.fill",

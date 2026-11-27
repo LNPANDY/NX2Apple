@@ -263,6 +263,99 @@ import XCTest
         XCTAssertTrue(app.staticTexts["No cheats imported yet"].waitForExistence(timeout: 5))
     }
 
+    func testCheatsOnlineFetchPreviewKeepMergeAndReplaceWorkflow() {
+        XCUIDevice.shared.orientation = .portrait
+        app.launchArguments = [
+            "-AppleLanguages", "(en)", "-AppleLocale", "en",
+            "--host", "--select", "0100000000010000", "--screen", "settings",
+            "--mock-cheat-preloaded", "--mock-cheat-fetch"
+        ]
+        app.launch()
+
+        let cheatsEntry = app.buttons["set.cheats"]
+        XCTAssertTrue(cheatsEntry.waitForExistence(timeout: 10))
+        cheatsEntry.tap()
+
+        XCTAssertTrue(app.switches["cheats.toggle.Infinite Health"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.switches["cheats.toggle.Infinite Health"].value as? String, "1")
+
+        let fetchButton = app.buttons["cheats.fetch"]
+        XCTAssertTrue(fetchButton.waitForExistence(timeout: 5))
+        fetchButton.tap()
+
+        // Existing user-owned <BID>.txt must trigger the interactive preview comparison sheet.
+        let summaryLabel = app.staticTexts["cheats.preview.summary"]
+        XCTAssertTrue(summaryLabel.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["cheats.preview.addedCount"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["cheats.preview.sameCount"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["cheats.preview.localOnlyCount"].exists)
+
+        // Expand an entry in List mode to inspect raw hex lines, then toggle to Raw text mode and back.
+        let staminaRow = app.buttons["cheats.preview.entry.Auto Refill Stamina"]
+        XCTAssertTrue(staminaRow.waitForExistence(timeout: 5))
+        staminaRow.tap()
+        XCTAssertTrue(app.staticTexts["cheats.preview.entryCode.Auto Refill Stamina"].waitForExistence(timeout: 5))
+
+        let rawModeButton = app.buttons["cheats.preview.modeRaw"]
+        XCTAssertTrue(rawModeButton.exists)
+        rawModeButton.tap()
+        XCTAssertTrue(app.staticTexts["cheats.preview.rawText"].waitForExistence(timeout: 5))
+
+        app.buttons["cheats.preview.modeList"].tap()
+        XCTAssertTrue(staminaRow.waitForExistence(timeout: 5))
+
+        // 1. Keep local: dismisses preview, preserves local file, and exposes Review online result.
+        let keepButton = app.buttons["cheats.preview.keep"]
+        XCTAssertTrue(keepButton.exists)
+        keepButton.tap()
+
+        let reviewOnlineButton = app.buttons["cheats.reviewOnline"]
+        XCTAssertTrue(reviewOnlineButton.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.switches["cheats.toggle.Auto Refill Stamina"].exists)
+
+        // 2. Reopen preview via Review online result and Merge new (+2).
+        reviewOnlineButton.tap()
+        let mergeButton = app.buttons["cheats.preview.merge"]
+        XCTAssertTrue(mergeButton.waitForExistence(timeout: 5))
+        mergeButton.tap()
+
+        XCTAssertTrue(app.descendants(matching: .any)["cheats.statusBanner"].firstMatch.waitForExistence(timeout: 10))
+        let scroll = app.scrollViews.element(boundBy: app.scrollViews.count - 1)
+        let healthToggle = app.switches["cheats.toggle.Infinite Health"]
+        for _ in 0..<4 where !healthToggle.exists {
+            scroll.swipeUp()
+        }
+        XCTAssertTrue(healthToggle.waitForExistence(timeout: 5))
+        XCTAssertEqual(healthToggle.value as? String, "1")
+        let staminaToggle = app.switches["cheats.toggle.Auto Refill Stamina"]
+        for _ in 0..<6 where !staminaToggle.exists {
+            scroll.swipeUp()
+        }
+        XCTAssertTrue(staminaToggle.waitForExistence(timeout: 5))
+        XCTAssertEqual(staminaToggle.value as? String, "0")
+        for _ in 0..<6 where !app.switches["cheats.toggle.Moon Jump (Hold ZR+B)"].exists {
+            scroll.swipeDown()
+        }
+        XCTAssertTrue(app.switches["cheats.toggle.Moon Jump (Hold ZR+B)"].exists)
+
+        // 3. Fetch again (still user-owned) -> Replace with online removes local-only Moon Jump.
+        for _ in 0..<6 where !fetchButton.isHittable {
+            scroll.swipeDown()
+        }
+        fetchButton.tap()
+        let replaceButton = app.buttons["cheats.preview.replace"]
+        XCTAssertTrue(replaceButton.waitForExistence(timeout: 10))
+        replaceButton.tap()
+
+        XCTAssertTrue(app.staticTexts["cheats.fetchTitle"].waitForExistence(timeout: 10))
+        for _ in 0..<4 where !healthToggle.exists {
+            scroll.swipeUp()
+        }
+        XCTAssertTrue(healthToggle.waitForExistence(timeout: 5))
+        XCTAssertEqual(healthToggle.value as? String, "1")
+        XCTAssertFalse(app.switches["cheats.toggle.Moon Jump (Hold ZR+B)"].exists)
+    }
+
     func testCheatsBuildMismatchShowsConfirmationAlert() {
         XCUIDevice.shared.orientation = .portrait
         app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en", "--host", "--select", "0100000000010000", "--screen", "settings", "--mock-cheat-mismatch"]
