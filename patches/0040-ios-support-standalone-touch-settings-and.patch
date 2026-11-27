@@ -8,12 +8,22 @@ Upstream-Status: pending [builds on touch layout patches]
 Reason: Expose touch size and stick settings and localized in-game menu labels
 Issue: LNPANDY/NX2Apple#1110
 ---
- dm/games/settings.tsv                    |  2 +
- dm/ios/Sources/DmGameMenu.h              |  1 +
- dm/ios/Sources/GameMenu.swift            | 79 +++++++++++++++++++++++-
- dm/tools/tests/test_launcher_settings.py |  9 ++-
- docs/settings.md                         |  8 ++-
- 5 files changed, 94 insertions(+), 5 deletions(-)
+ dm/games/settings.tsv                         |    2 +
+ dm/ios/Sources/DmGameMenu.h                   |   39 +
+ dm/ios/Sources/GameMenu.swift                 |   80 +-
+ dm/ios/Sources/GameMenuCheats.swift           | 1165 +++++++++++++++++
+ dm/ios/Sources/front_ios.m                    |   95 ++
+ dm/ios/project-framework.yml                  |    1 +
+ dm/ios/tests/duo/Sources/DuoHarnessRuntime.h  |   18 +
+ dm/ios/tests/duo/Sources/DuoRuntimeStubs.m    |  119 ++
+ dm/ios/tests/duo/Tests/DuoGameMenuTests.swift |  233 +++-
+ .../Tests/DuoHarnessTests-Bridging-Header.h   |    2 +
+ dm/ios/tests/duo/project.yml                  |    2 +
+ dm/tools/tests/test_launcher_settings.py      |    9 +-
+ docs/settings.md                              |    8 +-
+ 13 files changed, 1764 insertions(+), 9 deletions(-)
+ create mode 100644 dm/ios/Sources/GameMenuCheats.swift
+ create mode 100644 dm/ios/tests/duo/Tests/DuoHarnessTests-Bridging-Header.h
 
 diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
 index e1a3954..5ef85e7 100644
@@ -29,19 +39,66 @@ index e1a3954..5ef85e7 100644
  DM_RUMBLE_GAIN	range	0:3:0.1	1.0	always	Controls	Rumble strength		needs=DM_RUMBLE=1
  DM_RUMBLE_MIN	range	0:0.9:0.05	0	always	Controls	Rumble cutoff
 diff --git a/dm/ios/Sources/DmGameMenu.h b/dm/ios/Sources/DmGameMenu.h
-index 82c284a..f3202c3 100644
+index 82c284a..7e93bae 100644
 --- a/dm/ios/Sources/DmGameMenu.h
 +++ b/dm/ios/Sources/DmGameMenu.h
-@@ -12,6 +12,7 @@ bool dm_pad_layout_offered(int layout);   // Tap only in handheld mode
+@@ -2,6 +2,7 @@
+ // settings the running game takes at once (front_ios.m dm_setting_live); the other settings stay on the settings screen before the game starts.
+ #pragma once
+ #include <stdbool.h>
++#include <stdint.h>
+ 
+ #ifdef __cplusplus
+ extern "C" {
+@@ -12,8 +13,46 @@ bool dm_pad_layout_offered(int layout);   // Tap only in handheld mode
  void dm_pad_layout_set(int layout);   // releases every touch first, and is saved for the next start
  void dm_gamepad_touch_feedback(bool on);   // DM_TOUCH_HAPTICS
  bool dm_setting_live(const char *env, const char *value);
 +bool dm_tv_connected(void);   // front_ios.m: true while an external display presents the game window
  void *dm_quit_menu(void);   // front_ios.m: the menu's last item, Quit <game>, which opens the quit prompt (a retained UIMenu, shown inline)   // front_ios.m: value NULL asks whether the running game takes env at once; otherwise applies it
  int front_screen_max_fps(void);   // front.h, front_ios.m: the Frame rate row offers 120 only on a 120 Hz screen (LauncherSettings.swift); the shell framework's Swift imports this header, not the app's bridging header
++
++// In-game Cheats submenu and lightweight data memory scanner (front_ios.m -> hle_cheats.c)
++typedef struct {
++    uint8_t region;       // 0 = main (.data/.bss), 1 = heap
++    uint8_t type;         // 1 = u8, 2 = u16, 3 = u32, 4 = u64, 5 = f32
++    uint16_t reserved;
++    uint64_t offset;
++    uint64_t value;
++} DmMenuScanHit;
++
++bool dm_menu_cheats_loaded(void);
++bool dm_menu_cheats_master(void);
++void dm_menu_cheats_set_master(bool on);
++int dm_menu_cheats_count(void);
++const char *dm_menu_cheat_name(int i);
++bool dm_menu_cheat_on(int i);
++int dm_menu_cheat_kind(int i);        // 0 = plain, 1 = master, 2 = disabled (broken/dead), 3 = label
++int dm_menu_cheat_flags(int i);       // DM_CHEAT_* bitmask
++const char *dm_menu_cheat_section(int i);
++const char *dm_menu_cheat_why(int i);
++int dm_menu_cheat_baked_kind(int i);  // 0 = none, 1 = static, 2 = conditional, 3 = unbaked_code
++uint64_t dm_menu_cheat_key_mask(int i);
++void dm_menu_cheat_toggle(int i);
++bool dm_menu_cheats_can_save(void);
++const char *dm_menu_cheats_build_id(void);
++
++int dm_menu_scan_start(int type, uint64_t target_raw, uint64_t *total_out);
++int dm_menu_scan_refine(int cmp, uint64_t target_raw, uint64_t *total_out);
++int dm_menu_scan_count(void);
++bool dm_menu_scan_get(int index, DmMenuScanHit *out);
++bool dm_menu_scan_write(uint8_t region, uint64_t offset, int type, uint64_t value_raw);
++bool dm_menu_scan_format_cheat(const char *name, uint8_t region, uint64_t offset, int type, uint64_t value_raw, char *out, int cap);
++bool dm_menu_scan_append_cheat(const char *name, uint8_t region, uint64_t offset, int type, uint64_t value_raw);
++void dm_menu_scan_reset(void);
++
++void dm_menu_present_view_controller(void *view_controller);
++void dm_cheat_scanner_teardown(void);   // GameMenuCheats.swift (@_cdecl): dismiss scanner panel and reset session on quit
  #ifdef __cplusplus
+ }
+ #endif
 diff --git a/dm/ios/Sources/GameMenu.swift b/dm/ios/Sources/GameMenu.swift
-index 7047522..a0c1cf0 100644
+index 7047522..6a88f9c 100644
 --- a/dm/ios/Sources/GameMenu.swift
 +++ b/dm/ios/Sources/GameMenu.swift
 @@ -7,8 +7,9 @@ import UIKit
@@ -111,7 +168,7 @@ index 7047522..a0c1cf0 100644
      let menu = UIMenu(title: title, children: [UIDeferredMenuElement.uncached { done in done(gameMenuItems()) }])   // built each time it opens, so it shows the current choices
      return Unmanaged.passRetained(menu).toOpaque()
  }
-@@ -51,6 +88,14 @@ private func gameMenuItems() -> [UIMenuElement] {
+@@ -51,8 +88,17 @@ private func gameMenuItems() -> [UIMenuElement] {
              for s in m.rows(in: section) where (s.kind == "choice" || s.kind == "toggle") && dm_setting_live(s.env, nil) { rows.append(gameMenuRow(m, s)) }
              if !rows.isEmpty { items.append(UIMenu(options: .displayInline, children: rows)) }
          }
@@ -125,8 +182,11 @@ index 7047522..a0c1cf0 100644
 +        if !rows.isEmpty { items.append(UIMenu(options: .displayInline, children: rows)) }
      }
      if !placed { items.insert(UIMenu(options: .displayInline, children: [layout]), at: 0) }
++    items.append(UIMenu(options: .displayInline, children: [cheatsSubmenu()]))
      items.append(Unmanaged<UIMenu>.fromOpaque(dm_quit_menu()).takeRetainedValue())   // Quit <game>, last and on its own: it opens the quit prompt (front_ios.m)
-@@ -69,5 +114,33 @@ private func gameMenuRow(_ m: LauncherModel, _ s: Setting) -> UIMenuElement {
+     return items
+ }
+@@ -69,5 +115,33 @@ private func gameMenuRow(_ m: LauncherModel, _ s: Setting) -> UIMenuElement {
      let options = offeredOptions(s, current: now)
      let current = options.first { $0[0] == now }?[1] ?? now
      let actions = options.map { o in UIAction(title: o[1], attributes: attributes, state: o[0] == now ? .on : .off) { _ in pick(o[0]) } }
@@ -161,6 +221,1759 @@ index 7047522..a0c1cf0 100644
 +    let actions = options.map { o in UIAction(title: o[1], attributes: attributes, state: o[0] == now ? .on : .off) { _ in pick(o[0]) } }
 +    return UIMenu(title: item.label, subtitle: isFixed ? GameMenuText.currentSetInEnvFile.formatted(current) : nil, options: .singleSelection, children: actions)
  }
+diff --git a/dm/ios/Sources/GameMenuCheats.swift b/dm/ios/Sources/GameMenuCheats.swift
+new file mode 100644
+index 0000000..0fa846b
+--- /dev/null
++++ b/dm/ios/Sources/GameMenuCheats.swift
+@@ -0,0 +1,1165 @@
++// In-game Cheats submenu and compact Memory Value Scanner overlay (UIKit only: linked in both DmIOS and DmShellGame).
++import UIKit
++
++enum ScanValueType: Int32, CaseIterable, Equatable {
++    case u8 = 1
++    case u16 = 2
++    case u32 = 3
++    case u64 = 4
++    case f32 = 5
++
++    var shortLabel: String {
++        switch self {
++        case .u8: return "u8"
++        case .u16: return "u16"
++        case .u32: return "u32"
++        case .u64: return "u64"
++        case .f32: return "f32"
++        }
++    }
++
++    var byteWidth: Int {
++        switch self {
++        case .u8: return 1
++        case .u16: return 2
++        case .u32, .f32: return 4
++        case .u64: return 8
++        }
++    }
++}
++
++enum ScanCompareMode: Int32, Equatable {
++    case eq = 0
++    case ne = 1
++    case gt = 2
++    case lt = 3
++    case increased = 4
++    case decreased = 5
++    case unchanged = 6
++    case changed = 7
++}
++
++struct CheatsMenuTextPayload: Decodable {
++    let cheatsTitle: String?
++    let memoryScannerMenu: String?
++    let masterSwitch: String?
++    let masterSubtitle: String?
++    let needsBuilderBake: String?
++    let unavailable: String?
++    let scannerTitle: String?
++    let hideButton: String?
++    let resetButton: String?
++    let valuePlaceholder: String?
++    let firstScanButton: String?
++    let equalsButton: String?
++    let increasedButton: String?
++    let decreasedButton: String?
++    let changedButton: String?
++    let unchangedButton: String?
++    let modifyAction: String?
++    let saveAction: String?
++    let cancelAction: String?
++    let confirmAction: String?
++    let saveConfirmAction: String?
++    let modifyTitle: String?
++    let modifyMessage: String?
++    let saveTitle: String?
++    let saveMessage: String?
++    let cheatNamePlaceholder: String?
++    let defaultCheatName: String?
++    let hitsSummary: String?
++    let hitsCappedNotice: String?
++    let emptyPrompt: String?
++    let noMatches: String?
++    let scanningStatus: String?
++    let invalidValueError: String?
++    let writeSuccess: String?
++    let writeFailed: String?
++    let saveSuccess: String?
++    let saveFailed: String?
++    let saveUnavailable: String?
++
++    static func current() -> CheatsMenuTextPayload {
++        if let raw = getenv("DM_CHEATS_MENU_TEXT").flatMap({ String(validatingCString: $0) }),
++           let data = raw.data(using: .utf8),
++           let decoded = try? JSONDecoder().decode(CheatsMenuTextPayload.self, from: data) {
++            return decoded
++        }
++        return CheatsMenuTextPayload(
++            cheatsTitle: nil, memoryScannerMenu: nil, masterSwitch: nil, masterSubtitle: nil,
++            needsBuilderBake: nil, unavailable: nil, scannerTitle: nil, hideButton: nil,
++            resetButton: nil, valuePlaceholder: nil, firstScanButton: nil, equalsButton: nil,
++            increasedButton: nil, decreasedButton: nil, changedButton: nil, unchangedButton: nil,
++            modifyAction: nil, saveAction: nil, cancelAction: nil, confirmAction: nil,
++            saveConfirmAction: nil, modifyTitle: nil, modifyMessage: nil, saveTitle: nil,
++            saveMessage: nil, cheatNamePlaceholder: nil, defaultCheatName: nil, hitsSummary: nil,
++            hitsCappedNotice: nil, emptyPrompt: nil, noMatches: nil, scanningStatus: nil,
++            invalidValueError: nil, writeSuccess: nil, writeFailed: nil, saveSuccess: nil,
++            saveFailed: nil, saveUnavailable: nil
++        )
++    }
++
++    private func pick(_ val: String?, _ fallback: String) -> String {
++        guard let v = val?.trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty else { return fallback }
++        return v
++    }
++
++    var tCheatsTitle: String { pick(cheatsTitle, "Cheats") }
++    var tMemoryScannerMenu: String { pick(memoryScannerMenu, "Memory Scanner…") }
++    var tMasterSwitch: String { pick(masterSwitch, "Enable All Cheats") }
++    var tMasterSubtitle: String { pick(masterSubtitle, "Always on") }
++    var tNeedsBuilderBake: String { pick(needsBuilderBake, "Needs builder bake") }
++    var tUnavailable: String { pick(unavailable, "Unavailable") }
++    var tScannerTitle: String { pick(scannerTitle, "Memory Scanner") }
++    var tHideButton: String { pick(hideButton, "Hide") }
++    var tResetButton: String { pick(resetButton, "Reset") }
++    var tValuePlaceholder: String { pick(valuePlaceholder, "Enter value") }
++    var tFirstScanButton: String { pick(firstScanButton, "First Scan") }
++    var tEqualsButton: String { pick(equalsButton, "Equals") }
++    var tIncreasedButton: String { pick(increasedButton, "Increased") }
++    var tDecreasedButton: String { pick(decreasedButton, "Decreased") }
++    var tChangedButton: String { pick(changedButton, "Changed") }
++    var tUnchangedButton: String { pick(unchangedButton, "Unchanged") }
++    var tModifyAction: String { pick(modifyAction, "Modify") }
++    var tSaveAction: String { pick(saveAction, "Save") }
++    var tCancelAction: String { pick(cancelAction, "Cancel") }
++    var tConfirmAction: String { pick(confirmAction, "Apply") }
++    var tSaveConfirmAction: String { pick(saveConfirmAction, "Save") }
++    var tModifyTitle: String { pick(modifyTitle, "Modify Value") }
++    var tModifyMessage: String { pick(modifyMessage, "Address: %@") }
++    var tSaveTitle: String { pick(saveTitle, "Save as Cheat") }
++    var tSaveMessage: String { pick(saveMessage, "Adds this address to %@.txt and reloads cheats.") }
++    var tCheatNamePlaceholder: String { pick(cheatNamePlaceholder, "Cheat name") }
++    var tDefaultCheatName: String { pick(defaultCheatName, "Scan %@") }
++    var tHitsSummary: String { pick(hitsSummary, "%@ hits") }
++    var tHitsCappedNotice: String { pick(hitsCappedNotice, "Showing first %@ of %@ hits. Narrow down to refine.") }
++    var tEmptyPrompt: String { pick(emptyPrompt, "Choose a data type and enter a starting value to scan game memory.") }
++    var tNoMatches: String { pick(noMatches, "No matching addresses found. Try resetting the scan.") }
++    var tScanningStatus: String { pick(scanningStatus, "Scanning memory…") }
++    var tInvalidValueError: String { pick(invalidValueError, "Enter a valid value for the selected type.") }
++    var tWriteSuccess: String { pick(writeSuccess, "Updated %@ to %@") }
++    var tWriteFailed: String { pick(writeFailed, "Could not write to %@") }
++    var tSaveSuccess: String { pick(saveSuccess, "Saved \"%@\" and refreshed cheats") }
++    var tSaveFailed: String { pick(saveFailed, "Could not save cheat") }
++    var tSaveUnavailable: String { pick(saveUnavailable, "Saving cheats is unavailable without a build ID.") }
++
++    static func format(_ template: String, _ args: CVarArg...) -> String {
++        String(format: template, locale: .current, arguments: args)
++    }
++}
++
++enum ScanValueCodec {
++    static func encode(_ rawText: String, type: ScanValueType) -> UInt64? {
++        let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
++        guard !trimmed.isEmpty else { return nil }
++        if type == .f32 {
++            let normalized = trimmed.replacingOccurrences(of: ",", with: ".")
++            guard let f = Float(normalized), f.isFinite else { return nil }
++            return UInt64(f.bitPattern)
++        }
++        let lower = trimmed.lowercased()
++        let parsed: UInt64?
++        if lower.hasPrefix("0x") {
++            let digits = String(lower.dropFirst(2))
++            guard !digits.isEmpty, let v = UInt64(digits, radix: 16) else { return nil }
++            parsed = v
++        } else if lower.hasPrefix("-0x") {
++            return nil
++        } else if lower.hasPrefix("-") {
++            guard let signed = Int64(trimmed) else { return nil }
++            switch type {
++            case .u8:
++                guard signed >= Int64(Int8.min) else { return nil }
++                parsed = UInt64(UInt8(bitPattern: Int8(signed)))
++            case .u16:
++                guard signed >= Int64(Int16.min) else { return nil }
++                parsed = UInt64(UInt16(bitPattern: Int16(signed)))
++            case .u32:
++                guard signed >= Int64(Int32.min) else { return nil }
++                parsed = UInt64(UInt32(bitPattern: Int32(signed)))
++            case .u64:
++                parsed = UInt64(bitPattern: signed)
++            case .f32:
++                return nil
++            }
++            return parsed
++        } else {
++            parsed = UInt64(trimmed)
++        }
++        guard let value = parsed else { return nil }
++        switch type {
++        case .u8: return value <= UInt64(UInt8.max) ? value : nil
++        case .u16: return value <= UInt64(UInt16.max) ? value : nil
++        case .u32: return value <= UInt64(UInt32.max) ? value : nil
++        case .u64: return value
++        case .f32: return nil
++        }
++    }
++
++    static func decode(_ rawBits: UInt64, type: ScanValueType) -> String {
++        switch type {
++        case .u8: return String(UInt8(truncatingIfNeeded: rawBits))
++        case .u16: return String(UInt16(truncatingIfNeeded: rawBits))
++        case .u32: return String(UInt32(truncatingIfNeeded: rawBits))
++        case .u64: return String(rawBits)
++        case .f32:
++            let f = Float(bitPattern: UInt32(truncatingIfNeeded: rawBits))
++            guard f.isFinite else { return "0" }
++            if f.rounded() == f, abs(f) < 1e7 {
++                return String(format: "%.1f", f)
++            }
++            return String(format: "%.4g", f)
++        }
++    }
++
++    static func formatAddress(region: UInt8, offset: UInt64) -> String {
++        let prefix: String
++        switch region {
++        case 0: prefix = "main"
++        case 1: prefix = "heap"
++        default: prefix = "mem"
++        }
++        return String(format: "%@+0x%llX", prefix, offset)
++    }
++}
++
++struct CheatMenuEntrySnapshot: Equatable {
++    let index: Int
++    let name: String
++    let section: String
++    let isOn: Bool
++    let isMaster: Bool
++    let isDisabled: Bool
++    let isLabel: Bool
++    let isSectionMarker: Bool
++    let subtitle: String?
++}
++
++enum CheatMenuClassifier {
++    static let flagSectionStart: Int32 = 2
++    static let flagSectionEnd: Int32 = 4
++
++    static func compactReason(_ raw: String, bakedKind: Int32, kind: Int32, text: CheatsMenuTextPayload) -> String? {
++        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
++        if s.hasPrefix("("), s.hasSuffix(")"), s.count >= 2 {
++            s = String(s.dropFirst().dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
++        }
++        if s.count > 48 {
++            let cut = s.index(s.startIndex, offsetBy: 47)
++            s = String(s[..<cut]) + "…"
++        }
++        if bakedKind == 3 {
++            return s.isEmpty ? text.tNeedsBuilderBake : s
++        }
++        if kind == 2 {
++            return s.isEmpty ? text.tUnavailable : s
++        }
++        return s.isEmpty ? nil : s
++    }
++
++    static func classifyAll(text: CheatsMenuTextPayload) -> [CheatMenuEntrySnapshot] {
++        let count = Int(dm_menu_cheats_count())
++        guard count > 0 else { return [] }
++        var result: [CheatMenuEntrySnapshot] = []
++        result.reserveCapacity(count)
++        for i in 0..<count {
++            let idx = Int32(i)
++            let kind = dm_menu_cheat_kind(idx)
++            let flags = dm_menu_cheat_flags(idx)
++            let bakedKind = dm_menu_cheat_baked_kind(idx)
++            let name = dm_menu_cheat_name(idx).map { String(cString: $0) } ?? ""
++            let section = dm_menu_cheat_section(idx).map { String(cString: $0) } ?? ""
++            let rawWhy = dm_menu_cheat_why(idx).map { String(cString: $0) } ?? ""
++            let on = dm_menu_cheat_on(idx)
++            let isLabel = kind == 3
++            let isSectionMarker = (flags & (flagSectionStart | flagSectionEnd)) != 0
++            if isLabel && (isSectionMarker || name.isEmpty) { continue }
++            let isMaster = kind == 1
++            let isDisabled = isLabel || isMaster || kind == 2 || bakedKind == 3
++            let displayOn: Bool
++            if isMaster {
++                displayOn = true
++            } else if kind == 2 || bakedKind == 3 || isLabel {
++                displayOn = false
++            } else {
++                displayOn = on
++            }
++            let subtitle: String?
++            if isMaster {
++                subtitle = text.tMasterSubtitle
++            } else if !isLabel {
++                subtitle = compactReason(rawWhy, bakedKind: bakedKind, kind: kind, text: text)
++            } else {
++                subtitle = nil
++            }
++            result.append(CheatMenuEntrySnapshot(
++                index: i,
++                name: name,
++                section: section,
++                isOn: displayOn,
++                isMaster: isMaster,
++                isDisabled: isDisabled,
++                isLabel: isLabel,
++                isSectionMarker: isSectionMarker,
++                subtitle: subtitle
++            ))
++        }
++        return result
++    }
++}
++
++func cheatsSubmenu() -> UIMenuElement {
++    let text = CheatsMenuTextPayload.current()
++    return UIMenu(
++        title: text.tCheatsTitle,
++        image: UIImage(systemName: "wand.and.stars"),
++        children: [UIDeferredMenuElement.uncached { done in
++            done(buildCheatsMenuElements())
++        }]
++    )
++}
++
++func buildCheatsMenuElements() -> [UIMenuElement] {
++    let text = CheatsMenuTextPayload.current()
++    let scanAction = UIAction(title: text.tMemoryScannerMenu, image: UIImage(systemName: "magnifyingglass")) { _ in
++        CheatScannerSession.shared.openPanel()
++    }
++    var topChildren: [UIMenuElement] = [scanAction]
++    let loaded = dm_menu_cheats_loaded()
++    let entries = loaded ? CheatMenuClassifier.classifyAll(text: text) : []
++    if loaded && dm_menu_cheats_count() > 0 {
++        let masterOn = dm_menu_cheats_master()
++        let masterAction = UIAction(title: text.tMasterSwitch, state: masterOn ? .on : .off) { _ in
++            dm_menu_cheats_set_master(!dm_menu_cheats_master())
++        }
++        topChildren.append(masterAction)
++    }
++    var groups: [UIMenuElement] = [UIMenu(options: .displayInline, children: topChildren)]
++    guard !entries.isEmpty else { return groups }
++
++    var currentSection: String? = nil
++    var currentItems: [UIMenuElement] = []
++    func flushGroup() {
++        guard !currentItems.isEmpty else { return }
++        let title = currentSection ?? ""
++        groups.append(UIMenu(title: title, options: .displayInline, children: currentItems))
++        currentItems.removeAll(keepingCapacity: true)
++    }
++
++    for entry in entries {
++        let sec = entry.section
++        if currentSection != sec {
++            flushGroup()
++            currentSection = sec
++        }
++        let attrs: UIMenuElement.Attributes = entry.isDisabled ? .disabled : []
++        let state: UIMenuElement.State = entry.isLabel ? .off : (entry.isOn ? .on : .off)
++        let idx = Int32(entry.index)
++        let action = UIAction(title: entry.name, attributes: attrs, state: state) { _ in
++            guard !entry.isDisabled else { return }
++            dm_menu_cheat_toggle(idx)
++        }
++        if let sub = entry.subtitle {
++            action.subtitle = sub
++        }
++        currentItems.append(action)
++    }
++    flushGroup()
++    return groups
++}
++
++// MARK: - Memory Scanner Session & Backend
++
++struct ScanHitItem: Equatable {
++    let region: UInt8
++    let type: ScanValueType
++    let offset: UInt64
++    var valueRaw: UInt64
++
++    var addressText: String {
++        ScanValueCodec.formatAddress(region: region, offset: offset)
++    }
++
++    var valueText: String {
++        ScanValueCodec.decode(valueRaw, type: type)
++    }
++}
++
++protocol CheatScannerBackend {
++    func startScan(type: ScanValueType, targetRaw: UInt64) -> (stored: Int, total: UInt64)
++    func refineScan(cmp: ScanCompareMode, targetRaw: UInt64) -> (stored: Int, total: UInt64)
++    func fetchHits(limit: Int, type: ScanValueType) -> [ScanHitItem]
++    func writeValue(region: UInt8, offset: UInt64, type: ScanValueType, valueRaw: UInt64) -> Bool
++    func appendCheat(name: String, region: UInt8, offset: UInt64, type: ScanValueType, valueRaw: UInt64) -> Bool
++    func canSaveCheat() -> Bool
++    func buildID() -> String
++    func resetScan()
++}
++
++struct EngineCheatScannerBackend: CheatScannerBackend {
++    func startScan(type: ScanValueType, targetRaw: UInt64) -> (stored: Int, total: UInt64) {
++        var total: UInt64 = 0
++        let stored = Int(dm_menu_scan_start(type.rawValue, targetRaw, &total))
++        return (max(0, stored), total)
++    }
++
++    func refineScan(cmp: ScanCompareMode, targetRaw: UInt64) -> (stored: Int, total: UInt64) {
++        var total: UInt64 = 0
++        let stored = Int(dm_menu_scan_refine(cmp.rawValue, targetRaw, &total))
++        return (max(0, stored), total)
++    }
++
++    func fetchHits(limit: Int, type: ScanValueType) -> [ScanHitItem] {
++        let count = min(limit, max(0, Int(dm_menu_scan_count())))
++        var items: [ScanHitItem] = []
++        items.reserveCapacity(count)
++        var hit = DmMenuScanHit()
++        for i in 0..<count {
++            if dm_menu_scan_get(Int32(i), &hit) {
++                let resolvedType = ScanValueType(rawValue: Int32(hit.type)) ?? type
++                items.append(ScanHitItem(region: hit.region, type: resolvedType, offset: hit.offset, valueRaw: hit.value))
++            }
++        }
++        return items
++    }
++
++    func writeValue(region: UInt8, offset: UInt64, type: ScanValueType, valueRaw: UInt64) -> Bool {
++        dm_menu_scan_write(region, offset, type.rawValue, valueRaw)
++    }
++
++    func appendCheat(name: String, region: UInt8, offset: UInt64, type: ScanValueType, valueRaw: UInt64) -> Bool {
++        dm_menu_scan_append_cheat(name, region, offset, type.rawValue, valueRaw)
++    }
++
++    func canSaveCheat() -> Bool {
++        dm_menu_cheats_can_save()
++    }
++
++    func buildID() -> String {
++        dm_menu_cheats_build_id().map { String(cString: $0) } ?? ""
++    }
++
++    func resetScan() {
++        dm_menu_scan_reset()
++    }
++}
++
++final class CheatScannerSession {
++    static let shared = CheatScannerSession(backend: EngineCheatScannerBackend())
++    static let maxDisplayedHits = 100
++
++    private let backend: CheatScannerBackend
++    private let workQueue = DispatchQueue(label: "org.nxnative.cheat-scanner", qos: .userInitiated)
++    private var observers: [NSObjectProtocol] = []
++
++    private(set) var generation: UInt64 = 0
++    private(set) var isSearching = false
++    private(set) var hasActiveScan = false
++    private(set) var selectedType: ScanValueType = .u32
++    var valueInput: String = ""
++    private(set) var totalHits: UInt64 = 0
++    private(set) var storedCount: Int = 0
++    private(set) var hits: [ScanHitItem] = []
++    private(set) var statusMessage: String?
++    private(set) var statusIsError = false
++
++    weak var activeController: CheatScannerViewController?
++    var onStateChanged: (() -> Void)?
++
++    init(backend: CheatScannerBackend, installNotifications: Bool = true) {
++        self.backend = backend
++        if installNotifications {
++            let nc = NotificationCenter.default
++            observers.append(nc.addObserver(forName: Notification.Name("DMShellDidReturnToLibrary"), object: nil, queue: .main) { [weak self] _ in
++                self?.teardown()
++            })
++            observers.append(nc.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
++                self?.teardown()
++            })
++        }
++    }
++
++    deinit {
++        for token in observers {
++            NotificationCenter.default.removeObserver(token)
++        }
++    }
++
++    func openPanel() {
++        let vc: CheatScannerViewController
++        if let existing = activeController {
++            vc = existing
++        } else {
++            vc = CheatScannerViewController(session: self)
++            activeController = vc
++        }
++        if vc.presentingViewController == nil {
++            dm_menu_present_view_controller(Unmanaged.passUnretained(vc).toOpaque())
++        }
++        vc.syncUI()
++    }
++
++    func hidePanel() {
++        guard let vc = activeController else { return }
++        if vc.presentingViewController != nil {
++            vc.dismiss(animated: true)
++        }
++    }
++
++    func setType(_ type: ScanValueType) {
++        guard !hasActiveScan && !isSearching else { return }
++        selectedType = type
++        statusMessage = nil
++        statusIsError = false
++        notifyChange()
++    }
++
++    func startInitialScan(rawText: String, text: CheatsMenuTextPayload = .current(), completion: (() -> Void)? = nil) {
++        valueInput = rawText
++        guard !isSearching else { completion?(); return }
++        guard let target = ScanValueCodec.encode(rawText, type: selectedType) else {
++            statusMessage = text.tInvalidValueError
++            statusIsError = true
++            notifyChange()
++            completion?()
++            return
++        }
++        generation &+= 1
++        let opGen = generation
++        let scanType = selectedType
++        isSearching = true
++        statusMessage = text.tScanningStatus
++        statusIsError = false
++        notifyChange()
++
++        workQueue.async { [weak self] in
++            guard let self else { return }
++            let result = self.backend.startScan(type: scanType, targetRaw: target)
++            let fetched = result.stored > 0 ? self.backend.fetchHits(limit: Self.maxDisplayedHits, type: scanType) : []
++            DispatchQueue.main.async {
++                guard self.generation == opGen else {
++                    completion?()
++                    return
++                }
++                self.isSearching = false
++                self.hasActiveScan = true
++                self.storedCount = result.stored
++                self.totalHits = result.total
++                self.hits = fetched
++                self.statusMessage = result.total == 0 ? text.tNoMatches : nil
++                self.statusIsError = false
++                self.notifyChange()
++                completion?()
++            }
++        }
++    }
++
++    func refineScan(mode: ScanCompareMode, rawText: String, text: CheatsMenuTextPayload = .current(), completion: (() -> Void)? = nil) {
++        valueInput = rawText
++        guard hasActiveScan && !isSearching else { completion?(); return }
++        let needsTarget = mode == .eq || mode == .ne || mode == .gt || mode == .lt
++        var target: UInt64 = 0
++        if needsTarget {
++            guard let encoded = ScanValueCodec.encode(rawText, type: selectedType) else {
++                statusMessage = text.tInvalidValueError
++                statusIsError = true
++                notifyChange()
++                completion?()
++                return
++            }
++            target = encoded
++        }
++
++        generation &+= 1
++        let opGen = generation
++        let scanType = selectedType
++        isSearching = true
++        statusMessage = text.tScanningStatus
++        statusIsError = false
++        notifyChange()
++
++        workQueue.async { [weak self] in
++            guard let self else { return }
++            let result = self.backend.refineScan(cmp: mode, targetRaw: target)
++            let fetched = result.stored > 0 ? self.backend.fetchHits(limit: Self.maxDisplayedHits, type: scanType) : []
++            DispatchQueue.main.async {
++                guard self.generation == opGen else {
++                    completion?()
++                    return
++                }
++                self.isSearching = false
++                self.storedCount = result.stored
++                self.totalHits = result.total
++                self.hits = fetched
++                self.statusMessage = result.total == 0 ? text.tNoMatches : nil
++                self.statusIsError = false
++                self.notifyChange()
++                completion?()
++            }
++        }
++    }
++
++    func writeHit(at row: Int, rawText: String, text: CheatsMenuTextPayload = .current()) -> Bool {
++        guard row >= 0 && row < hits.count else { return false }
++        let hit = hits[row]
++        guard let rawValue = ScanValueCodec.encode(rawText, type: hit.type) else {
++            statusMessage = text.tInvalidValueError
++            statusIsError = true
++            notifyChange()
++            return false
++        }
++        let ok = backend.writeValue(region: hit.region, offset: hit.offset, type: hit.type, valueRaw: rawValue)
++        if ok {
++            hits[row].valueRaw = rawValue
++            let decoded = ScanValueCodec.decode(rawValue, type: hit.type)
++            statusMessage = CheatsMenuTextPayload.format(text.tWriteSuccess, hit.addressText, decoded)
++            statusIsError = false
++        } else {
++            statusMessage = CheatsMenuTextPayload.format(text.tWriteFailed, hit.addressText)
++            statusIsError = true
++        }
++        notifyChange()
++        return ok
++    }
++
++    func saveHitAsCheat(at row: Int, name: String, rawText: String?, text: CheatsMenuTextPayload = .current()) -> Bool {
++        guard row >= 0 && row < hits.count else { return false }
++        guard backend.canSaveCheat() else {
++            statusMessage = text.tSaveUnavailable
++            statusIsError = true
++            notifyChange()
++            return false
++        }
++        let hit = hits[row]
++        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
++        guard !cleanName.isEmpty else {
++            statusMessage = text.tSaveFailed
++            statusIsError = true
++            notifyChange()
++            return false
++        }
++        let valueRaw: UInt64
++        if let rawText {
++            guard let encoded = ScanValueCodec.encode(rawText, type: hit.type) else {
++                statusMessage = text.tInvalidValueError
++                statusIsError = true
++                notifyChange()
++                return false
++            }
++            valueRaw = encoded
++        } else {
++            valueRaw = hit.valueRaw
++        }
++        let ok = backend.appendCheat(name: cleanName, region: hit.region, offset: hit.offset, type: hit.type, valueRaw: valueRaw)
++        if ok {
++            statusMessage = CheatsMenuTextPayload.format(text.tSaveSuccess, cleanName)
++            statusIsError = false
++        } else {
++            statusMessage = text.tSaveFailed
++            statusIsError = true
++        }
++        notifyChange()
++        return ok
++    }
++
++    func canSaveCheat() -> Bool {
++        backend.canSaveCheat()
++    }
++
++    func buildID() -> String {
++        backend.buildID()
++    }
++
++    func reset() {
++        generation &+= 1
++        isSearching = false
++        hasActiveScan = false
++        totalHits = 0
++        storedCount = 0
++        hits.removeAll()
++        statusMessage = nil
++        statusIsError = false
++        backend.resetScan()
++        notifyChange()
++    }
++
++    func teardown() {
++        generation &+= 1
++        isSearching = false
++        hasActiveScan = false
++        selectedType = .u32
++        valueInput = ""
++        totalHits = 0
++        storedCount = 0
++        hits.removeAll()
++        statusMessage = nil
++        statusIsError = false
++        backend.resetScan()
++        if let vc = activeController {
++            activeController = nil
++            if vc.presentingViewController != nil {
++                vc.dismiss(animated: false)
++            }
++        }
++        notifyChange()
++    }
++
++    private func notifyChange() {
++        activeController?.syncUI()
++        onStateChanged?()
++    }
++}
++
++// MARK: - UIKit Compact Scanner Overlay
++
++final class CheatScannerViewController: UIViewController, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate {
++    private let session: CheatScannerSession
++    private var text = CheatsMenuTextPayload.current()
++
++    private let backdropView = UIView()
++    private let cardView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
++    private let titleLabel = UILabel()
++    private let badgeLabel = UILabel()
++    private let resetButton = UIButton(type: .system)
++    private let hideButton = UIButton(type: .system)
++    private let typeSegment = UISegmentedControl(items: ScanValueType.allCases.map(\.shortLabel))
++    private let valueField = UITextField()
++    private let primaryScanButton = UIButton(type: .system)
++    private let spinner = UIActivityIndicatorView(style: .medium)
++    private let refineRow = UIStackView()
++    private var refineButtons: [(ScanCompareMode, UIButton)] = []
++    private let statusLabel = UILabel()
++    private let tableView = UITableView(frame: .zero, style: .plain)
++    private let emptyLabel = UILabel()
++    private let footerLabel = UILabel()
++
++    init(session: CheatScannerSession) {
++        self.session = session
++        super.init(nibName: nil, bundle: nil)
++        modalPresentationStyle = .overFullScreen
++        modalTransitionStyle = .crossDissolve
++    }
++
++    @available(*, unavailable)
++    required init?(coder: NSCoder) {
++        fatalError("init(coder:) has not been implemented")
++    }
++
++    override func viewDidLoad() {
++        super.viewDidLoad()
++        setupViews()
++        syncUI()
++    }
++
++    private func setupViews() {
++        view.backgroundColor = .clear
++        backdropView.backgroundColor = UIColor(white: 0, alpha: 0.48)
++        backdropView.translatesAutoresizingMaskIntoConstraints = false
++        let tap = UITapGestureRecognizer(target: self, action: #selector(handleBackdropTap))
++        backdropView.addGestureRecognizer(tap)
++        view.addSubview(backdropView)
++
++        cardView.translatesAutoresizingMaskIntoConstraints = false
++        cardView.layer.cornerRadius = 18
++        cardView.layer.masksToBounds = true
++        cardView.layer.borderWidth = 1
++        cardView.layer.borderColor = UIColor(white: 1, alpha: 0.14).cgColor
++        view.addSubview(cardView)
++
++        let content = cardView.contentView
++        titleLabel.font = .systemFont(ofSize: 16, weight: .bold)
++        titleLabel.textColor = .white
++        titleLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
++
++        badgeLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
++        badgeLabel.textColor = UIColor(red: 0.96, green: 0.93, blue: 0.86, alpha: 0.92)
++        badgeLabel.backgroundColor = UIColor(white: 1, alpha: 0.1)
++        badgeLabel.layer.cornerRadius = 8
++        badgeLabel.layer.masksToBounds = true
++        badgeLabel.textAlignment = .center
++
++        configureCompactPill(resetButton, title: text.tResetButton, filled: false)
++        resetButton.addTarget(self, action: #selector(onReset), for: .touchUpInside)
++        resetButton.accessibilityIdentifier = "scanner.reset"
++
++        configureCompactPill(hideButton, title: text.tHideButton, filled: false)
++        hideButton.addTarget(self, action: #selector(onHide), for: .touchUpInside)
++        hideButton.accessibilityIdentifier = "scanner.hide"
++
++        let headerSpacer = UIView()
++        let headerRow = UIStackView(arrangedSubviews: [titleLabel, badgeLabel, headerSpacer, resetButton, hideButton])
++        headerRow.axis = .horizontal
++        headerRow.alignment = .center
++        headerRow.spacing = 8
++
++        typeSegment.selectedSegmentTintColor = UIColor(red: 0.96, green: 0.93, blue: 0.86, alpha: 1)
++        typeSegment.setTitleTextAttributes([.foregroundColor: UIColor(white: 0.86, alpha: 1), .font: UIFont.monospacedSystemFont(ofSize: 12, weight: .semibold)], for: .normal)
++        typeSegment.setTitleTextAttributes([.foregroundColor: UIColor(white: 0.08, alpha: 1), .font: UIFont.monospacedSystemFont(ofSize: 12, weight: .bold)], for: .selected)
++        typeSegment.addTarget(self, action: #selector(onTypeChanged), for: .valueChanged)
++        typeSegment.accessibilityIdentifier = "scanner.type"
++
++        valueField.backgroundColor = UIColor(white: 1, alpha: 0.1)
++        valueField.textColor = .white
++        valueField.tintColor = UIColor(red: 0.96, green: 0.93, blue: 0.86, alpha: 1)
++        valueField.font = .monospacedDigitSystemFont(ofSize: 14, weight: .medium)
++        valueField.layer.cornerRadius = 10
++        valueField.layer.borderWidth = 1
++        valueField.layer.borderColor = UIColor(white: 1, alpha: 0.14).cgColor
++        valueField.autocorrectionType = .no
++        valueField.autocapitalizationType = .none
++        valueField.keyboardType = .numbersAndPunctuation
++        valueField.returnKeyType = .search
++        valueField.clearButtonMode = .whileEditing
++        valueField.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 10, height: 1))
++        valueField.leftViewMode = .always
++        valueField.delegate = self
++        valueField.attributedPlaceholder = NSAttributedString(
++            string: text.tValuePlaceholder,
++            attributes: [.foregroundColor: UIColor(white: 1, alpha: 0.4)]
++        )
++        valueField.addTarget(self, action: #selector(onValueChanged), for: .editingChanged)
++        valueField.accessibilityIdentifier = "scanner.input"
++
++        configureCompactPill(primaryScanButton, title: text.tFirstScanButton, filled: true)
++        primaryScanButton.addTarget(self, action: #selector(onPrimaryScan), for: .touchUpInside)
++        primaryScanButton.setContentCompressionResistancePriority(.required, for: .horizontal)
++        primaryScanButton.accessibilityIdentifier = "scanner.primary"
++
++        spinner.color = UIColor(red: 0.96, green: 0.93, blue: 0.86, alpha: 1)
++        spinner.hidesWhenStopped = true
++
++        let inputRow = UIStackView(arrangedSubviews: [valueField, primaryScanButton, spinner])
++        inputRow.axis = .horizontal
++        inputRow.alignment = .center
++        inputRow.spacing = 8
++
++        refineRow.axis = .horizontal
++        refineRow.distribution = .fillEqually
++        refineRow.spacing = 6
++        let modes: [(ScanCompareMode, String)] = [
++            (.increased, text.tIncreasedButton),
++            (.decreased, text.tDecreasedButton),
++            (.changed, text.tChangedButton),
++            (.unchanged, text.tUnchangedButton),
++        ]
++        for (mode, title) in modes {
++            let btn = UIButton(type: .system)
++            configureCompactPill(btn, title: title, filled: false)
++            btn.tag = Int(mode.rawValue)
++            btn.addTarget(self, action: #selector(onRefineMode(_:)), for: .touchUpInside)
++            refineRow.addArrangedSubview(btn)
++            refineButtons.append((mode, btn))
++        }
++
++        statusLabel.font = .systemFont(ofSize: 12, weight: .medium)
++        statusLabel.numberOfLines = 2
++        statusLabel.textColor = UIColor(white: 1, alpha: 0.78)
++
++        tableView.backgroundColor = .clear
++        tableView.separatorColor = UIColor(white: 1, alpha: 0.08)
++        tableView.separatorInset = UIEdgeInsets(top: 0, left: 10, bottom: 0, right: 10)
++        tableView.dataSource = self
++        tableView.delegate = self
++        tableView.keyboardDismissMode = .onDrag
++        tableView.rowHeight = 46
++        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "HitCell")
++
++        emptyLabel.font = .systemFont(ofSize: 13, weight: .regular)
++        emptyLabel.textColor = UIColor(white: 1, alpha: 0.58)
++        emptyLabel.textAlignment = .center
++        emptyLabel.numberOfLines = 0
++        emptyLabel.translatesAutoresizingMaskIntoConstraints = false
++        tableView.addSubview(emptyLabel)
++
++        footerLabel.font = .systemFont(ofSize: 11, weight: .medium)
++        footerLabel.textColor = UIColor(white: 1, alpha: 0.55)
++        footerLabel.textAlignment = .center
++        footerLabel.numberOfLines = 2
++
++        let topStack = UIStackView(arrangedSubviews: [headerRow, typeSegment, inputRow, refineRow, statusLabel])
++        topStack.axis = .vertical
++        topStack.spacing = 8
++        topStack.translatesAutoresizingMaskIntoConstraints = false
++
++        tableView.translatesAutoresizingMaskIntoConstraints = false
++        content.addSubview(topStack)
++        content.addSubview(tableView)
++
++        let preferredHeight = cardView.heightAnchor.constraint(equalToConstant: 460)
++        preferredHeight.priority = .defaultHigh
++        let preferredWidth = cardView.widthAnchor.constraint(equalToConstant: 520)
++        preferredWidth.priority = .defaultHigh
++
++        NSLayoutConstraint.activate([
++            backdropView.topAnchor.constraint(equalTo: view.topAnchor),
++            backdropView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
++            backdropView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
++            backdropView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
++
++            cardView.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
++            cardView.topAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.topAnchor, constant: 10),
++            cardView.bottomAnchor.constraint(lessThanOrEqualTo: view.keyboardLayoutGuide.topAnchor, constant: -10),
++            cardView.leadingAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 14),
++            cardView.trailingAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -14),
++            preferredWidth,
++            preferredHeight,
++
++            valueField.heightAnchor.constraint(equalToConstant: 36),
++            primaryScanButton.heightAnchor.constraint(equalToConstant: 36),
++            typeSegment.heightAnchor.constraint(equalToConstant: 30),
++
++            topStack.topAnchor.constraint(equalTo: content.topAnchor, constant: 14),
++            topStack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 14),
++            topStack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -14),
++
++            tableView.topAnchor.constraint(equalTo: topStack.bottomAnchor, constant: 8),
++            tableView.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 8),
++            tableView.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -8),
++            tableView.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -10),
++
++            emptyLabel.centerXAnchor.constraint(equalTo: tableView.frameLayoutGuide.centerXAnchor),
++            emptyLabel.centerYAnchor.constraint(equalTo: tableView.frameLayoutGuide.centerYAnchor),
++            emptyLabel.widthAnchor.constraint(lessThanOrEqualTo: tableView.frameLayoutGuide.widthAnchor, constant: -24),
++        ])
++
++        let centerY = cardView.centerYAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerYAnchor)
++        centerY.priority = .defaultLow
++        centerY.isActive = true
++    }
++
++    private func configureCompactPill(_ button: UIButton, title: String, filled: Bool) {
++        var cfg = filled ? UIButton.Configuration.filled() : UIButton.Configuration.tinted()
++        cfg.title = title
++        cfg.cornerStyle = .capsule
++        cfg.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12)
++        if filled {
++            cfg.baseBackgroundColor = UIColor(red: 0.96, green: 0.93, blue: 0.86, alpha: 1)
++            cfg.baseForegroundColor = UIColor(white: 0.08, alpha: 1)
++        } else {
++            cfg.baseBackgroundColor = UIColor(white: 1, alpha: 0.14)
++            cfg.baseForegroundColor = .white
++        }
++        cfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
++            var out = incoming
++            out.font = UIFont.systemFont(ofSize: 12, weight: .semibold)
++            return out
++        }
++        button.configuration = cfg
++    }
++
++    func syncUI() {
++        guard isViewLoaded else { return }
++        text = CheatsMenuTextPayload.current()
++        titleLabel.text = text.tScannerTitle
++        if session.hasActiveScan {
++            let hitsText = CheatsMenuTextPayload.format(text.tHitsSummary, String(session.totalHits))
++            badgeLabel.text = "  \(session.selectedType.shortLabel) · \(hitsText)  "
++            badgeLabel.isHidden = false
++        } else {
++            badgeLabel.text = "  \(session.selectedType.shortLabel)  "
++            badgeLabel.isHidden = false
++        }
++
++        if let idx = ScanValueType.allCases.firstIndex(of: session.selectedType) {
++            typeSegment.selectedSegmentIndex = idx
++        }
++        typeSegment.isEnabled = !session.hasActiveScan && !session.isSearching
++        if valueField.text != session.valueInput {
++            valueField.text = session.valueInput
++        }
++        valueField.isEnabled = !session.isSearching
++        primaryScanButton.isEnabled = !session.isSearching
++        var pCfg = primaryScanButton.configuration
++        pCfg?.title = session.hasActiveScan ? text.tEqualsButton : text.tFirstScanButton
++        primaryScanButton.configuration = pCfg
++
++        refineRow.isHidden = !session.hasActiveScan
++        for (_, btn) in refineButtons {
++            btn.isEnabled = session.hasActiveScan && !session.isSearching
++        }
++        resetButton.isHidden = !session.hasActiveScan
++        resetButton.isEnabled = !session.isSearching
++
++        if session.isSearching {
++            spinner.startAnimating()
++        } else {
++            spinner.stopAnimating()
++        }
++
++        if let msg = session.statusMessage, !msg.isEmpty {
++            statusLabel.text = msg
++            statusLabel.textColor = session.statusIsError
++                ? UIColor(red: 1.0, green: 0.45, blue: 0.42, alpha: 1)
++                : UIColor(red: 0.62, green: 0.92, blue: 0.68, alpha: 1)
++            statusLabel.isHidden = false
++        } else {
++            statusLabel.text = nil
++            statusLabel.isHidden = true
++        }
++
++        if session.hits.isEmpty {
++            emptyLabel.isHidden = false
++            emptyLabel.text = session.hasActiveScan ? text.tNoMatches : text.tEmptyPrompt
++        } else {
++            emptyLabel.isHidden = true
++        }
++
++        if session.totalHits > UInt64(session.hits.count), !session.hits.isEmpty {
++            footerLabel.text = CheatsMenuTextPayload.format(text.tHitsCappedNotice, String(session.hits.count), String(session.totalHits))
++            footerLabel.frame = CGRect(x: 0, y: 0, width: tableView.bounds.width, height: 34)
++            tableView.tableFooterView = footerLabel
++        } else {
++            tableView.tableFooterView = nil
++        }
++
++        tableView.reloadData()
++    }
++
++    @objc private func handleBackdropTap() {
++        view.endEditing(true)
++        session.hidePanel()
++    }
++
++    @objc private func onHide() {
++        view.endEditing(true)
++        session.hidePanel()
++    }
++
++    @objc private func onReset() {
++        view.endEditing(true)
++        session.reset()
++    }
++
++    @objc private func onTypeChanged() {
++        let idx = typeSegment.selectedSegmentIndex
++        guard idx >= 0 && idx < ScanValueType.allCases.count else { return }
++        session.setType(ScanValueType.allCases[idx])
++    }
++
++    @objc private func onValueChanged() {
++        session.valueInput = valueField.text ?? ""
++    }
++
++    @objc private func onPrimaryScan() {
++        view.endEditing(true)
++        let input = valueField.text ?? ""
++        if session.hasActiveScan {
++            session.refineScan(mode: .eq, rawText: input, text: text)
++        } else {
++            session.startInitialScan(rawText: input, text: text)
++        }
++    }
++
++    @objc private func onRefineMode(_ sender: UIButton) {
++        view.endEditing(true)
++        guard let mode = ScanCompareMode(rawValue: Int32(sender.tag)) else { return }
++        session.refineScan(mode: mode, rawText: valueField.text ?? "", text: text)
++    }
++
++    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
++        onPrimaryScan()
++        return true
++    }
++
++    // MARK: - UITableViewDataSource & Delegate
++
++    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
++        session.hits.count
++    }
++
++    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
++        let cell = tableView.dequeueReusableCell(withIdentifier: "HitCell", for: indexPath)
++        cell.backgroundColor = .clear
++        cell.selectionStyle = .none
++        let hit = session.hits[indexPath.row]
++
++        var content = UIListContentConfiguration.subtitleCell()
++        content.text = hit.addressText
++        content.textProperties.font = .monospacedSystemFont(ofSize: 13, weight: .semibold)
++        content.textProperties.color = .white
++        content.secondaryText = hit.valueText
++        content.secondaryTextProperties.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
++        content.secondaryTextProperties.color = UIColor(red: 0.96, green: 0.93, blue: 0.86, alpha: 0.85)
++        cell.contentConfiguration = content
++
++        let modBtn = UIButton(type: .system)
++        configureCompactPill(modBtn, title: text.tModifyAction, filled: false)
++        modBtn.tag = indexPath.row
++        modBtn.addTarget(self, action: #selector(onModifyHit(_:)), for: .touchUpInside)
++
++        let saveBtn = UIButton(type: .system)
++        configureCompactPill(saveBtn, title: text.tSaveAction, filled: true)
++        saveBtn.tag = indexPath.row
++        saveBtn.isEnabled = session.canSaveCheat()
++        saveBtn.addTarget(self, action: #selector(onSaveHit(_:)), for: .touchUpInside)
++
++        let accessory = UIStackView(arrangedSubviews: [modBtn, saveBtn])
++        accessory.axis = .horizontal
++        accessory.spacing = 6
++        let size = accessory.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
++        accessory.frame = CGRect(origin: .zero, size: size)
++        cell.accessoryView = accessory
++        return cell
++    }
++
++    @objc private func onModifyHit(_ sender: UIButton) {
++        let row = sender.tag
++        guard row >= 0 && row < session.hits.count else { return }
++        let hit = session.hits[row]
++        let alert = UIAlertController(
++            title: text.tModifyTitle,
++            message: CheatsMenuTextPayload.format(text.tModifyMessage, hit.addressText),
++            preferredStyle: .alert
++        )
++        alert.addTextField { tf in
++            tf.text = hit.valueText
++            tf.keyboardType = .numbersAndPunctuation
++            tf.clearButtonMode = .whileEditing
++        }
++        alert.addAction(UIAlertAction(title: text.tCancelAction, style: .cancel))
++        alert.addAction(UIAlertAction(title: text.tConfirmAction, style: .default) { [weak self, weak alert] _ in
++            guard let self, let val = alert?.textFields?.first?.text else { return }
++            _ = self.session.writeHit(at: row, rawText: val, text: self.text)
++        })
++        present(alert, animated: true)
++    }
++
++    @objc private func onSaveHit(_ sender: UIButton) {
++        let row = sender.tag
++        guard row >= 0 && row < session.hits.count else { return }
++        let hit = session.hits[row]
++        let bid = session.buildID()
++        let msg = bid.isEmpty ? hit.addressText : CheatsMenuTextPayload.format(text.tSaveMessage, bid)
++        let alert = UIAlertController(title: text.tSaveTitle, message: msg, preferredStyle: .alert)
++        alert.addTextField { [weak self] tf in
++            guard let self else { return }
++            tf.placeholder = self.text.tCheatNamePlaceholder
++            tf.text = CheatsMenuTextPayload.format(self.text.tDefaultCheatName, hit.addressText)
++            tf.clearButtonMode = .whileEditing
++        }
++        alert.addTextField { tf in
++            tf.text = hit.valueText
++            tf.keyboardType = .numbersAndPunctuation
++            tf.clearButtonMode = .whileEditing
++        }
++        alert.addAction(UIAlertAction(title: text.tCancelAction, style: .cancel))
++        alert.addAction(UIAlertAction(title: text.tSaveConfirmAction, style: .default) { [weak self, weak alert] _ in
++            guard let self else { return }
++            let name = alert?.textFields?.first?.text ?? ""
++            let val = alert?.textFields?.dropFirst().first?.text
++            _ = self.session.saveHitAsCheat(at: row, name: name, rawText: val, text: self.text)
++        })
++        present(alert, animated: true)
++    }
++}
++
++@_cdecl("dm_cheat_scanner_teardown")
++public func dmCheatScannerTeardown() {
++    if Thread.isMainThread {
++        CheatScannerSession.shared.teardown()
++    } else {
++        DispatchQueue.main.async {
++            CheatScannerSession.shared.teardown()
++        }
++    }
++}
+diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
+index e862fb2..d278f60 100644
+--- a/dm/ios/Sources/front_ios.m
++++ b/dm/ios/Sources/front_ios.m
+@@ -262,6 +262,13 @@ - (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
+ - (UIRectEdge)preferredScreenEdgesDeferringSystemGestures { return UIRectEdgeAll; }   // Edge gestures need two swipes, to avoid accidental exits
+ - (BOOL)prefersStatusBarHidden { return YES; }
+ - (UIInterfaceOrientationMask)supportedInterfaceOrientations { return dm_rotation_vc_mask(); }
++- (void)viewDidDisappear:(BOOL)animated {
++    [super viewDidDisappear:animated];
++    if (!self.view.window) dm_cheat_scanner_teardown();
++}
++- (void)dealloc {
++    dm_cheat_scanner_teardown();
++}
+ @end
+ UIViewController *front_ios_root(void) { return [DmRootVC new]; }
+ 
+@@ -845,6 +852,7 @@ static void quit_changed(hq_phase was, hq_phase now, GCController *holder) {
+         if (was == HQ_SETTLE) dm_gamepad_pads_read();   // the game reads the controllers again, as they are now
+         break;
+     case HQ_QUIT:
++        dm_cheat_scanner_teardown();
+         quit_now();
+         break;
+     }
+@@ -914,3 +922,90 @@ void front_ios_quit_controllers(void) {
+ #endif
+     static int said; if (!said++) LOG("front end: the Home button setting is read on iOS 27, the Home hold works where the system lets the press through");
+ }
++
++// ---- In-game Cheats submenu & Memory Scanner bridge (GameMenuCheats.swift -> hle_cheats.c) ----
++_Static_assert(sizeof(DmMenuScanHit) == sizeof(dm_scan_hit_t), "DmMenuScanHit layout must match dm_scan_hit_t");
++_Static_assert(DM_SCAN_U8 == 1 && DM_SCAN_U16 == 2 && DM_SCAN_U32 == 3 && DM_SCAN_U64 == 4 && DM_SCAN_F32 == 5, "DM_SCAN_* type mismatch");
++_Static_assert(DM_SCAN_EQ == 0 && DM_SCAN_NE == 1 && DM_SCAN_GT == 2 && DM_SCAN_LT == 3 &&
++               DM_SCAN_INCREASED == 4 && DM_SCAN_DECREASED == 5 && DM_SCAN_UNCHANGED == 6 && DM_SCAN_CHANGED == 7, "DM_SCAN_* cmp mismatch");
++
++bool dm_menu_cheats_loaded(void) { return dm_cheats_found() != 0 && dm_cheats_ncheats() > 0; }
++bool dm_menu_cheats_master(void) { return dm_cheats_master() != 0; }
++void dm_menu_cheats_set_master(bool on) { dm_cheats_master_set(on ? 1 : 0); }
++int dm_menu_cheats_count(void) { return dm_cheats_ncheats(); }
++const char *dm_menu_cheat_name(int i) { return dm_cheat_name_at(i); }
++bool dm_menu_cheat_on(int i) { return dm_cheat_on_at(i) != 0; }
++int dm_menu_cheat_kind(int i) { return dm_cheat_kind_at(i); }
++int dm_menu_cheat_flags(int i) { return dm_cheat_flags_at(i); }
++const char *dm_menu_cheat_section(int i) { return dm_cheat_section_at(i); }
++const char *dm_menu_cheat_why(int i) { return dm_cheat_why_at(i); }
++int dm_menu_cheat_baked_kind(int i) { return dm_cheat_baked_kind_at(i); }
++uint64_t dm_menu_cheat_key_mask(int i) { return dm_cheat_key_mask_at(i); }
++void dm_menu_cheat_toggle(int i) { dm_cheat_toggle(i); }
++bool dm_menu_cheats_can_save(void) {
++    const char *dir = dm_cheats_dir_path();
++    const char *bid = dm_cheats_build();
++    return dir && dir[0] != '\0' && bid && bid[0] != '\0';
++}
++const char *dm_menu_cheats_build_id(void) { return dm_cheats_build(); }
++
++int dm_menu_scan_start(int type, uint64_t target_raw, uint64_t *total_out) {
++    size_t total = 0;
++    int kept = dm_cheat_scan_start(type, target_raw, &total);
++    if (total_out) *total_out = (uint64_t)total;
++    return kept;
++}
++int dm_menu_scan_refine(int cmp, uint64_t target_raw, uint64_t *total_out) {
++    size_t total = 0;
++    int kept = dm_cheat_scan_refine(cmp, target_raw, &total);
++    if (total_out) *total_out = (uint64_t)total;
++    return kept;
++}
++int dm_menu_scan_count(void) { return dm_cheat_scan_count(); }
++bool dm_menu_scan_get(int index, DmMenuScanHit *out) {
++    if (!out) return false;
++    dm_scan_hit_t hit;
++    if (dm_cheat_scan_get(index, &hit) != 0) return false;
++    out->region = hit.region;
++    out->type = hit.type;
++    out->reserved = hit.reserved;
++    out->offset = hit.offset;
++    out->value = hit.value;
++    return true;
++}
++bool dm_menu_scan_write(uint8_t region, uint64_t offset, int type, uint64_t value_raw) {
++    return dm_cheat_scan_write(region, offset, type, value_raw) == 0;
++}
++bool dm_menu_scan_format_cheat(const char *name, uint8_t region, uint64_t offset, int type, uint64_t value_raw, char *out, int cap) {
++    if (!out || cap <= 0) return false;
++    return dm_cheat_scan_format_cheat(name, region, offset, type, value_raw, out, (size_t)cap) >= 0;
++}
++bool dm_menu_scan_append_cheat(const char *name, uint8_t region, uint64_t offset, int type, uint64_t value_raw) {
++    const char *dir = dm_cheats_dir_path();
++    if (dir && dir[0]) {
++        [NSFileManager.defaultManager createDirectoryAtPath:@(dir) withIntermediateDirectories:YES attributes:nil error:nil];
++    }
++    return dm_cheat_scan_append_cheat(name, region, offset, type, value_raw) == 0;
++}
++void dm_menu_scan_reset(void) { dm_cheat_scan_reset(); }
++
++void dm_menu_present_view_controller(void *view_controller) {
++    if (!view_controller) return;
++    UIViewController *panel = (__bridge UIViewController *)view_controller;
++    UIViewController *host = g_root;
++    if (!host) {
++        for (UIScene *s in UIApplication.sharedApplication.connectedScenes) {
++            if ([s isKindOfClass:UIWindowScene.class] && [s.session.role isEqualToString:UIWindowSceneSessionRoleApplication]) {
++                for (UIWindow *w in ((UIWindowScene *)s).windows) {
++                    if (w.isKeyWindow || !host) host = w.rootViewController;
++                }
++            }
++        }
++    }
++    while (host.presentedViewController && !host.presentedViewController.isBeingDismissed) {
++        if (host.presentedViewController == panel) return;
++        host = host.presentedViewController;
++    }
++    if (!host || panel.presentingViewController) return;
++    [host presentViewController:panel animated:YES completion:nil];
++}
+diff --git a/dm/ios/project-framework.yml b/dm/ios/project-framework.yml
+index 4a14327..6e6452d 100644
+--- a/dm/ios/project-framework.yml
++++ b/dm/ios/project-framework.yml
+@@ -150,6 +150,7 @@ targets:
+       - path: Sources/front_ios.m
+       - path: Sources/DmGamepad.m
+       - path: Sources/GameMenu.swift
++      - path: Sources/GameMenuCheats.swift
+       - path: Sources/LauncherSettings.swift
+       - path: Sources/CloudSaves.m
+       - path: Sources/DataBookmark.m
+diff --git a/dm/ios/tests/duo/Sources/DuoHarnessRuntime.h b/dm/ios/tests/duo/Sources/DuoHarnessRuntime.h
+index 9d0d779..cd1b942 100644
+--- a/dm/ios/tests/duo/Sources/DuoHarnessRuntime.h
++++ b/dm/ios/tests/duo/Sources/DuoHarnessRuntime.h
+@@ -38,4 +38,22 @@ int dm_opmode(void);
+ DuoHarnessState duo_harness_state(void);
+ void duo_harness_clear(void);
+ 
++typedef struct {
++    char name[128];
++    char section[128];
++    char why[80];
++    int kind;
++    int flags;
++    int on;
++    int baked_kind;
++    uint64_t key_mask;
++} DuoHarnessCheatStub;
++
++void duo_harness_cheats_set(int found, int master, const char *dir, const char *build,
++                            const DuoHarnessCheatStub *items, int count);
++int duo_harness_scan_reset_count(void);
++void duo_harness_scan_set_hits(const dm_scan_hit_t *hits, int count, size_t total);
++int duo_harness_scan_write_count(void);
++int duo_harness_scan_append_count(void);
++
+ FOUNDATION_EXPORT NSString * const DuoHarnessInputDidChangeNotification;
+diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
+index 6b9ab99..65ae605 100644
+--- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
++++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
+@@ -25,10 +25,13 @@ DuoHarnessState duo_harness_state(void) {
+     return value;
+ }
+ 
++static void duo_harness_cheats_clear(void);
++
+ void duo_harness_clear(void) {
+     pthread_mutex_lock(&g_input_lock);
+     memset(&g_state, 0, sizeof(g_state));
+     pthread_mutex_unlock(&g_input_lock);
++    duo_harness_cheats_clear();
+ }
+ 
+ void dm_input_set(uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t ry) {
+@@ -121,6 +124,122 @@ void front_ios_boot(void) {}
+ uint64_t mtl_present_count(void) { return 0; }
+ __thread _Atomic int dm_host_work;
+ void dm_gfx_suspend(int on) { (void)on; }
++
++// ---- Cheats & Memory Scanner stubs for DuoHarnessTests ----
++static int g_stub_cheats_found = 0;
++static int g_stub_cheats_master = 1;
++static char g_stub_cheats_dir[256] = "";
++static char g_stub_cheats_build[32] = "";
++static DuoHarnessCheatStub g_stub_cheats[32];
++static int g_stub_ncheats = 0;
++
++static dm_scan_hit_t g_stub_hits[64];
++static int g_stub_nhits = 0;
++static size_t g_stub_scan_total = 0;
++static int g_stub_scan_reset_calls = 0;
++static int g_stub_scan_write_calls = 0;
++static int g_stub_scan_append_calls = 0;
++
++void duo_harness_cheats_set(int found, int master, const char *dir, const char *build,
++                            const DuoHarnessCheatStub *items, int count) {
++    g_stub_cheats_found = found;
++    g_stub_cheats_master = master;
++    strlcpy(g_stub_cheats_dir, dir ? dir : "", sizeof g_stub_cheats_dir);
++    strlcpy(g_stub_cheats_build, build ? build : "", sizeof g_stub_cheats_build);
++    g_stub_ncheats = count > 32 ? 32 : (count < 0 ? 0 : count);
++    if (items && g_stub_ncheats > 0) memcpy(g_stub_cheats, items, (size_t)g_stub_ncheats * sizeof(*items));
++}
++
++int duo_harness_scan_reset_count(void) { return g_stub_scan_reset_calls; }
++void duo_harness_scan_set_hits(const dm_scan_hit_t *hits, int count, size_t total) {
++    g_stub_nhits = count > 64 ? 64 : (count < 0 ? 0 : count);
++    if (hits && g_stub_nhits > 0) memcpy(g_stub_hits, hits, (size_t)g_stub_nhits * sizeof(*hits));
++    g_stub_scan_total = total;
++}
++int duo_harness_scan_write_count(void) { return g_stub_scan_write_calls; }
++int duo_harness_scan_append_count(void) { return g_stub_scan_append_calls; }
++
++static void duo_harness_cheats_clear(void) {
++    g_stub_cheats_found = 0;
++    g_stub_cheats_master = 1;
++    g_stub_cheats_dir[0] = '\0';
++    g_stub_cheats_build[0] = '\0';
++    memset(g_stub_cheats, 0, sizeof g_stub_cheats);
++    g_stub_ncheats = 0;
++    memset(g_stub_hits, 0, sizeof g_stub_hits);
++    g_stub_nhits = 0;
++    g_stub_scan_total = 0;
++    g_stub_scan_reset_calls = 0;
++    g_stub_scan_write_calls = 0;
++    g_stub_scan_append_calls = 0;
++}
++
++int dm_cheats_found(void) { return g_stub_cheats_found; }
++int dm_cheats_ncheats(void) { return g_stub_ncheats; }
++const char *dm_cheats_build(void) { return g_stub_cheats_build; }
++const char *dm_cheats_dir_path(void) { return g_stub_cheats_dir; }
++const char *dm_cheat_name_at(int i) { return (i >= 0 && i < g_stub_ncheats) ? g_stub_cheats[i].name : ""; }
++const char *dm_cheat_why_at(int i) { return (i >= 0 && i < g_stub_ncheats) ? g_stub_cheats[i].why : ""; }
++int dm_cheat_kind_at(int i) { return (i >= 0 && i < g_stub_ncheats) ? g_stub_cheats[i].kind : 2; }
++int dm_cheat_flags_at(int i) { return (i >= 0 && i < g_stub_ncheats) ? g_stub_cheats[i].flags : 0; }
++const char *dm_cheat_section_at(int i) { return (i >= 0 && i < g_stub_ncheats) ? g_stub_cheats[i].section : ""; }
++int dm_cheat_on_at(int i) { return (i >= 0 && i < g_stub_ncheats) ? g_stub_cheats[i].on : 0; }
++int dm_cheat_baked_kind_at(int i) { return (i >= 0 && i < g_stub_ncheats) ? g_stub_cheats[i].baked_kind : 0; }
++uint64_t dm_cheat_key_mask_at(int i) { return (i >= 0 && i < g_stub_ncheats) ? g_stub_cheats[i].key_mask : 0; }
++void dm_cheat_toggle(int i) {
++    if (i >= 0 && i < g_stub_ncheats && g_stub_cheats[i].kind == 0) {
++        g_stub_cheats[i].on = !g_stub_cheats[i].on;
++    }
++}
++int dm_cheats_master(void) { return g_stub_cheats_master; }
++void dm_cheats_master_set(int on) { g_stub_cheats_master = on ? 1 : 0; }
++
++int dm_cheat_scan_start(int type, uint64_t target_raw, size_t *total_out) {
++    (void)type; (void)target_raw;
++    if (total_out) *total_out = g_stub_scan_total;
++    return g_stub_nhits;
++}
++int dm_cheat_scan_refine(int cmp, uint64_t target_raw, size_t *total_out) {
++    (void)cmp; (void)target_raw;
++    if (total_out) *total_out = g_stub_scan_total;
++    return g_stub_nhits;
++}
++int dm_cheat_scan_count(void) { return g_stub_nhits; }
++int dm_cheat_scan_get(int index, dm_scan_hit_t *out) {
++    if (!out || index < 0 || index >= g_stub_nhits) return -1;
++    *out = g_stub_hits[index];
++    return 0;
++}
++int dm_cheat_scan_write(uint8_t region, uint64_t offset, int type, uint64_t value_raw) {
++    (void)region; (void)offset; (void)type; (void)value_raw;
++    g_stub_scan_write_calls++;
++    return 0;
++}
++int dm_cheat_scan_format_cheat(const char *name, uint8_t region, uint64_t offset, int type, uint64_t value_raw, char *out, size_t cap) {
++    (void)type;
++    if (!name || !out || cap == 0) return -1;
++    return snprintf(out, cap, "[%s]\n04%X00000 %08llX %08X\n", name, (unsigned)region, (unsigned long long)offset, (uint32_t)value_raw);
++}
++int dm_cheat_scan_append_cheat(const char *name, uint8_t region, uint64_t offset, int type, uint64_t value_raw) {
++    (void)region; (void)offset; (void)type;
++    g_stub_scan_append_calls++;
++    if (g_stub_ncheats < 32 && name) {
++        DuoHarnessCheatStub *c = &g_stub_cheats[g_stub_ncheats++];
++        memset(c, 0, sizeof *c);
++        strlcpy(c->name, name, sizeof c->name);
++        c->kind = 0;
++        c->on = 0;
++        g_stub_cheats_found = 1;
++        (void)value_raw;
++    }
++    return 0;
++}
++void dm_cheat_scan_reset(void) {
++    g_stub_scan_reset_calls++;
++    g_stub_nhits = 0;
++    g_stub_scan_total = 0;
++}
++
+ void dm_fstep_settle(void) {}
+ void dm_audio_suspend(int on) { (void)on; }
+ void dm_audio_reset(void) {}
+diff --git a/dm/ios/tests/duo/Tests/DuoGameMenuTests.swift b/dm/ios/tests/duo/Tests/DuoGameMenuTests.swift
+index 1b5a3c4..89b0fe1 100644
+--- a/dm/ios/tests/duo/Tests/DuoGameMenuTests.swift
++++ b/dm/ios/tests/duo/Tests/DuoGameMenuTests.swift
+@@ -1,9 +1,63 @@
+ import XCTest
++import UIKit
+ @testable import DuoHarness
+ 
++private final class MockScannerBackend: CheatScannerBackend {
++    var startHandler: ((ScanValueType, UInt64) -> (stored: Int, total: UInt64))?
++    var refineHandler: ((ScanCompareMode, UInt64) -> (stored: Int, total: UInt64))?
++    var hits: [ScanHitItem] = []
++    var writeResult = true
++    var appendResult = true
++    var canSave = true
++    var bid = "1111111111111111"
++    var resetCalls = 0
++    var writeCalls: [(UInt8, UInt64, ScanValueType, UInt64)] = []
++    var appendCalls: [(String, UInt8, UInt64, ScanValueType, UInt64)] = []
++
++    func startScan(type: ScanValueType, targetRaw: UInt64) -> (stored: Int, total: UInt64) {
++        startHandler?(type, targetRaw) ?? (hits.count, UInt64(hits.count))
++    }
++
++    func refineScan(cmp: ScanCompareMode, targetRaw: UInt64) -> (stored: Int, total: UInt64) {
++        refineHandler?(cmp, targetRaw) ?? (hits.count, UInt64(hits.count))
++    }
++
++    func fetchHits(limit: Int, type: ScanValueType) -> [ScanHitItem] {
++        Array(hits.prefix(limit))
++    }
++
++    func writeValue(region: UInt8, offset: UInt64, type: ScanValueType, valueRaw: UInt64) -> Bool {
++        writeCalls.append((region, offset, type, valueRaw))
++        return writeResult
++    }
++
++    func appendCheat(name: String, region: UInt8, offset: UInt64, type: ScanValueType, valueRaw: UInt64) -> Bool {
++        appendCalls.append((name, region, offset, type, valueRaw))
++        return appendResult
++    }
++
++    func canSaveCheat() -> Bool { canSave }
++    func buildID() -> String { bid }
++    func resetScan() { resetCalls += 1 }
++}
++
+ final class DuoGameMenuTests: XCTestCase {
++    override func setUp() {
++        super.setUp()
++        unsetenv("DM_CHEATS_MENU_TEXT")
++        duo_harness_clear()
++        dm_cheat_scanner_teardown()
++    }
++
++    override func tearDown() {
++        unsetenv("DM_CHEATS_MENU_TEXT")
++        duo_harness_clear()
++        dm_cheat_scanner_teardown()
++        super.tearDown()
++    }
++
+     func testMenuLabelsAcceptLaunchAndEnvFilePayloads() {
+-        let words = ["Plus de réglages", "Disposition de la manette", "Tactile", "Défini dans env.txt"]
++        let words = ["Plus de réglages", "Disposition de la manette", "Tactile", "Défini dans env.txt", "%@, défini dans env.txt"]
+         for separator in ["\n", "\\n"] {
+             let payload = words.joined(separator: separator)
+             XCTAssertEqual(GameMenuText.allCases.map { GameMenuText.line($0, in: payload) }, words)
+@@ -11,13 +65,184 @@ final class DuoGameMenuTests: XCTestCase {
+     }
+ 
+     func testMissingMenuLabelsKeepTheirEnglishFallbacks() {
+-        let defaults = ["More settings on the start screen", "Controller layout", "Tap", "Set in env.txt"]
++        let defaults = ["More settings on the start screen", "Controller layout", "Tap", "Set in env.txt", "%@, set in env.txt"]
+         XCTAssertEqual(GameMenuText.allCases.map { GameMenuText.line($0, in: nil) }, defaults)
+         let partial = "Plus de réglages\n \t\nTactile"
+         XCTAssertEqual(GameMenuText.allCases.map { GameMenuText.line($0, in: partial) },
+-                       ["Plus de réglages", "Controller layout", "Tactile", "Set in env.txt"])
++                       ["Plus de réglages", "Controller layout", "Tactile", "Set in env.txt", "%@, set in env.txt"])
+         let legacy = "Plus de réglages\\nDisposition de la manette"
+         XCTAssertEqual(GameMenuText.allCases.map { GameMenuText.line($0, in: legacy) },
+-                       ["Plus de réglages", "Disposition de la manette", "Tap", "Set in env.txt"])
++                       ["Plus de réglages", "Disposition de la manette", "Tap", "Set in env.txt", "%@, set in env.txt"])
++    }
++
++    func testCheatsSubmenuClassificationAndDeferredState() {
++        var stubs: [DuoHarnessCheatStub] = [
++            makeStub(name: "Master Code", section: "", why: "", kind: 1, flags: 0, on: 1, baked: 1),
++            makeStub(name: "SectionStart", section: "Combat", why: "", kind: 3, flags: 2, on: 0, baked: 0),
++            makeStub(name: "Infinite HP", section: "Combat", why: "", kind: 0, flags: 0, on: 1, baked: 0),
++            makeStub(name: "Need Bake Code", section: "Combat", why: "", kind: 0, flags: 0, on: 0, baked: 3),
++            makeStub(name: "Broken Entry", section: "Combat", why: " (unsupported opcode 9)", kind: 2, flags: 0, on: 0, baked: 0),
++            makeStub(name: "Credits Label", section: "", why: "", kind: 3, flags: 1, on: 0, baked: 0),
++        ]
++        duo_harness_cheats_set(1, 1, "/tmp/cheats", "1111111111111111", &stubs, Int32(stubs.count))
++
++        let payload = CheatsMenuTextPayload.current()
++        let classified = CheatMenuClassifier.classifyAll(text: payload)
++        XCTAssertEqual(classified.count, 5)
++        XCTAssertEqual(classified[0].name, "Master Code")
++        XCTAssertTrue(classified[0].isOn)
++        XCTAssertTrue(classified[0].isDisabled)
++        XCTAssertEqual(classified[0].subtitle, "Always on")
++
++        XCTAssertEqual(classified[1].name, "Infinite HP")
++        XCTAssertEqual(classified[1].section, "Combat")
++        XCTAssertTrue(classified[1].isOn)
++        XCTAssertFalse(classified[1].isDisabled)
++
++        XCTAssertEqual(classified[2].name, "Need Bake Code")
++        XCTAssertFalse(classified[2].isOn)
++        XCTAssertTrue(classified[2].isDisabled)
++        XCTAssertEqual(classified[2].subtitle, "Needs builder bake")
++
++        XCTAssertEqual(classified[3].name, "Broken Entry")
++        XCTAssertFalse(classified[3].isOn)
++        XCTAssertTrue(classified[3].isDisabled)
++        XCTAssertEqual(classified[3].subtitle, "unsupported opcode 9")
++
++        XCTAssertEqual(classified[4].name, "Credits Label")
++        XCTAssertTrue(classified[4].isLabel)
++        XCTAssertTrue(classified[4].isDisabled)
++
++        let menuItems = buildCheatsMenuElements()
++        XCTAssertGreaterThanOrEqual(menuItems.count, 3)
++
++        // Toggle plain cheat updates C stub immediately
++        dm_menu_cheat_toggle(2)
++        XCTAssertFalse(dm_menu_cheat_on(2))
++
++        // Master switch toggle
++        dm_menu_cheats_set_master(false)
++        XCTAssertFalse(dm_menu_cheats_master())
++        dm_menu_cheats_set_master(true)
++        XCTAssertTrue(dm_menu_cheats_master())
++    }
++
++    func testScanValueCodecSupportsAllTypesAndRejectsInvalidInput() {
++        XCTAssertEqual(ScanValueCodec.encode("255", type: .u8), 255)
++        XCTAssertNil(ScanValueCodec.encode("256", type: .u8))
++        XCTAssertEqual(ScanValueCodec.encode("-1", type: .u8), 255)
++        XCTAssertEqual(ScanValueCodec.encode("0x1234", type: .u16), 0x1234)
++        XCTAssertNil(ScanValueCodec.encode("70000", type: .u16))
++        XCTAssertEqual(ScanValueCodec.encode("999999", type: .u32), 999999)
++        XCTAssertEqual(ScanValueCodec.encode("0x1122334455667788", type: .u64), 0x1122334455667788)
++        let fBits = ScanValueCodec.encode("12.5", type: .f32)
++        XCTAssertEqual(fBits, UInt64(Float(12.5).bitPattern))
++        XCTAssertEqual(ScanValueCodec.decode(fBits ?? 0, type: .f32), "12.5")
++        XCTAssertNil(ScanValueCodec.encode("nan", type: .f32))
++        XCTAssertNil(ScanValueCodec.encode("abc", type: .u32))
++        XCTAssertEqual(ScanValueCodec.formatAddress(region: 0, offset: 0x4920), "main+0x4920")
++        XCTAssertEqual(ScanValueCodec.formatAddress(region: 1, offset: 0x200), "heap+0x200")
++    }
++
++    func testScannerGenerationPreventsStaleBackgroundOverwrite() {
++        let backend = MockScannerBackend()
++        let started = expectation(description: "background scan started")
++        let release = DispatchSemaphore(value: 0)
++        backend.hits = [ScanHitItem(region: 1, type: .u32, offset: 0x200, valueRaw: 777)]
++        backend.startHandler = { _, _ in
++            started.fulfill()
++            release.wait()
++            return (1, 1)
++        }
++
++        let session = CheatScannerSession(backend: backend, installNotifications: false)
++        let done = expectation(description: "scan callback finished")
++        session.startInitialScan(rawText: "777") {
++            done.fulfill()
++        }
++        wait(for: [started], timeout: 2)
++        XCTAssertTrue(session.isSearching)
++
++        // Reset before background scan returns -> increments generation
++        session.reset()
++        XCTAssertFalse(session.isSearching)
++        XCTAssertFalse(session.hasActiveScan)
++        XCTAssertEqual(backend.resetCalls, 1)
++
++        release.signal()
++        wait(for: [done], timeout: 2)
++
++        // Stale scan result must NOT repopulate session
++        XCTAssertFalse(session.hasActiveScan)
++        XCTAssertTrue(session.hits.isEmpty)
++        XCTAssertEqual(session.totalHits, 0)
++    }
++
++    func testScannerSessionRetainsStateAcrossHideAndClearsOnTeardown() {
++        var hit = dm_scan_hit_t(region: 1, type: 3, reserved: 0, offset: 0x200, value: 900)
++        duo_harness_scan_set_hits(&hit, 1, 1)
++        duo_harness_cheats_set(1, 1, "/tmp/cheats", "1111111111111111", nil, 0)
++
++        let session = CheatScannerSession.shared
++        let scanDone = expectation(description: "initial scan completes")
++        session.startInitialScan(rawText: "900") {
++            scanDone.fulfill()
++        }
++        wait(for: [scanDone], timeout: 2)
++
++        XCTAssertTrue(session.hasActiveScan)
++        XCTAssertEqual(session.hits.count, 1)
++
++        // Layout check in portrait and landscape
++        let vc = CheatScannerViewController(session: session)
++        vc.loadViewIfNeeded()
++        vc.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
++        vc.view.setNeedsLayout()
++        vc.view.layoutIfNeeded()
++        vc.view.frame = CGRect(x: 0, y: 0, width: 844, height: 390)
++        vc.view.setNeedsLayout()
++        vc.view.layoutIfNeeded()
++
++        // Hide preserves session
++        session.hidePanel()
++        XCTAssertTrue(session.hasActiveScan)
++        XCTAssertEqual(session.hits.count, 1)
++
++        // Modify & Save append cheat
++        XCTAssertTrue(session.writeHit(at: 0, rawText: "9999"))
++        XCTAssertEqual(session.hits[0].valueText, "9999")
++        XCTAssertEqual(duo_harness_scan_write_count(), 1)
++
++        XCTAssertTrue(session.saveHitAsCheat(at: 0, name: "Scanned Gold", rawText: "9999"))
++        XCTAssertEqual(duo_harness_scan_append_count(), 1)
++        XCTAssertEqual(dm_menu_cheats_count(), 1)
++
++        // Teardown clears session and invokes C reset
++        let resetsBefore = duo_harness_scan_reset_count()
++        dm_cheat_scanner_teardown()
++        XCTAssertFalse(session.hasActiveScan)
++        XCTAssertTrue(session.hits.isEmpty)
++        XCTAssertEqual(duo_harness_scan_reset_count(), resetsBefore + 1)
++    }
++
++    private func makeStub(name: String, section: String, why: String, kind: Int32, flags: Int32, on: Int32, baked: Int32) -> DuoHarnessCheatStub {
++        var stub = DuoHarnessCheatStub()
++        copyCString(name, into: &stub.name)
++        copyCString(section, into: &stub.section)
++        copyCString(why, into: &stub.why)
++        stub.kind = kind
++        stub.flags = flags
++        stub.on = on
++        stub.baked_kind = baked
++        return stub
++    }
++
++    private func copyCString<T>(_ string: String, into tuple: inout T) {
++        withUnsafeMutableBytes(of: &tuple) { buf in
++            buf.initializeMemory(as: UInt8.self, repeating: 0)
++            let utf8 = Array(string.utf8)
++            let count = min(utf8.count, buf.count - 1)
++            for i in 0..<count { buf[i] = utf8[i] }
++        }
+     }
+ }
+diff --git a/dm/ios/tests/duo/Tests/DuoHarnessTests-Bridging-Header.h b/dm/ios/tests/duo/Tests/DuoHarnessTests-Bridging-Header.h
+new file mode 100644
+index 0000000..dfa426e
+--- /dev/null
++++ b/dm/ios/tests/duo/Tests/DuoHarnessTests-Bridging-Header.h
+@@ -0,0 +1,2 @@
++#import "DuoHarnessRuntime.h"
++#import "DmGameMenu.h"
+diff --git a/dm/ios/tests/duo/project.yml b/dm/ios/tests/duo/project.yml
+index de17721..efe70a5 100644
+--- a/dm/ios/tests/duo/project.yml
++++ b/dm/ios/tests/duo/project.yml
+@@ -10,6 +10,7 @@ targets:
+       - path: Sources
+       - path: ../../Sources/DmHostingController.swift
+       - path: ../../Sources/GameMenu.swift
++      - path: ../../Sources/GameMenuCheats.swift
+       - path: ../../Sources/LauncherSettings.swift
+       - path: ../../Sources/DmGamepad.m
+       - path: ../../Sources/front_ios.m
+@@ -86,6 +87,7 @@ targets:
+           - $(SRCROOT)/Sources
+         TEST_HOST: $(BUILT_PRODUCTS_DIR)/DuoHarness.app/DuoHarness
+         BUNDLE_LOADER: $(TEST_HOST)
++        SWIFT_OBJC_BRIDGING_HEADER: $(SRCROOT)/Tests/DuoHarnessTests-Bridging-Header.h
+         CLANG_ENABLE_OBJC_ARC: YES
+         CODE_SIGN_STYLE: Automatic
+         DEVELOPMENT_TEAM: ""
 diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
 index 901ed3b..e3d8ee4 100644
 --- a/dm/tools/tests/test_launcher_settings.py
@@ -221,3 +2034,6 @@ index 5d65442..bfaf7ff 100644
  | Game rumble | `DM_RUMBLE` | `1`, `0` |
  | Rumble strength | `DM_RUMBLE_GAIN` | `0` to `3` |
  | Rumble cutoff | `DM_RUMBLE_MIN` | `0` to `0.9` |
+-- 
+2.54.0 (Apple Git-157)
+
