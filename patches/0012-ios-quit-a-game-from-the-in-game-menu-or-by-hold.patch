@@ -37,14 +37,14 @@ Reason: Players on the iPhone need a way back to the launcher from a running gam
 Issue: LNPANDY/NX2Apple#421
 ---
  dm/ios/Sources/DmGameMenu.h                  |   3 +-
- dm/ios/Sources/DmGamepad.m                   |  17 +-
+ dm/ios/Sources/DmGamepad.m                   |  18 +-
  dm/ios/Sources/GameMenu.swift                |   1 +
  dm/ios/Sources/front_ios.m                   | 204 +++++++++++++++++-
  dm/ios/Sources/quit_prompt.h                 | 211 +++++++++++++++++++
  dm/ios/tests/duo/Sources/DuoRuntimeStubs.m   |   1 +
  dm/ios/tests/quit_prompt/quit_prompt_check.m | 130 ++++++++++++
  dm/ios/tests/test_quit_prompt.py             |  37 ++++
- 8 files changed, 599 insertions(+), 5 deletions(-)
+ 8 files changed, 598 insertions(+), 7 deletions(-)
  create mode 100644 dm/ios/Sources/quit_prompt.h
  create mode 100644 dm/ios/tests/quit_prompt/quit_prompt_check.m
  create mode 100644 dm/ios/tests/test_quit_prompt.py
@@ -64,7 +64,7 @@ index 784727b..a7e9c69 100644
  }
  #endif
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 91ceee8..c3d5cd0 100644
+index 40e83b2..f495fc8 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -1,6 +1,7 @@
@@ -76,7 +76,7 @@ index 91ceee8..c3d5cd0 100644
  //   Tap (touch): no control but the menu button, every other touch goes to the game's local touch viewport; offered only while the game is in handheld mode, the only one in which it reads the touch screen (Balatro, played by touch).
  //   2D (simple): top corners ZL above L (one column), ZR above R likewise, teardrops with the tip toward the screen corner; − and + side by side at the top centre; the left stick in the bottom-left corner (fixed ring, tilt measured from the ring centre, small dead zone);
  //     the A (right) B (bottom) X (top) Y (left) diamond in the bottom-right corner, sliding a finger between keys switches keys. Each bottom corner holds a single control, so it sits close in (reaching halfway into the side safe-area inset).
-@@ -133,6 +134,9 @@ static void phone_motion_start(UIView *body) {
+@@ -134,6 +135,9 @@ static void phone_motion_start(UIView *body) {
  static const int k_btns[] = {B_ZL, B_L, B_ZR, B_R, B_MINUS, B_PLUS, B_LS, B_RS};   // keys locked at touch-down (L3 / R3 only in the 3D layout)
  static NSString *const k_layout_key = @"DmPadLayout";   // NSUserDefaults: 0 = 2D, 1 = 3D, 2 = Tap (DM_GAME_PAD_LAYOUT's numbers)
  int dm_opmode(void);   // hle_oe.c: 0 = handheld
@@ -86,7 +86,7 @@ index 91ceee8..c3d5cd0 100644
  
  @interface DmGamepad : UIView
  - (void)arrange:(DmLayout)layout;
-@@ -610,6 +614,7 @@ static uint64_t pad_live_buttons(GCControllerLiveInput *input) {
+@@ -617,6 +621,7 @@ static uint64_t pad_live_buttons(GCControllerLiveInput *input) {
      return m;
  }
  static void read_pad(GCController *c) {
@@ -94,7 +94,7 @@ index 91ceee8..c3d5cd0 100644
      GCExtendedGamepad *g = c.extendedGamepad;
      if (!g) {
          GCControllerLiveInput *input = pad_live_input(c);
-@@ -632,7 +637,9 @@ static void read_pad(GCController *c) {
+@@ -639,7 +644,9 @@ static void read_pad(GCController *c) {
  static BOOL pad_listen(GCController *c) {
      GCExtendedGamepad *g = c.extendedGamepad;
      if (g) {
@@ -104,7 +104,7 @@ index 91ceee8..c3d5cd0 100644
          if (g.valueChangedHandler) return NO;
          g.valueChangedHandler = ^(GCExtendedGamepad *profile, GCControllerElement *el) {
              (void)el;
-@@ -652,7 +659,7 @@ static BOOL pad_listen(GCController *c) {
+@@ -659,7 +666,7 @@ static BOOL pad_listen(GCController *c) {
      return YES;
  }
  static void pad_unlisten(GCController *c) {
@@ -113,7 +113,7 @@ index 91ceee8..c3d5cd0 100644
      else pad_live_input(c).elementValueDidChangeHandler = nil;
  }
  static const char *pad_name(GCController *c) { return c.vendorName.UTF8String ?: "?"; }
-@@ -715,7 +722,7 @@ - (void)padsChanged:(NSNotification *)note {
+@@ -759,7 +766,7 @@ - (void)padsChanged:(NSNotification *)note {
          if (!usable || g_merge) LOG("controller %s: %s%s", gone ? "disconnected" : "connected", pad_name(c), usable ? "" : " (no supported gamepad profile: not used)");
      }
      BOOL any = g_merge ? pads_merged(gone) : pads_slotted(gone);
@@ -122,34 +122,43 @@ index 91ceee8..c3d5cd0 100644
  }
  @end
  
-@@ -824,6 +831,10 @@ int front_ctrl_support(int min, int max) {
+@@ -868,9 +875,9 @@ static void merge_rumble_to_s2(int on) {
+     if (!g_merge || g_merge_s2_rumble == on) return;
+     g_merge_s2_rumble = on; dm_haptics_apple_set_sink(0, on ? dm_switch2_rumble : NULL);
+ }
+-static int s2pad_blocked(void) { return g_s2_off || cp_blocks_input(g_cp.phase); }   // no input to the game (in the background, or the controller prompt up)
++static int s2pad_blocked(void) { return g_s2_off || cp_blocks_input(g_cp.phase) || front_ios_quit_blocks_input(); }   // no input to the game (in the background, the controller prompt, or the quit prompt up)
+ static void s2pad_read(s2_pad *d) {
+-    if (g_s2_off) return;
++    if (g_s2_off || front_ios_quit_blocks_input()) return;
+     int p = s2pad_player(d);
+     uint64_t m; int32_t st[4]; if (!s2_pad_input(&d->st, &m, st)) return;
+     if (p < 0) {   // DM_PAD_PRESS_TO_JOIN=1: it joins at its first button, as a GameController one does (pad_report)
+@@ -921,6 +928,7 @@ static void s2pad_detach(s2_pad *d) {   // d is already off the transport's list
  int dm_pad_layout(void) { return g_view ? [g_view padLayout] : 0; }
  bool dm_pad_layout_offered(int layout) { return layout == 0 || layout == 1 || (layout == 2 && dm_opmode() == 0); }
  void dm_pad_layout_set(int layout) { [g_view setPadLayout:layout]; }
-+void dm_gamepad_pads_read(void) {   // front_ios.m: the quit prompt closed, the game reads every controller as it is now (a button held through it counts again)
-+    if (g_merge) { for (GCController *c in GCController.controllers) if (pad_usable(c)) read_pad(c); }
-+    else for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p] && pad_usable(g_held[p])) read_pad(g_held[p]);
-+}
- void dm_gamepad_active(void) { dispatch_async(dispatch_get_main_queue(), ^{ for (GCController *c in GCController.controllers) dm_motion_rearm(c); }); }   // On become active: motion_apple.h
- void dm_gamepad_reset(void) {   // On resign active: release everything (a key held while switching away and released in background gets no "release")
-     dispatch_async(dispatch_get_main_queue(), ^{ [g_view reset]; });
++void dm_gamepad_pads_read(void) { pads_reread(); }   // front_ios.m: the quit prompt closed, the game reads every controller as it is now (a button held through it counts again)
+ void dm_gamepad_active(void) {   // On become active: motion_apple.h, Switch 2 transport
+     dispatch_async(dispatch_get_main_queue(), ^{
+         for (GCController *c in GCController.controllers) dm_motion_rearm(c);
 diff --git a/dm/ios/Sources/GameMenu.swift b/dm/ios/Sources/GameMenu.swift
-index 1dbdfef..7047522 100644
+index ea16ba8..16d81d1 100644
 --- a/dm/ios/Sources/GameMenu.swift
 +++ b/dm/ios/Sources/GameMenu.swift
-@@ -53,6 +53,7 @@ private func gameMenuItems() -> [UIMenuElement] {
-         }
+@@ -60,6 +60,7 @@ private func gameMenuItems() -> [UIMenuElement] {
+         upload.subtitle = PrewarmUpload.detail
+         items.append(UIMenu(options: .displayInline, children: [upload]))
      }
-     if !placed { items.insert(UIMenu(options: .displayInline, children: [layout]), at: 0) }
 +    items.append(Unmanaged<UIMenu>.fromOpaque(dm_quit_menu()).takeRetainedValue())   // Quit <game>, last and on its own: it opens the quit prompt (front_ios.m)
      return items
  }
  
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index 5cd1b62..e9c5a1d 100644
+index 2cec6f4..0690096 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
-@@ -14,9 +14,14 @@
+@@ -14,10 +14,15 @@
  #include "dm.h"
  #include "haptics_apple.h"
  #include "save_sync.h"
@@ -159,22 +168,23 @@ index 5cd1b62..e9c5a1d 100644
 +#import "quit_prompt.h"
  
  void dm_gamepad_active(void);
+ void dm_gamepad_inactive(void);
 +void dm_gamepad_pads_read(void);
 +static void quit_close(void);
  #import "DmLayout.h"
  #import "DmGameMenu.h"
  #import "DmRotation.h"
-@@ -686,7 +691,7 @@ static void save_sync_background(void) {
+@@ -689,7 +694,7 @@ static void save_sync_background(void) {
  void front_ios_focus_event(int ev) {
      if (!g_layer) return;
      switch (ev) {
--        case 0: dm_movie_active(0); dm_gamepad_reset(); dm_focus_set(2); break;
-+        case 0: quit_close(); dm_movie_active(0); dm_gamepad_reset(); dm_focus_set(2); break;
+-        case 0: dm_movie_active(0); dm_gamepad_inactive(); dm_focus_set(2); break;
++        case 0: quit_close(); dm_movie_active(0); dm_gamepad_inactive(); dm_focus_set(2); break;
          case 1:
              UIApplication.sharedApplication.idleTimerDisabled = NO;
              dm_focus_set(3);
-@@ -704,3 +709,200 @@ void front_ios_focus_event(int ev) {
-             front_ios_audio_apply(); dm_gamepad_active(); dm_focus_set(1); dm_movie_active(1); break;
+@@ -709,3 +714,200 @@ void front_ios_focus_event(int ev) {
+             break;
      }
  }
 +
@@ -592,10 +602,10 @@ index 0000000..66cd904
 +
 +NS_ASSUME_NONNULL_END
 diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-index 2fc0373..c6260b8 100644
+index 64c79ed..1a177f0 100644
 --- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 +++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-@@ -127,3 +127,4 @@ void dm_audio_route_changed(void) {}
+@@ -134,3 +134,4 @@ void dm_audio_route_changed(void) {}
  void dm_cloud_saves_env(void) {}
  int save_sync_flush(int timeout_ms) { (void)timeout_ms; return 1; }
  int front_web_touch(void) { return 0; }

@@ -2040,7 +2040,7 @@
   "launch.set.DM_SCREEN_ASPECT.note": "Taller shapes render more pixels and can increase GPU time and heat.",
   "launch.set.DM_SHOW_FPS": "Frame-rate counter",
   "launch.set.DM_SW2": "Switch 2 controllers",
-  "launch.set.DM_SW2.note": "Plays Joy-Con 2 and Pro Controller 2 over Bluetooth: hold Sync on one during the game to pair it. macOS asks once for Bluetooth access.",
+  "launch.set.DM_SW2.note": "Plays Joy-Con 2 and Pro Controller 2 over Bluetooth: hold Sync on one during the game to pair it (on iPhone and iPad, after each start). The system asks once for Bluetooth access.",
   "launch.set.DM_TOUCH_HAPTICS": "Touch feedback",
   "launch.set.DM_TOUCH_SIZE": "Size",
   "launch.set.DM_TOUCH_SIZE.note": "The size of the on-screen controls. Controls move toward medium when a size does not fit the screen.",

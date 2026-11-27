@@ -2041,7 +2041,7 @@
   "launch.set.DM_SCREEN_ASPECT.note": "세로로 더 긴 비율은 더 많은 픽셀을 렌더링하므로 GPU 시간과 발열이 증가할 수 있습니다.",
   "launch.set.DM_SHOW_FPS": "프레임 카운터",
   "launch.set.DM_SW2": "Switch 2 컨트롤러",
-  "launch.set.DM_SW2.note": "Joy-Con 2와 Pro Controller 2를 블루투스로 사용합니다. 게임 중에 하나의 Sync를 길게 눌러 페어링하세요. macOS가 블루투스 접근을 한 번 묻습니다.",
+  "launch.set.DM_SW2.note": "Joy-Con 2와 Pro Controller 2를 블루투스로 사용합니다. 게임 중에 하나의 Sync를 길게 눌러 페어링하세요(iPhone 및 iPad에서는 매 실행 후 다시 페어링). 시스템이 블루투스 접근을 한 번 묻습니다.",
   "launch.set.DM_TOUCH_HAPTICS": "터치 피드백",
   "launch.set.DM_TOUCH_SIZE": "크기",
   "launch.set.DM_TOUCH_SIZE.note": "화면 속 컨트롤의 크기입니다. 크기가 화면에 맞지 않으면 컨트롤이 보통 크기에 가까워집니다.",

@@ -171,16 +171,16 @@ extension LaunchSetting {
 }
 
 extension SavedChoices {
-    /// Whether the app's launcher reads the store itself. seedds/nxnative's pack_app.py writes `DMSettings` (the rules launcher.c checks
-    /// a saved choice against) into Info.plist only together with that reading (#431), so its presence means "the store applies" and an
-    /// app without it has an older launcher.c that ignores the preferences domain. Those apps are given the choices in the environment.
-    /// An app nxkit built has no DMSettings, but its host reads `launcher.<VAR>` of its own rows at every start (nxkit-abi's launch.rs).
+    /// Whether the app's launcher reads the store itself. Older builds carried `DMSettings` in Info.plist (#431); upstream
+    /// later removed `DMSettings` and reads `dm/launcher.json` directly while still stamping `DMSaveSyncChoice = 1`.
+    /// An app without either key has an older `launcher.c` that ignores the preferences domain, so it gets non-default
+    /// choices in the environment. An app nxkit built has neither key, and its host reads `launcher.<VAR>` at every start.
     static func appReadsStore(app: String) -> Bool {
         if NxkitLaunch.isNxkit(app: app) { return true }
         let plist = URL(fileURLWithPath: app).appendingPathComponent("Contents/Info.plist")
         guard let data = try? Data(contentsOf: plist),
               let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else { return false }
-        return info["DMSettings"] is [Any]
+        return info["DMSettings"] is [Any] || ((info["DMSaveSyncChoice"] as? NSNumber)?.intValue ?? 0) >= 1
     }
 }
 

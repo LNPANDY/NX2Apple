@@ -22337,66 +22337,66 @@
         }
       }
     },
-    "Plays Joy-Con 2 and Pro Controller 2 over Bluetooth: hold Sync on one during the game to pair it. macOS asks once for Bluetooth access.": {
+    "Plays Joy-Con 2 and Pro Controller 2 over Bluetooth: hold Sync on one during the game to pair it (on iPhone and iPad, after each start). The system asks once for Bluetooth access.": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Spielt Joy-Con 2 und Pro Controller 2 über Bluetooth: Halte während des Spiels die Sync-Taste an einem gedrückt, um ihn zu koppeln. macOS fragt einmal nach dem Bluetooth-Zugriff."
+            "value": "Spielt Joy-Con 2 und Pro Controller 2 über Bluetooth: Halte während des Spiels die Sync-Taste an einem gedrückt, um ihn zu koppeln (auf iPhone und iPad nach jedem Start). Das System fragt einmal nach dem Bluetooth-Zugriff."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Plays Joy-Con 2 and Pro Controller 2 over Bluetooth: hold Sync on one during the game to pair it. macOS asks once for Bluetooth access."
+            "value": "Plays Joy-Con 2 and Pro Controller 2 over Bluetooth: hold Sync on one during the game to pair it (on iPhone and iPad, after each start). The system asks once for Bluetooth access."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usa Joy-Con 2 y Pro Controller 2 por Bluetooth: mantén pulsado Sync en uno durante el juego para emparejarlo. macOS pide una vez el acceso a Bluetooth."
+            "value": "Usa Joy-Con 2 y Pro Controller 2 por Bluetooth: mantén pulsado Sync en uno durante el juego para emparejarlo (en iPhone y iPad, después de cada inicio). El sistema pide una vez el acceso a Bluetooth."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilise les Joy-Con 2 et la Pro Controller 2 en Bluetooth : maintenez Sync sur une manette pendant le jeu pour l’associer. macOS demande une seule fois l’accès au Bluetooth."
+            "value": "Utilise les Joy-Con 2 et la Pro Controller 2 en Bluetooth : maintenez Sync sur une manette pendant le jeu pour l’associer (sur iPhone et iPad, après chaque lancement). Le système demande une seule fois l’accès au Bluetooth."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usa Joy-Con 2 e Pro Controller 2 via Bluetooth: tieni premuto Sync su uno durante il gioco per associarlo. macOS chiede una sola volta l’accesso al Bluetooth."
+            "value": "Usa Joy-Con 2 e Pro Controller 2 via Bluetooth: tieni premuto Sync su uno durante il gioco per associarlo (su iPhone e iPad, dopo ogni avvio). Il sistema chiede una sola volta l’accesso al Bluetooth."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Joy-Con 2 と Pro Controller 2 を Bluetooth で使えます。ゲーム中にコントローラーの Sync ボタンを長押しするとペアリングされます。macOS は Bluetooth へのアクセスを一度だけ確認します。"
+            "value": "Joy-Con 2 と Pro Controller 2 を Bluetooth で使えます。ゲーム中にコントローラーの Sync ボタンを長押しするとペアリングされます（iPhone と iPad では毎回起動後に操作が必要です）。システムは Bluetooth へのアクセスを一度だけ確認します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Joy-Con 2와 Pro Controller 2를 블루투스로 사용합니다. 게임 중에 하나의 Sync를 길게 눌러 페어링하세요. macOS가 블루투스 접근을 한 번 묻습니다."
+            "value": "Joy-Con 2와 Pro Controller 2를 블루투스로 사용합니다. 게임 중에 하나의 Sync를 길게 눌러 페어링하세요(iPhone 및 iPad에서는 매 실행 후 다시 페어링). 시스템이 블루투스 접근을 한 번 묻습니다."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usa Joy-Con 2 e Pro Controller 2 por Bluetooth: segure Sync em um deles durante o jogo para pareá-lo. O macOS pede o acesso ao Bluetooth uma vez."
+            "value": "Usa Joy-Con 2 e Pro Controller 2 por Bluetooth: segure Sync em um deles durante o jogo para pareá-lo (no iPhone e iPad, após cada início). O sistema pede o acesso ao Bluetooth uma vez."
           }
         },
         "sv": {
           "stringUnit": {
             "state": "translated",
-            "value": "Spelar med Joy-Con 2 och Pro Controller 2 över Bluetooth: håll Sync nedtryckt på en under spelet för att para ihop den. macOS frågar en gång om åtkomst till Bluetooth."
+            "value": "Spelar med Joy-Con 2 och Pro Controller 2 över Bluetooth: håll Sync nedtryckt på en under spelet för att para ihop den (på iPhone och iPad efter varje start). Systemet frågar en gång om åtkomst till Bluetooth."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "通过蓝牙使用 Joy-Con 2 和 Pro Controller 2：游戏中按住手柄上的同步键即可配对。macOS 会请求一次蓝牙访问权限。"
+            "value": "通过蓝牙使用 Joy-Con 2 和 Pro Controller 2：游戏中按住手柄上的同步键即可配对（在 iPhone 和 iPad 上每次启动后需重新按住）。系统会请求一次蓝牙访问权限。"
           }
         }
       }

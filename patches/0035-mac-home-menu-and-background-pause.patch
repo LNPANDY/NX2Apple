@@ -37,7 +37,7 @@ index bd852c4..dc7a350 100644
  
  // Called on the main thread when mapped input reaches the game.
 diff --git a/dm/host/controllers_mac.m b/dm/host/controllers_mac.m
-index 07ef97d..095779e 100644
+index ee5d71a..c60c0da 100644
 --- a/dm/host/controllers_mac.m
 +++ b/dm/host/controllers_mac.m
 @@ -17,6 +17,7 @@
@@ -91,7 +91,7 @@ index 07ef97d..095779e 100644
  static void controller_update_focus(void) {
      int was_focused=g_focus, listening=controller_listening();
      g_focus=listening && !g_quit_prompt && !g_applet;
-@@ -441,6 +478,7 @@ static void controller_connect(DMController *d) {
+@@ -448,6 +485,7 @@ static void controller_connect(DMController *d) {
      fprintf(stderr, "controller '%s': player %d\n", d.name.UTF8String, g_merge ? 1 : d->slot + 1);
      controller_panel_refresh();
      front_cp_poll();   // a controller joined while the controller applet's prompt is up
@@ -99,7 +99,7 @@ index 07ef97d..095779e 100644
  }
  static void controller_disconnect(DMController *d) {
      if (d->slot < 0) return;
-@@ -458,6 +496,7 @@ static void controller_disconnect(DMController *d) {
+@@ -466,6 +504,7 @@ static void controller_disconnect(DMController *d) {
      controller_panel_refresh();
      front_cp_poll();   // one controller fewer to wait for, or one player fewer, while the controller applet's prompt is up
      if(controller_listening()) front_home_poll();
@@ -107,7 +107,7 @@ index 07ef97d..095779e 100644
  }
  // Generic HID uses the same registry, slot table and shared button map as GC
  // and Triton. Its decoder keeps physical state through focus changes.
-@@ -513,6 +552,7 @@ static void hidpad_detach(hid_pad *hid) {
+@@ -521,6 +560,7 @@ static void hidpad_detach(hid_pad *hid) {
      DMController *d=controller_for_hid(hid); if(!d) return;
      controller_disconnect(d); d->generic=NULL; [g_devices removeObject:d];
      controller_panel_refresh();
@@ -115,7 +115,7 @@ index 07ef97d..095779e 100644
  }
  // Xbox One pads over USB that macOS has no driver for (pad_gip_mac.h): a player from its connection, as a GameController controller (a GIP device is a pad, unlike a
  // raw HID device's GamePad collection), or at its first button press with DM_PAD_PRESS_TO_JOIN. Its Xbox button is Home (front_controllers_quit_buttons)
-@@ -532,14 +572,16 @@ static void gippad_attach(gip_pad *gip) {
+@@ -540,14 +580,16 @@ static void gippad_attach(gip_pad *gip) {
      DMController *d=[DMController new]; d->gip=gip;
      d.name=@(gip->name); d.model=[@"USB / " stringByAppendingString:d.name];
      controller_load_map(d); [g_devices addObject:d];
@@ -133,7 +133,7 @@ index 07ef97d..095779e 100644
  }
  static int32_t controller_axis(float v) { return (int32_t)(fmaxf(-1, fminf(1, v)) * DM_STICK_MAX); }
  // Switch 2 controllers over Bluetooth LE (pad_switch2_apple.h): the shared registry owns the slot, the mapping and the focus gate, as for the HID and split Joy-Con pads.
-@@ -565,15 +607,17 @@ static void s2pad_read(s2_pad *pad) {
+@@ -573,15 +615,17 @@ static void s2pad_read(s2_pad *pad) {
      DMController *d=[DMController new]; d->s2=pad;
      d.name=@(pad->name); d.model=[@"Nintendo / " stringByAppendingString:d.name];
      controller_load_map(d); [g_devices addObject:d];
@@ -153,7 +153,7 @@ index 07ef97d..095779e 100644
  }
  // Original Joy-Cons (pad_jc1_mac.h): the shared registry owns the slot, the mapping and the focus gate. A pad is one Joy-Con or a left and a right one, and a player from its first
  // button press (as a raw HID pad, with or without DM_PAD_PRESS_TO_JOIN). The transport sends the npad states and the motion to the game itself (dm_joy_set, dm_motion_set_joy,
-@@ -603,10 +647,12 @@ static void jc1pad_attach(jc1_pad *pad) {
+@@ -611,10 +655,12 @@ static void jc1pad_attach(jc1_pad *pad) {
      controller_load_map(d); [g_devices addObject:d];
      if(!g_merge) { fprintf(stderr,"controller '%s' (HID) connected: press a button to play\n",pad->name); front_cp_poll(); }
      jc1pad_read(pad);
@@ -166,7 +166,7 @@ index 07ef97d..095779e 100644
  }
  static void jc1_models_changed(void) { controllers_changed(nil); }
  // GameController's controllers of Joy-Cons read from HID stay unread here, with Home and Capture away from macOS
-@@ -710,6 +756,7 @@ static void controllers_reconcile(NSArray<GCController *> *now) {
+@@ -719,6 +765,7 @@ static void controllers_reconcile(NSArray<GCController *> *now) {
      }
      controller_pro_changed();
      controller_panel_refresh();
@@ -174,7 +174,7 @@ index 07ef97d..095779e 100644
  }
  static void controllers_changed(GCController *gone) {
      // Native notifications can precede the manager's asynchronous HID callback.
-@@ -866,6 +913,7 @@ static void steam_close(DMSteamHID *hid) {
+@@ -875,6 +922,7 @@ static void steam_close(DMSteamHID *hid) {
          IOHIDDeviceRegisterInputReportCallback(hid->device,d->report,sizeof d->report,NULL,NULL);
          IOHIDDeviceUnscheduleFromRunLoop(hid->device,CFRunLoopGetMain(),kCFRunLoopCommonModes);
          controller_disconnect(d); [g_devices removeObject:d]; hid.raw=nil;
@@ -183,7 +183,7 @@ index 07ef97d..095779e 100644
      IOHIDDeviceClose(hid->device,kIOHIDOptionsTypeNone); hid->opened=NO;
  }
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index f2fb595..3702d0d 100644
+index 2b3d87f..8dd2cee 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
 @@ -1,7 +1,7 @@
@@ -206,8 +206,8 @@ index f2fb595..3702d0d 100644
      if (cp_blocks_input(g_cp.phase)) {   // the prompt has the keyboard: Return or J (A) is done, Escape or K (B) closes it, no key reaches the game
          unsigned short c = e.keyCode;
          if (down && g_cp.phase == CP_OPEN) { if (c == 53 || c == 40) g_cp_cancel = 1; else if (c == 36 || c == 38) g_cp_confirm = 1; front_cp_poll(); }
-@@ -308,19 +310,36 @@ static void input_resume(void) {
- 
+@@ -307,19 +309,36 @@ static void input_resume(void) {
+ }
  // Quit with the Home button (home_quit.h, LNPANDY/NX2Apple#336): held for 2 s it opens the prompt (home_quit_mac.h) over the game's view, A quits through the same path as ⌘Q
  // (NSApp terminate, so the save writer and the other exit handlers run as there), B or Home closes it. While the prompt is open the game is told it lost the focus, as the
 -// Switch's HOME menu does, and gets no controller input or touch; the keyboard and ⌘Q work as always. DM_HOME_QUIT=0 turns it off
@@ -249,7 +249,7 @@ index f2fb595..3702d0d 100644
  }
  // The Home button setting for apps (macOS 27), once, when the first controller is there (GameController reads it only while one is connected): "system" in the log
  // explains a hold that does nothing, since the system keeps Home whatever the host asks. A front end reads the setting itself (GCControllerHomeButtonSettingsManager)
-@@ -344,58 +363,335 @@ static void hq_fade(NSView *v, int in) {
+@@ -343,58 +362,335 @@ static void hq_fade(NSView *v, int in) {
      [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) { ctx.duration = 0.18; v.animator.alphaValue = in ? 1 : 0; }
                          completionHandler:^{ if (!in) [v removeFromSuperview]; }];
  }
@@ -596,7 +596,7 @@ index f2fb595..3702d0d 100644
  // The controller applet's prompt (front.h front_ctrl_support, ctrl_prompt.h; GitHub issue #1640): the game asked for more players than it sees, and the game's thread waits while
  // the prompt is up over the game, as the Switch's player screen. A controller that joins meanwhile is a player at once (its first button with DM_PAD_PRESS_TO_JOIN, its
  // connection without), and the count on the card follows. A and B are the physical buttons A and B on any controller (controllers_mac.m front_controllers_applet_buttons, as the Home
-@@ -1485,7 +1781,9 @@ void front_run(void (*guest)(void)) {
+@@ -1495,7 +1791,9 @@ void front_run(void (*guest)(void)) {
          NSString *keys = input_preference_map(input_preferences_domain(), "DM_KEYMAP", 0);
          if (keys) key_map_parse(&g_keys, keys.UTF8String);
          hq_start();
@@ -606,7 +606,7 @@ index f2fb595..3702d0d 100644
          hq_log_setting();
          [NSNotificationCenter.defaultCenter addObserverForName:GCControllerDidConnectNotification object:nil queue:NSOperationQueue.mainQueue
                                                     usingBlock:^(NSNotification *n) { (void)n; hq_log_setting(); }];
-@@ -1513,10 +1811,10 @@ void front_run(void (*guest)(void)) {
+@@ -1523,10 +1821,10 @@ void front_run(void (*guest)(void)) {
          // DM_FOCUS_KEEP (on by default, =0 turns it off): the game stays in focus while its window is up, whichever app is active. Tears of the Kingdom and Ocarina of Time
          // stop presenting out of focus, so clicking into another app read as a hang (no frame and no sound after the last focus change)
          static int keep = -1; if (keep < 0) keep = !getenv("DM_FOCUS_KEEP") || atoi(getenv("DM_FOCUS_KEEP"));
@@ -1194,7 +1194,7 @@ index 0b716c4..0aa2164 100644
      }
      printf("t_home_quit_mac: %d checks, %d failed\n", checks, fails);
 diff --git a/docs/frontends.md b/docs/frontends.md
-index 8eebc89..11981db 100644
+index ee4e026..f01777c 100644
 --- a/docs/frontends.md
 +++ b/docs/frontends.md
 @@ -59,7 +59,9 @@ A built app carries the settings its game supports, as the iPhone app's settings
@@ -1209,10 +1209,10 @@ index 8eebc89..11981db 100644
  Settings a player chose in a front end and wants kept, also for a start from Finder or the Dock, go in the app's saved choices ([Saved choices](#saved-choices)), not in its environment.
  
 diff --git a/docs/playing.md b/docs/playing.md
-index 31814ae..367dc01 100644
+index 559107b..97fefbc 100644
 --- a/docs/playing.md
 +++ b/docs/playing.md
-@@ -63,7 +63,7 @@ On the Mac, if a single Switch Pro-compatible controller has a thumbstick that s
+@@ -67,7 +67,7 @@ On the Mac, if a single Switch Pro-compatible controller has a thumbstick that s
  
  With [Press a button to join](settings.md#press-a-button-to-join) on in the settings (`DM_PAD_PRESS_TO_JOIN=1` in `env.txt`), on the Mac and on iOS, a controller becomes a player only when one of its buttons is pressed, as the lowest player free: the players choose their order and how many play, over Bluetooth or USB, identical pads included, and a controller connected while the game runs joins at its first press. The log says `press a button to play`, then `a button pressed: player N`. The press that joins also reaches the game. When a game asks for more players than it sees, a prompt over the game says how many are wanted and joined and waits for the others: a controller that presses a button (or connects, with the setting off) joins, A finishes once enough are in, and B or Escape closes it, as on a Switch.
  

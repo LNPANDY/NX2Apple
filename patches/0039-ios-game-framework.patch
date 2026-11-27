@@ -15,7 +15,7 @@ Issue: LNPANDY/NX2Apple#392
  dm/ios/framework/DmGameMarker.m      |  10 +
  dm/ios/framework/ShellGlue.h         |  11 +
  dm/ios/framework/ShellGlue.m         |  76 +++++++
- dm/ios/project-framework.yml         | 199 ++++++++++++++++
+ dm/ios/project-framework.yml         | 200 ++++++++++++++++
  dm/ios/tests/test_bc_device_check.py |  56 +++++
  dm/ios/tests/test_framework_build.py | 323 ++++++++++++++++++++++++++
  dm/ios/tests/test_framework_link.py  | 191 ++++++++++++++++
@@ -24,8 +24,8 @@ Issue: LNPANDY/NX2Apple#392
  dm/ios/tools/compile_check.py        |  22 +-
  dm/ios/tools/gen_manifest.py         | 130 +++++++++++
  dm/tools/tests/test_nsp_progress.py  | 329 +++++++++++++++++++++++++++
- scripts/build_ipa_from_nsp.py        | 214 ++++++++++++++---
- 18 files changed, 1729 insertions(+), 46 deletions(-)
+ scripts/build_ipa_from_nsp.py        | 215 ++++++++++++++---
+ 18 files changed, 1732 insertions(+), 45 deletions(-)
  create mode 100644 dm/ios/Sources/FrameworkBootstrap.h
  create mode 100644 dm/ios/Sources/FrameworkBootstrap.m
  create mode 100644 dm/ios/framework/DmGameMarker.m
@@ -134,10 +134,10 @@ index 0000000..663ebe8
 +}
 +#endif
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index 3ed3666..9d7f828 100644
+index 6178dc0..a020fad 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
-@@ -201,7 +201,10 @@ - (void)startGame {
+@@ -214,7 +214,10 @@ - (void)startGame {
      [self.gameClip addSubview:self.game];
      g_layer = (CAMetalLayer *)self.game.layer;
      if (getenv("DM_METAL_HUD") && atoi(getenv("DM_METAL_HUD"))) { g_layer.developerHUDProperties = @{@"mode": @"default"}; LOG("front end: Metal performance HUD on (DM_METAL_HUD)"); }   // Apple's HUD over the game: frame rate, frame and GPU time, memory
@@ -150,7 +150,7 @@ index 3ed3666..9d7f828 100644
      self.pad = dm_gamepad_view(self.view.bounds);
      self.pad.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index 693e0cc..e1355af 100644
+index 6687a2b..4755c54 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
 @@ -10,7 +10,6 @@
@@ -330,10 +330,10 @@ index 0000000..4bc48ff
 +bool dm_show_launcher(void *view_controller, void (*done)(void)) { (void)view_controller; (void)done; return false; }
 diff --git a/dm/ios/project-framework.yml b/dm/ios/project-framework.yml
 new file mode 100644
-index 0000000..4a14327
+index 0000000..7adedfb
 --- /dev/null
 +++ b/dm/ios/project-framework.yml
-@@ -0,0 +1,199 @@
+@@ -0,0 +1,200 @@
 +# Route C framework project (docs/launcher-c-plan.md M1): the same app as project.yml, except that the game's rewritten
 +# modules are not compiled into the executable (no Gen/embed.S) but into DmGame.framework, which the app dlopens at launch.
 +# build_ipa.sh DM_FRAMEWORK=1 generates Gen/ and Gen/framework before xcodegen runs; the app source reads the framework's
@@ -486,6 +486,7 @@ index 0000000..4a14327
 +      - path: Sources/front_ios.m
 +      - path: Sources/DmGamepad.m
 +      - path: Sources/GameMenu.swift
++      - path: Sources/PrewarmUpload.swift
 +      - path: Sources/LauncherSettings.swift
 +      - path: Sources/CloudSaves.m
 +      - path: Sources/DataBookmark.m
@@ -597,7 +598,7 @@ index 0000000..6c443e5
 +    unittest.main()
 diff --git a/dm/ios/tests/test_framework_build.py b/dm/ios/tests/test_framework_build.py
 new file mode 100644
-index 0000000..f1c8992
+index 0000000..870ee31
 --- /dev/null
 +++ b/dm/ios/tests/test_framework_build.py
 @@ -0,0 +1,323 @@
@@ -745,7 +746,7 @@ index 0000000..f1c8992
 +
 +class FrameworkEnvironmentTests(unittest.TestCase):
 +    def test_build_environment_stays_with_its_framework(self):
-+        block = SCRIPT[SCRIPT.index('if [ "$FRAMEWORK" = 1 ]; then\n  rm -rf Gen/framework'):SCRIPT.index('# A prepared Xcode project is signed')]
++        block = SCRIPT[SCRIPT.index('if [ "${FRAMEWORK:-0}" = 1 ]; then\n  rm -rf Gen/framework'):SCRIPT.index('# A prepared Xcode project is signed')]
 +        with tempfile.TemporaryDirectory() as temporary:
 +            root = Path(temporary)
 +            (root / 'Gen/dm/font').mkdir(parents=True)
@@ -819,7 +820,7 @@ index 0000000..f1c8992
 +            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 +        result = run_step(PACKING, root, APP=str(root / 'DmIOS.app'), MSL_IOS=str(root / 'shaders'), MSLDIR='b-fixture',
 +                          ROMFS=str(root / 'romfs'), AOC=str(root / 'aoc'), OUT_IPA=str(root / 'out.ipa'), O=str(root / 'pkg'),
-+                          DM_APP_VERSION='1.2.1', PKG='v327680')
++                          DM_APP_VERSION='1.2.1', PKG='v327680', GFXAPI='nvn', GD=str(root / 'gd'))
 +        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 +        with zipfile.ZipFile(root / 'out.ipa') as archive:
 +            names = set(archive.namelist())
@@ -1122,10 +1123,10 @@ index 0000000..5c6d3d0
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/dm/ios/tests/test_xcode_workflow.py b/dm/ios/tests/test_xcode_workflow.py
-index bf7dbe7..3c1ef44 100644
+index 2f46306..184bf72 100644
 --- a/dm/ios/tests/test_xcode_workflow.py
 +++ b/dm/ios/tests/test_xcode_workflow.py
-@@ -31,7 +31,12 @@ class XcodePipelineTests(unittest.TestCase):
+@@ -32,7 +32,12 @@ class XcodePipelineTests(unittest.TestCase):
                  with self.subTest(graphics=graphics, derived=derived):
                      self.prepare_fixture(graphics, derived)
  
@@ -1139,7 +1140,7 @@ index bf7dbe7..3c1ef44 100644
          with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
              root = Path(temporary).resolve()
              (root / 'prod.keys').touch()
-@@ -84,7 +89,8 @@ class XcodePipelineTests(unittest.TestCase):
+@@ -85,7 +90,8 @@ class XcodePipelineTests(unittest.TestCase):
              try:
                  with redirect_stdout(output):
                      code = build.cli([str(root), '-k', str(root / 'prod.keys'), '--prepare-xcode',
@@ -1149,7 +1150,7 @@ index bf7dbe7..3c1ef44 100644
              finally:
                  progress.close()
              self.assertEqual(code, 0, output.getvalue())
-@@ -103,6 +109,7 @@ class XcodePipelineTests(unittest.TestCase):
+@@ -104,6 +110,7 @@ class XcodePipelineTests(unittest.TestCase):
              self.assertNotIn('FONT_PY', environment)
              self.assertEqual(environment['DM_BUNDLE_ID'], 'com.example.saved')
              self.assertEqual(environment['DM_TEAM_ID'], 'ABCDEFGHIJ')
@@ -1158,7 +1159,7 @@ index bf7dbe7..3c1ef44 100644
              register.assert_called_once()
              self.assertEqual(mocks['derive_profile'].call_count, int(derived))
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 498b295..31ac076 100755
+index 57df869..abffac3 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -8,6 +8,12 @@
@@ -1200,7 +1201,7 @@ index 498b295..31ac076 100755
    cd "$IOS" || die "cd $IOS"
    DM_SCHEME_NAME="$(echo "$DM_DISPLAY_NAME" | tr '/:' '__') ($GAME)"   # the scheme file is named after it
  
-@@ -198,6 +214,37 @@ if [ -f "$ICON" ]; then
+@@ -202,6 +218,37 @@ if [ -f "$ICON" ]; then
    echo "DM_APPICON = AppIcon" >> Gen/dm.xcconfig
    t "app icon: $ICON"
  else t "no app icon ($ICON not found): the home-screen icon stays blank"; fi
@@ -1212,7 +1213,7 @@ index 498b295..31ac076 100755
 +#   Info.plist            written by xcodegen from project-framework.yml into this directory
 +#   Gen/framework.xcconfig  the embedded modules' segment permissions (gen_embed.py's flags) and nothing else: the framework links no
 +#                         host frameworks, and its ObjC side is one marker symbol (framework/DmGameMarker.m)
-+if [ "$FRAMEWORK" = 1 ]; then
++if [ "${FRAMEWORK:-0}" = 1 ]; then
 +  rm -rf Gen/framework && mkdir -p Gen/framework/dm || die "mkdir Gen/framework"
 +  cp -R Gen/dm/. Gen/framework/dm/ || die "copy the framework tables"
 +  rm -rf Gen/framework/dm/font
@@ -1238,7 +1239,7 @@ index 498b295..31ac076 100755
  # A prepared Xcode project is signed in Xcode, so it asks for the Increased Memory Limit capability the bigger games need (see the README); DM_ENTITLEMENTS=another plist, or empty for none.
  # The unsigned IPA carries the same request in its executable's ad-hoc signature below; the install tool replaces that signature.
  if [ "$PREPARE_XCODE" = YES ] && [ -n "${DM_ENTITLEMENTS-default}" ]; then
-@@ -209,7 +256,10 @@ if [ "$PREPARE_XCODE" = YES ] && [ -n "${DM_ENTITLEMENTS-default}" ]; then
+@@ -213,7 +260,10 @@ if [ "$PREPARE_XCODE" = YES ] && [ -n "${DM_ENTITLEMENTS-default}" ]; then
  fi
  # DM_COPY_ROMFS=NO also for the prepared project: its Copy game resources phase (stage_resources.sh) then leaves the game files out and writes the image's identity; Gen/dm.xcconfig is made again by every run
  [ "${DM_COPY_ROMFS:-YES}" != NO ] || [ "$PREPARE_XCODE" != YES ] || echo "DM_COPY_ROMFS = NO" >> Gen/dm.xcconfig
@@ -1247,10 +1248,10 @@ index 498b295..31ac076 100755
 +# template copied in as project.yml, and the in-place build uses dm/ios/project.yml (the default template is never edited)
 +if [ "$PREPARE_XCODE" = YES ] || [ "$FRAMEWORK" != 1 ]; then xcodegen generate -q > /dev/null || die "xcodegen"
 +else xcodegen generate -q --spec project-framework.yml > /dev/null || die "xcodegen"; fi
- # DMCommit / DMChain: the checkout that built the app (+dirty with uncommitted changes to tracked files) and the shader chain it carries, which the host logs at start (main.c)
- COMMIT=$(git -C "$DM" rev-parse --short=12 HEAD 2> /dev/null) && { [ -z "$(git -C "$DM" status --porcelain --untracked-files=no 2> /dev/null)" ] || COMMIT=$COMMIT+dirty
-   /usr/libexec/PlistBuddy -c "Add :DMCommit string $COMMIT" Gen/Info.plist > /dev/null || die "DMCommit"; t "source: $COMMIT"; }
-@@ -228,6 +278,40 @@ if [ "$PREPARE_XCODE" = YES ]; then
+ plutil -replace DMTitleID -string "$GAME" -- Gen/Info.plist || die "DMTitleID"
+ PREWARM_URL=${DM_PREWARM_UPLOAD_URL-}
+ if [ -z "${DM_PREWARM_UPLOAD_URL+x}" ] && [ -f "$DM/services/prewarm-inbox/endpoint.txt" ]; then
+@@ -241,6 +291,40 @@ if [ "$PREPARE_XCODE" = YES ]; then
    exit 0
  fi
  
@@ -1291,7 +1292,7 @@ index 498b295..31ac076 100755
  t "xcodebuild (Release, unsigned, iPhone + iPad)"
  mkdir -p "$O"
  xcodebuild -project DmIOS.xcodeproj -scheme DmIOS -configuration Release -destination 'generic/platform=iOS' -derivedDataPath "$DD" \
-@@ -243,6 +327,18 @@ APP=$DD/Build/Products/Release-iphoneos/DmIOS.app
+@@ -256,6 +340,18 @@ APP=$DD/Build/Products/Release-iphoneos/DmIOS.app
  # the app sets DM_AOC_DIR at launch, the host reports them as owned and mounts them from it) and the RomFS
  rm -rf "$APP/msl" "$O/Payload"   # Payload/: what the copy-and-zip packing left behind, as was out.ipa (and its index) unless it is the IPA packed here, which a repeat pack reuses
  [ "$O/out.ipa" -ef "$OUT_IPA" ] || rm -f "$O/out.ipa"; [ "$O/out.ipa.idx" -ef "$OUT_IPA.idx" ] || rm -f "$O/out.ipa.idx"
@@ -1488,10 +1489,10 @@ index 0000000..963156f
 +if __name__ == '__main__':
 +    main()
 diff --git a/dm/tools/tests/test_nsp_progress.py b/dm/tools/tests/test_nsp_progress.py
-index cd34db9..a57b1f3 100644
+index 145e025..eb2184f 100644
 --- a/dm/tools/tests/test_nsp_progress.py
 +++ b/dm/tools/tests/test_nsp_progress.py
-@@ -236,5 +236,334 @@ class HumanModes(unittest.TestCase):
+@@ -307,5 +307,334 @@ class HumanModes(unittest.TestCase):
              self.assertEqual('\r' in text, mode == 'bar')
              self.assertEqual(ticker is None, mode == 'off')
  
@@ -1827,10 +1828,10 @@ index cd34db9..a57b1f3 100644
  if __name__ == '__main__':
      unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 79a54e2..b97059b 100755
+index 0192c7c..dd56f1e 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -3311,58 +3311,187 @@ def build_gl_shaders(py, repo, roots, sh, env, logs, g, reuse=True, mac=False, p
+@@ -3497,60 +3497,192 @@ class PsoLines:
  
  
  class IpaWatch:
@@ -1849,7 +1850,7 @@ index 79a54e2..b97059b 100755
 +    XCODE = {'CompileC': 'compiling', 'SwiftCompile': 'compiling', 'Ld': 'linking', 'CpResource': 'copying resources', 'CompileAssetCatalogVariant': 'asset catalog', 'ProcessInfoPlistFile': 'Info.plist'}
 +
 +    def __init__(self, repo, w, out_ipa=None):
-+        self.ios, self.o, self.pso = repo / 'dm/ios', w / 'build/ios/pkg', w / 'build/ios/pso/work'
++        self.ios, self.o, self.pso_dir = repo / 'dm/ios', w / 'build/ios/pkg', w / 'build/ios/pso/work'
 +        ipa = Path(out_ipa) if out_ipa is not None else None
 +        if ipa is not None and not ipa.is_dir() and ipa.suffix != '.framework':
 +            self.part = ipa.with_name(ipa.name + '.partial')
@@ -1858,6 +1859,7 @@ index 79a54e2..b97059b 100755
 +            self.part, self.last = None, None
 +        self.xlog = self.o / 'build.log'
          self.kept = 0
+         self.pso = PsoLines()
 -        self.state, self.t, self.off, self.compiled, self.what, self.total, self.most, self.lock = None, 0, 0, 0, '', None, 0, threading.Lock()
 +        self.pso_archs, self.pso_arch, self.pso_done, self.pso_logged = [], '', set(), False
 +        self.pso_js_key, self.pso_counts = ('', -1, -1), (0, 0)
@@ -1869,6 +1871,7 @@ index 79a54e2..b97059b 100755
 -            if s.startswith('generate Gen/'): self.state = 'gen'; PROG.set(step='generating sources')
 -            elif s.startswith('[RED] pipeline archive:'): say(s)   # the build goes on without one, and only this says so
 -            elif s.startswith('pipeline archive for'): PROG.set(step='pipeline archive (metal-tt)')
+-            elif self.pso(s): pass
 +            if s.startswith('generate Gen/'):
 +                self.state = 'gen'
 +                PROG.set(step='generating sources')
@@ -1883,6 +1886,8 @@ index 79a54e2..b97059b 100755
 +                self.pso_done, self.pso_logged = set(), False
 +                self.state, self.t = 'pso', time.time()
 +                PROG.set(step='pipeline archive (metal-tt)')
++            elif self.part is not None and self.pso(s):
++                self.state, self.pso_logged = 'pso', True
 +            elif (m := re.match(r'pso_offline: (\S+): metal-tt, \d+ bases, \d+ compute pipelines', s)):
 +                self.pso_arch = m.group(1)
 +                self.pso_done, self.pso_logged = set(), False
@@ -1899,6 +1904,8 @@ index 79a54e2..b97059b 100755
 +                tot = int(m.group(2))
 +                self.state, self.pso_logged = 'pso', True
 +                PROG.set(done=tot, total=tot, unit='batches', note='merging')
++            elif self.pso(s):
++                self.state, self.pso_logged = 'pso', True
 +            elif s.startswith('framework: Gen/framework'):
 +                self.state = 'gen'
 +                PROG.set(step='generating Xcode project')
@@ -1947,7 +1954,7 @@ index 79a54e2..b97059b 100755
          with self.lock: return self._poll()
  
 +    def _poll_pso(self):
-+        js = self.pso / 'bases.mtl4-json'
++        js = self.pso_dir / 'bases.mtl4-json'
 +        try: st = js.stat()
 +        except OSError: return None
 +        key = (str(js), st.st_size, st.st_mtime_ns)
@@ -1961,15 +1968,15 @@ index 79a54e2..b97059b 100755
 +        base_groups, compute_groups = (bases + 999) // 1000, (computes + 15) // 16
 +        total = base_groups + compute_groups
 +        if total <= 1: return None
-+        candidates = [self.pso_arch] if self.pso_arch else (self.pso_archs or [p.name[8:] for p in sorted(self.pso.glob('batches.*')) if p.is_dir()])
++        candidates = [self.pso_arch] if self.pso_arch else (self.pso_archs or [p.name[8:] for p in sorted(self.pso_dir.glob('batches.*')) if p.is_dir()])
 +        arch, bdir = '', None
 +        for cand in candidates:
-+            d = self.pso / f'batches.{cand}'
++            d = self.pso_dir / f'batches.{cand}'
 +            if cand and d.is_dir():
 +                arch, bdir = cand, d
 +                break
 +        if bdir is None: return None
-+        pack_log = self.pso / f'metal-pack.{arch}.log'
++        pack_log = self.pso_dir / f'metal-pack.{arch}.log'
 +        newest = st.st_mtime
 +        try: newest = max(newest, bdir.stat().st_mtime)
 +        except OSError: return None
@@ -2047,7 +2054,7 @@ index 79a54e2..b97059b 100755
  
  
  def env_file_pairs(path):   # an environment file's switches (one KEY=VALUE per line, # starts a comment), read as the iOS app reads them (dm/ios/Sources/main.m)
-@@ -3690,6 +3819,10 @@ def parse_args(argv):
+@@ -3826,6 +3958,10 @@ def parse_args(argv):
      ap.add_argument('--shader-files', action=argparse.BooleanOptionalAction, help='an NVN game\'s shader library goes into the IPA as its separate files, not as one file, for install tools that cannot copy '
                      'a large file (AltServer: 2 GiB; the game files then need --romfs separate too) (default: the SHADER_FILES setting, off)')
      ap.add_argument('--prepare-xcode', action='store_true', help='prepare a per-game Xcode project and add it to the shared workspace instead of packing an IPA (requires keeping extracted files)')
@@ -2058,7 +2065,7 @@ index 79a54e2..b97059b 100755
      ap.add_argument('--platform', choices=('ios', 'mac', 'mac-app'), help='ios = the IPA (or the Xcode project); mac = for development: build only what running the game on this Mac needs (the Mac shaders and the Mac host, '
                      'no iOS shaders, Xcode project or IPA), keep the extracted files and print the command that runs the game; mac-app = what mac builds, then a self-contained, double-clickable '
                      'Mac app of the game (default: <game name>.app in the NSP folder, -o names another) (default: the PLATFORM setting, ios)')
-@@ -3938,6 +4071,11 @@ def _main(args, cleanup):
+@@ -4074,6 +4210,11 @@ def _main(args, cleanup):
      if args.mac_sign and not mac_pack: raise BuildError('--mac-sign signs the Mac app: it needs --platform mac-app')
      if args.prebake and not mac_pack: raise BuildError('--prebake makes the Mac app\'s prewarm pipelines: it needs --platform mac-app')
      if mac and prepare_xcode: raise BuildError(f'--prepare-xcode makes an iPhone project: it cannot be combined with --platform {platform}')
@@ -2070,22 +2077,15 @@ index 79a54e2..b97059b 100755
      if mac and not apple_silicon(): raise BuildError(f'--platform {platform} runs the game in the Mac host, which runs the game\'s own arm64 code natively: it needs a Mac with Apple silicon, and this Mac has an Intel processor')
      check_native_python()
      keep = KEEP_EXTRACTED if args.keep_extracted is None else args.keep_extracted
-@@ -4253,11 +4391,12 @@ def _main(args, cleanup):
-         rmtree(work / 'tmp'); return {'row': (PROGRAM_INDEX, g.id, patched, romfs, ios, gfx), 'ex': ex, 'keep': keep}
-     programs = other_programs(args, g)
-     if programs and romfs_mode == 'separate': raise BuildError('a game of several programs keeps its files in the app (ROMFS / --romfs bundle): Documents holds one RomFS image, one program\'s')
--    if not prepare_xcode and free_gb(out_ipa.parent) < 5: raise BuildError(f'less than 5 GB free on the volume of {out_ipa.parent}')
--    say('preparing the Xcode project' if prepare_xcode else f'building the IPA → {out_ipa}')
-+    if not prepare_xcode and not shell_fw and free_gb(out_ipa.parent) < 5: raise BuildError(f'less than 5 GB free on the volume of {out_ipa.parent}')
-+    say('preparing the Xcode project' if prepare_xcode else f'building the game framework for the shell → {shell_fw}' if shell_fw else f'building the IPA → {out_ipa}')
+@@ -4425,6 +4566,7 @@ def _main(args, cleanup):
      ipa_env = dict(env, GAME=g.id, W=str(work / 'ipa'), PATCHED=str(patched), ROMFS=str(romfs), MSL_IOS=str(ios), GFXAPI=gfx, DM_PYTHON=py, DM_DISPLAY_NAME=app_name, DM_BUNDLE_ID=bundle_id, AOC=str(aoc or ''), DM_XCODE_DERIVED_DATA=str(work / 'xcode-derived-data'), DM_TEAM_ID=team_id, DM_LANG=lang, CONTROL=str(control))
      ipa_env.pop('FONT_PY', None)
      if prepare_xcode: ipa_env['DM_XCODE_PROJECT_DIR'] = str(project.parent)
-+    if args.framework: ipa_env['DM_FRAMEWORK'] = '1'; say('route C: the game\'s modules go into DmIOS.app/Frameworks/DmGame.framework (DM_FRAMEWORK=1)')
++    if args.framework: ipa_env['DM_FRAMEWORK'] = '1'
      separate = romfs_mode == 'separate'
      if separate: ipa_env['DM_COPY_ROMFS'] = 'NO'; say('game files: separate (DM_COPY_ROMFS=NO), left out of the app; the image stays at ' + str(romfs))
      if shader_files: ipa_env['DM_SHADER_FILES'] = '1'; say('shader library: its separate files (DM_SHADER_FILES=1), for install tools that cannot copy a large file')
-@@ -4278,6 +4417,19 @@ def _main(args, cleanup):
+@@ -4445,6 +4587,19 @@ def _main(args, cleanup):
          rows = [(0, g.id, patched, romfs, ios, gfx)] + [programs[n]['row'] for n in sorted(programs)]
          tsv.write_text('# program\tprofile\trewritten modules\tRomFS\tiOS shaders\tgraphics API (build_ipa.sh PROGRAMS_TSV)\n' + ''.join('\t'.join(map(str, r)) + '\n' for r in rows))
          say(f'one app holding programs {", ".join(str(r[0]) for r in rows)}')

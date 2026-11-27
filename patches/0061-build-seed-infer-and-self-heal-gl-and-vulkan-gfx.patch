@@ -418,10 +418,10 @@ index 0000000..dcfe887
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 01683e7..451428d 100755
+index 6e17d66..edc2bac 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -4460,6 +4460,21 @@ def _prepare_from_seed(args, from_seed_arg, seed_root, prefill_msl, gamemod, env
+@@ -4600,6 +4600,21 @@ def _prepare_from_seed(args, from_seed_arg, seed_root, prefill_msl, gamemod, env
      if out_hint and out_hint.suffix == '.app' and out_hint.is_dir() and out_hint not in prefill_msl:
          prefill_msl.append(out_hint)
  
@@ -443,7 +443,7 @@ index 01683e7..451428d 100755
      return {
          'app': app,
          'nsp_dir': nsp_dir,
-@@ -4474,7 +4489,7 @@ def _prepare_from_seed(args, from_seed_arg, seed_root, prefill_msl, gamemod, env
+@@ -4614,7 +4629,7 @@ def _prepare_from_seed(args, from_seed_arg, seed_root, prefill_msl, gamemod, env
          'seed_dir': seed_dir,
          'seed': seed,
          'seed_romfs_id': seed.get('romfs_identity'),
@@ -452,30 +452,30 @@ index 01683e7..451428d 100755
      }
  
  
-@@ -4892,11 +4907,11 @@ def _main(args, cleanup):
+@@ -5040,11 +5055,11 @@ def _main(args, cleanup):
      if uedec: decode_ue_shaders(repo, {v: dirs[v] for v in sv}, pkg_ver, patched, work, env, logs, g)
      sh = work / 'shader'
      if gfx == 'vulkan':   # the packed version's merged RomFS holds the SPIR-V files the game loads; a capture holds those it generates. A damaged copy (ALLOW_DAMAGED) is keyed by its files' times, as split_shaders keys it
 -        cap = capture_shaders(repo, game, patched, work, env, logs, g, 'vk') if vkcap else None
 +        cap = capture_shaders(repo, game, patched, work, env, logs, g, 'vk') if vkcap else ((game / 'vk_capture') if from_seed_arg is not None and (game / 'vk_capture').is_dir() else None)
          rom_root = rfs.source(game) if Path(str(rfs.source(game))).exists() else (game / 'RomFS')
-         ios = build_vk_shaders(py, repo, [rom_root, game / 'ExeFS/main'] + dlc_roms + ([cap] if cap else []), sh, env, logs, g, mac=mac, provisional=bool(provisional or derived or ALLOW_DAMAGED), from_seed=from_seed_arg is not None)
+         ios = build_vk_shaders(py, repo, [rom_root, game / 'ExeFS/main'] + ([cap] if cap else []), sh, env, logs, g, mac=mac, provisional=bool(provisional or derived or ALLOW_DAMAGED), dlc_roms=dlc_roms, from_seed=from_seed_arg is not None)
      elif gfx == 'gl':   # the GLSL sources in the packed version's archives and in its main (the game compiles them at run time; the host finds each by the hash of its text), and a capture of those it puts together
 -        cap = capture_shaders(repo, game, patched, work, env, logs, g, 'gl') if glcap else None
 +        cap = capture_shaders(repo, game, patched, work, env, logs, g, 'gl') if glcap else ((game / 'gl_capture') if from_seed_arg is not None and (game / 'gl_capture').is_dir() else None)
          has_romfs = Path(str(rfs.source(game))).exists()
          rom_root = rfs.source(game) if has_romfs else (game / 'RomFS')
-         roots = [rom_root, game / 'ExeFS/main'] + dlc_roms + ([cap] if cap else [])
-@@ -4904,13 +4919,13 @@ def _main(args, cleanup):
+         roots = [rom_root, game / 'ExeFS/main'] + ([cap] if cap else [])
+@@ -5052,13 +5067,13 @@ def _main(args, cleanup):
          try:
-             ios = build_gl_shaders(py, repo, roots, sh, env, logs, g, mac=mac, provisional=prov, fixed=fixed, from_seed=from_seed_arg is not None)
+             ios = build_gl_shaders(py, repo, roots, sh, env, logs, g, mac=mac, provisional=prov, fixed=fixed, dlc_roms=dlc_roms, from_seed=from_seed_arg is not None)
          except BuildError:
 -            if cap or fixed or not has_romfs or not apple_silicon(): raise
 +            if cap or fixed or from_seed_arg is not None or not has_romfs or not apple_silicon(): raise
              say('offline GLSL files did not translate standalone: capturing run-time GL shaders on the Mac')
              PROG.add(1)
              cap = capture_shaders(repo, game, patched, work, env, logs, g, 'gl')
-             ios = build_gl_shaders(py, repo, roots + [cap], sh, env, logs, g, mac=mac, provisional=prov, fixed=fixed, from_seed=from_seed_arg is not None)
+             ios = build_gl_shaders(py, repo, roots + [cap], sh, env, logs, g, mac=mac, provisional=prov, fixed=fixed, dlc_roms=dlc_roms, from_seed=from_seed_arg is not None)
          else:
 -            if not cap and not fixed and has_romfs and apple_silicon() and gl_table_only_main(ios / 'gl/gl_shaders.tsv'):
 +            if not cap and not fixed and from_seed_arg is None and has_romfs and apple_silicon() and gl_table_only_main(ios / 'gl/gl_shaders.tsv'):

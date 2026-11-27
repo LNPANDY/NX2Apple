@@ -26,10 +26,10 @@ Issue: LNPANDY/NX2Apple#1005
  2 files changed, 2 insertions(+), 1 deletion(-)
 
 diff --git a/dm/mac/launcher.c b/dm/mac/launcher.c
-index 23de63b..fb1f35a 100644
+index efba66b..125390e 100644
 --- a/dm/mac/launcher.c
 +++ b/dm/mac/launcher.c
-@@ -203,6 +203,7 @@ static void programs_table(const char *contents, const char *res, const char *su
+@@ -164,6 +164,7 @@ static void programs_table(const char *contents, const char *res, const char *su
  int main(int argc, char **argv) {
      char self[PATH_MAX], exe[PATH_MAX]; uint32_t n = sizeof self;
      if (_NSGetExecutablePath(self, &n) || !realpath(self, exe)) return 1;
@@ -38,7 +38,7 @@ index 23de63b..fb1f35a 100644
      snprintf(contents, sizeof contents, "%s", exe); *strrchr(contents, '/') = 0; *strrchr(contents, '/') = 0;   // .../Contents/MacOS/<launcher> → .../Contents
      snprintf(res, sizeof res, "%s/Resources", contents); snprintf(host, sizeof host, "%s/MacOS/dmhost", contents);
 diff --git a/docs/frontends.md b/docs/frontends.md
-index 22f8e6b..558b11d 100644
+index 162ef0f..b19f872 100644
 --- a/docs/frontends.md
 +++ b/docs/frontends.md
 @@ -57,7 +57,7 @@ A built app carries the settings its game supports, as the iPhone app's settings

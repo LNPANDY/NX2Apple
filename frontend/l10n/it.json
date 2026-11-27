@@ -2041,7 +2041,7 @@
   "launch.set.DM_SCREEN_ASPECT.note": "I formati più alti calcolano più pixel e possono aumentare il tempo GPU e il calore.",
   "launch.set.DM_SHOW_FPS": "Contatore FPS",
   "launch.set.DM_SW2": "Controller Switch 2",
-  "launch.set.DM_SW2.note": "Usa Joy-Con 2 e Pro Controller 2 via Bluetooth: tieni premuto Sync su uno durante il gioco per associarlo. macOS chiede una sola volta l’accesso al Bluetooth.",
+  "launch.set.DM_SW2.note": "Usa Joy-Con 2 e Pro Controller 2 via Bluetooth: tieni premuto Sync su uno durante il gioco per associarlo (su iPhone e iPad, dopo ogni avvio). Il sistema chiede una sola volta l’accesso al Bluetooth.",
   "launch.set.DM_TOUCH_HAPTICS": "Feedback al tocco",
   "launch.set.DM_TOUCH_SIZE": "Dimensione",
   "launch.set.DM_TOUCH_SIZE.note": "La dimensione dei comandi sullo schermo. Si avvicinano alla dimensione media quando una dimensione non sta nello schermo.",

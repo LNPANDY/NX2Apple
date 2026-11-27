@@ -11,14 +11,14 @@ Issue: LNPANDY/NX2Apple#809
 ---
  dm/ios/Sources/DmGamepad.m                 | 14 +++++++---
  dm/ios/Sources/DmLayout.h                  |  4 +--
- dm/ios/tests/duo/Sources/DuoRuntimeStubs.m |  7 +++++
+ dm/ios/tests/duo/Sources/DuoRuntimeStubs.m |  5 ++++
  dm/ios/tests/duo/Tests/DuoHarnessTests.m   | 30 ++++++++++++++++++++++
  docs/reference/rendering.md                |  2 +-
  docs/settings.md                           |  4 +--
- 6 files changed, 52 insertions(+), 9 deletions(-)
+ 6 files changed, 50 insertions(+), 9 deletions(-)
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 4c4d495..d2ac6e8 100644
+index 218ca48..3cb2870 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -1,6 +1,6 @@
@@ -38,7 +38,7 @@ index 4c4d495..d2ac6e8 100644
  //   Each physical controller is a player of its own (local co-op), as on the Mac: the first one connected is player 1, together with the touch gamepad, the next player 2, and so on up to 8; see "Physical controllers" below.
  //   Shaking the phone shakes the controller (DM_BTN_SHAKE: its six-axis sensor, hle_hid.c), whichever controls are in use; see "Shaking the phone" below.
  #import <UIKit/UIKit.h>
-@@ -311,7 +311,8 @@ - (void)setTouchFeedback:(BOOL)on {
+@@ -312,7 +312,8 @@ - (void)setTouchFeedback:(BOOL)on {
  - (void)arrange:(DmLayout)layout {
      if (CGRectEqualToRect(_layout.controls, layout.controls) && CGRectEqualToRect(_layout.game, layout.game)
          && CGRectEqualToRect(_layout.gameClip, layout.gameClip) && _layout.separated == layout.separated
@@ -48,7 +48,7 @@ index 4c4d495..d2ac6e8 100644
      [self reset];   // A finger held across a pose change must not leave a key or game touch stuck.
      BOOL splitChanged = _layout.separated != layout.separated;
      _layout = layout; _geoValid = NO;
-@@ -319,6 +320,7 @@ - (void)arrange:(DmLayout)layout {
+@@ -320,6 +321,7 @@ - (void)arrange:(DmLayout)layout {
          [self loadLayoutMode];
          [self applyLayout];
      }
@@ -56,9 +56,9 @@ index 4c4d495..d2ac6e8 100644
      [self setNeedsLayout];
  }
  - (const DmPadGeo *)geo {   // DmPadGeometry.h, computed again whenever the bounds, the safe area, the split or the layout changed
-@@ -763,6 +765,10 @@ static BOOL pads_slotted(GCController *gone) {
-     dispatch_async(dispatch_get_main_queue(), ^{ cp_poll(); });   // a controller came or went while the controller applet's prompt is up
-     return waiting || pad_slot_mask(&g_slots) != 0;   // a controller waiting for its first press hides the touch gamepad too
+@@ -807,6 +809,10 @@ static void pads_reread(void) {
+     else for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p]) read_pad(g_held[p]);
+     for (s2_pad *d = dm_switch2_pads(); d; d = d->next) s2pad_read(d);
  }
 +- (void)updateControlVisibility {
 +    _controls.hidden = _padOff;
@@ -67,7 +67,7 @@ index 4c4d495..d2ac6e8 100644
  - (void)padsChanged:(NSNotification *)note {
      GCController *c = note.object, *gone = [note.name isEqual:GCControllerDidDisconnectNotification] ? c : nil;
      if (gone) pad_unlisten(gone);   // even a controller still waiting for its first press can have a handler
-@@ -771,7 +777,7 @@ - (void)padsChanged:(NSNotification *)note {
+@@ -815,7 +821,7 @@ - (void)padsChanged:(NSNotification *)note {
          if (!usable || g_merge) LOG("controller %s: %s%s", gone ? "disconnected" : "connected", pad_name(c), usable ? "" : " (no supported gamepad profile: not used)");
      }
      BOOL any = g_merge ? pads_merged(gone) : pads_slotted(gone);
@@ -99,28 +99,24 @@ index 08ef2d6..8e50463 100644
  // Fill covers the full view in landscape overlay and fills the fixed 4:3 portrait slot above the controls while clipping overflow.
  // A tabletop half-open split keeps the picture fitted in its half where cropping a wide half leaves too little height.
 diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-index c6260b8..49a9c9a 100644
+index 1a177f0..dc06315 100644
 --- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 +++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-@@ -104,6 +104,13 @@ void dm_motion_clear(int player) {
- void dm_haptics_apple_init(void) {}
- void dm_haptics_apple_controller(int player, GCController *controller) { (void)player; (void)controller; }
- 
-+int front_web_touch(void) { return 0; }   // no offline web page above the synthetic game
+@@ -134,4 +134,9 @@ void dm_audio_route_changed(void) {}
+ void dm_cloud_saves_env(void) {}
+ int save_sync_flush(int timeout_ms) { (void)timeout_ms; return 1; }
+ int front_web_touch(void) { return 0; }
 +int dm_locate_game_data(void) { return 1; }
 +const struct dm_profile *dm_profile(void) {
 +    static const struct dm_profile profile = {.name = "DuoHarness", .pad_layout = DM_GAME_PAD_LAYOUT};
 +    return &profile;
 +}
-+
- int front_ios_boot_ok(void) { return 1; }
- void front_ios_boot(void) {}
- bool dm_show_launcher(void *viewController, void (*done)(void)) { (void)viewController; (void)done; return false; }
+ void dm_host_shutdown(const char *why) { (void)why; }
 diff --git a/dm/ios/tests/duo/Tests/DuoHarnessTests.m b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
-index 77c96a1..77163f8 100644
+index d1435d6..06630c8 100644
 --- a/dm/ios/tests/duo/Tests/DuoHarnessTests.m
 +++ b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
-@@ -1338,6 +1338,36 @@ - (void)testPoseChangeReleasesHeldButtonAndGameTouch {
+@@ -1342,6 +1342,36 @@ - (void)testPoseChangeReleasesHeldButtonAndGameTouch {
      [self endTouches:@[video, button] onPad:pad cancelled:NO];
  }
  
@@ -158,10 +154,10 @@ index 77c96a1..77163f8 100644
      if (@available(iOS 17.0, *)) {
          [self setHarnessControllers:nil notification:nil];
 diff --git a/docs/reference/rendering.md b/docs/reference/rendering.md
-index 5073cf5..d2d72cb 100644
+index 6ef28da..3f20ac6 100644
 --- a/docs/reference/rendering.md
 +++ b/docs/reference/rendering.md
-@@ -2833,7 +2833,7 @@ Digimon Story Cyber Sleuth: Complete Edition (Media.Vision's MVGL engine, SDK 6.
+@@ -2923,7 +2923,7 @@ Digimon Story Cyber Sleuth: Complete Edition (Media.Vision's MVGL engine, SDK 6.
  
  - **Symptom:** portrait gameplay overlaps the touch controls, touch coordinates land outside the game picture, or a TV's picture renders at 4K again after a layout pass.
  - **Cause:** the front end assumed a landscape screen with the controls over the whole view, so its picture and touch geometry did not follow a portrait screen (an iPad, an iPhone Duo's inner display) or a Duo's fold. On iPadOS the deprecated `UIRequiresFullScreen` kept the game out of resizable windows, and a native rotation A/B on the iPhone Duo iOS 27.1 simulator showed that it also blocked upside-down portrait.
@@ -171,10 +167,10 @@ index 5073cf5..d2d72cb 100644
  - **Found on:** [Pokémon Brilliant Diamond](../../dm/games/0100000011D90000/README.md).
  
 diff --git a/docs/settings.md b/docs/settings.md
-index b8f8d7d..eb83514 100644
+index aa550bf..a14b367 100644
 --- a/docs/settings.md
 +++ b/docs/settings.md
-@@ -264,13 +264,13 @@ iCloud Drive takes a moment to carry a file from one device to the other. Quit t
+@@ -268,7 +268,7 @@ Each time the game starts, with or without cloud saves, the save it starts from
  
  ## In-game menu
  
@@ -182,6 +178,8 @@ index b8f8d7d..eb83514 100644
 +On the iPhone and iPad the gear at the top centre of the touch controls opens a menu while the game runs. It holds **Console mode**, **Picture**, **Rotation** and the **Frame-rate counter**, then **Controller layout** (**2D**, **3D**, and **Tap**, no controls and every touch to the game, in handheld mode), **Touch feedback** and **Game rumble**: the settings that take effect at once. A choice opens to show its options, the current one ticked. The menu's text keeps one size whatever the system text size, so it stays short over the game. A change is remembered as on the settings screen, which shows it at the next start; a setting `Documents/env.txt` fixes is shown, not changed. The other settings need the game to start again, so they are only on the settings screen: close the app fully and open it again.
  
  Console mode changes as on a Switch put in or taken out of its dock. While a TV shows the game it stays **Docked**, and the mode you pick applies when the TV is disconnected. **Docked** removes the Tap layout, as a docked Switch reads no touch screen.
+ 
+@@ -278,7 +278,7 @@ Apps packed with a contribution inbox show **Contribute prewarm lists automatica
  
  ## TV
  

@@ -32,7 +32,7 @@ Issue: none
  create mode 100644 dm/tools/tests/test_cheat_fetch.py
 
 diff --git a/dm/host/dm.h b/dm/host/dm.h
-index 5132d84..c25774a 100644
+index b8a48b8..1044349 100644
 --- a/dm/host/dm.h
 +++ b/dm/host/dm.h
 @@ -109,6 +109,7 @@ typedef struct {
@@ -112,7 +112,7 @@ index 3aadb3e..f7a9ec4 100644
 +int dm_cheat_scan_append_cheat(const char *name, uint8_t region, uint64_t offset, int type, uint64_t value_raw);
 +void dm_cheat_scan_reset(void);
 diff --git a/dm/host/hle_cheats.c b/dm/host/hle_cheats.c
-index 7c9653e..f7e37b9 100644
+index 2d0d56d..b5dd660 100644
 --- a/dm/host/hle_cheats.c
 +++ b/dm/host/hle_cheats.c
 @@ -70,6 +70,7 @@
@@ -790,7 +790,7 @@ index 7c9653e..f7e37b9 100644
      // the summary: masters are always on, a broken / empty cheat never runs, the rest keep the menu's saved state
      int on = 0, bad = 0, masters = 0, labels = 0;
      for (int i = 0; i < g_ncheat; i++) {
-@@ -1858,6 +2423,25 @@ void dm_cheats_teardown(void) {
+@@ -1857,6 +2422,25 @@ void dm_cheats_teardown(void) {
          g_tick_started = 0;
      }
      files_drain();
@@ -816,7 +816,7 @@ index 7c9653e..f7e37b9 100644
  }
  
  // ---------- the Mac cheats menu and panel (callers: front_mac.m; nothing else uses these) ----------
-@@ -1933,7 +2517,10 @@ void dm_cheat_toggle(int i) {
+@@ -1932,7 +2516,10 @@ void dm_cheat_toggle(int i) {
              cheat_t *p = &g_cheat[c->pair];
              if (!c->pair_off) { if (!p->broken && !p->dead) { p->on = (uint8_t)!now; p->restore_once = (uint8_t)!now; } }
              else if (now) p->on = 0;
@@ -827,7 +827,7 @@ index 7c9653e..f7e37b9 100644
          states_save();
      }
      pthread_mutex_unlock(&g_lock);
-@@ -2035,6 +2622,8 @@ int dm_cheats_master(void) { return atomic_load(&g_master); }
+@@ -2034,6 +2621,8 @@ int dm_cheats_master(void) { return atomic_load(&g_master); }
  void dm_cheats_master_set(int on) {
      pthread_mutex_lock(&g_lock);
      atomic_store(&g_master, !!on);
@@ -836,7 +836,7 @@ index 7c9653e..f7e37b9 100644
      if (g_dir[0]) {
          char p[1100]; flag_file(p, sizeof p, "off");
          if (on) unlink(p);
-@@ -2054,6 +2643,7 @@ void dm_cheats_safe_restore(void) {
+@@ -2053,6 +2642,7 @@ void dm_cheats_safe_restore(void) {
      if (g_safe) {
          g_safe = 0;
          states_load();
@@ -844,7 +844,7 @@ index 7c9653e..f7e37b9 100644
          report_build();
          running_update();
      }
-@@ -2071,3 +2661,291 @@ const char *dm_cheats_skipped_why(int i) { return i >= 0 && i < g_nskip ? g_skip
+@@ -2070,3 +2660,291 @@ const char *dm_cheats_skipped_why(int i) { return i >= 0 && i < g_nskip ? g_skip
  int dm_cheats_nsources(void) { return g_nsrc; }
  
  const char *dm_cheats_source(int i) { return i >= 0 && i < g_nsrc ? g_src[i] : ""; }
@@ -1137,10 +1137,10 @@ index 7c9653e..f7e37b9 100644
 +    pthread_mutex_unlock(&g_scan_lock);
 +}
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index a3f98dd..3aeef5a 100644
+index f340124..5d6201e 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
-@@ -735,29 +735,20 @@ static void fill(NpadState *s, uint32_t id, uint32_t style) {
+@@ -739,29 +739,20 @@ static void fill(NpadState *s, uint32_t id, uint32_t style) {
      if (id == NPAD_HANDHELD) s->attributes |= ATTR_WIRED | ATTR_LEFT_WIRED | ATTR_RIGHT_WIRED;
  }
  // The cheat VM's key mask (hle_cheats.c "all keys of the mask held"): the OR of every player's controller buttons
@@ -1202,10 +1202,10 @@ index 8147ea4..0098806 100644
  
  static void register_gates(module_t *m, const char *dir) {
 diff --git a/dm/host/tests/t_cheats.c b/dm/host/tests/t_cheats.c
-index e52c024..d5a879a 100644
+index 4be180d..155ed33 100644
 --- a/dm/host/tests/t_cheats.c
 +++ b/dm/host/tests/t_cheats.c
-@@ -46,7 +46,7 @@ const char *dm_module_dir(void) { return moddir; }
+@@ -56,7 +56,7 @@ const char *dm_module_dir(void) { return moddir; }
  static int checks, fails;
  #define CHECK(c, s) do { checks++; int ok_ = !!(c); fails += !ok_; printf("%s %s\n", ok_ ? "✓" : "✗", s); } while (0)
  
@@ -1214,7 +1214,7 @@ index e52c024..d5a879a 100644
  static uint8_t *img;     // main's image (page-aligned, so the engine can remap it)
  #define SDK 0x8000       // the second module: text 0x0000-0x0FFF, read-only data 0x1000-0x1FFF, data 0x2000-0x3FFF, key page 0x4000-0x7FFF
  static uint8_t *sdk;
-@@ -121,7 +121,7 @@ int main(void) {
+@@ -131,7 +131,7 @@ int main(int argc, char **argv) {
      sdk = mmap(NULL, SDK, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
      module_t *m = &g_mod[0]; g_nmod = 3;
      snprintf(m->name, sizeof m->name, "main"); m->base = img; m->size = IMG; m->text_end = 0x4000;
@@ -1223,9 +1223,9 @@ index e52c024..d5a879a 100644
      snprintf(m->build_id, sizeof m->build_id, "1111111111111111aaaaaaaaaaaaaaaa");
      module_t *s = &g_mod[1];   // the second module's layout is the fixups header's: the engine writes only from data_off on, never the key page
      snprintf(s->name, sizeof s->name, "sdk"); s->base = sdk; s->size = SDK; s->text_end = 0x1000; s->ro_off = 0x1000; s->data_off = 0x2000;
-@@ -652,11 +652,223 @@ int main(void) {
-     load_all();
-     CHECK(strstr(dm_cheats_report(), "1 cheats over 0x100 words") != NULL, "the report names a cheat over Atmosphère's 0x100 words");
+@@ -707,11 +707,223 @@ int main(int argc, char **argv) {
+     dm_cheat_toggle(at("TickFree", 0));
+     atomic_store(&g_clock_auto, 1);
  
 +    // ---- Zing group markers (single-word 20000000 / 20000001) ----
 +    fresh("zing",
@@ -1445,13 +1445,13 @@ index e52c024..d5a879a 100644
 +          "dm_cheats_teardown frees all dynamic buffers and clears g_main_mod/g_cheat_state");
 +    CHECK(dm_cheat_scan_write(0, 0x4920, DM_SCAN_U32, 1) == -1, "scanner write safely refuses main access after teardown");
  
-     char rmcmd[1100]; snprintf(rmcmd, sizeof rmcmd, "rm -rf '%s'", root);   // the test's cheats folders
-     if (system(rmcmd)) fprintf(stderr, "cannot remove %s\n", root);   // NOLINT(bugprone-command-processor): a fixed rm of the folder mkdtemp made above, no outside input
+     files_drain();
+     if (removefile(root, NULL, REMOVEFILE_RECURSIVE)) perror(root);
 diff --git a/dm/host/tests/t_hid.c b/dm/host/tests/t_hid.c
-index 5961bd9..3a92260 100644
+index cbbe71b..4022364 100644
 --- a/dm/host/tests/t_hid.c
 +++ b/dm/host/tests/t_hid.c
-@@ -2085,6 +2085,42 @@ static void t_joy_hold_type(void) {
+@@ -2147,6 +2147,42 @@ static void t_joy_hold_type(void) {
      h_hid_JoyDual(&(uint32_t){0}); h_hid_HoldType(0); dm_joy_attach(0, 0); dm_pad_players(1); h_hid_SetStyles(0xffffffffu);
  }
  
@@ -1494,7 +1494,7 @@ index 5961bd9..3a92260 100644
  int main(void) {
      CHECK(setenv("DM_RUMBLE_LOG", "1", 1) == 0, "enable rumble diagnostics");
      setenv("DM_IMU_DELAY", "0", 1);   // the tests of the live history read it at the present; t_live_delay checks the playout delay
-@@ -2218,6 +2254,7 @@ int main(void) {
+@@ -2281,6 +2317,7 @@ int main(void) {
      t_bind_gap();
      t_applet_input();
      t_joy_hold_type();
@@ -1503,10 +1503,10 @@ index 5961bd9..3a92260 100644
      return fails != 0;
  }
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index fb87c0b..fd7aef5 100755
+index b0c95bd..3f8d6f4 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
-@@ -173,6 +173,8 @@ echo "OTHER_LDFLAGS = \$(inherited) \$(DM_FRAMEWORKS) $F" >> Gen/dm.xcconfig
+@@ -176,6 +176,8 @@ echo "OTHER_LDFLAGS = \$(inherited) \$(DM_FRAMEWORKS) $F" >> Gen/dm.xcconfig
  # One program's tables into TD: the rewriter's, the shader tables and the launcher's settings
  program_tables() {
  cp "$PATCHED"/*.fixups.tsv "$PATCHED"/*.gates.tsv "$PATCHED"/*.cuts.tsv "$PATCHED"/*.obs.tsv $TD/ || die "copy rewriter tables"
@@ -4131,7 +4131,7 @@ index 0000000..5b9dd85
 +if __name__ == '__main__':
 +    sys.exit(main())
 diff --git a/dm/tools/patch_nso.py b/dm/tools/patch_nso.py
-index 7eb097c..9831f90 100644
+index 37b0588..ad5a725 100644
 --- a/dm/tools/patch_nso.py
 +++ b/dm/tools/patch_nso.py
 @@ -23,7 +23,7 @@ if capstone.cs_version()[0] != 5:   # the rewriter uses Capstone 5's names (CS_A
@@ -4191,7 +4191,7 @@ index 7eb097c..9831f90 100644
      assert not TWO or BACK_OFF - 0x8000000 + 0x100000 == BACK_MIN, 'BACK_MIN and BACK_OFF disagree'
  else:
      KEY_PAGE_OFF = (len(IMG) + 0x3FFF) & ~0x3FFF
-@@ -201,6 +216,20 @@ for off, ob, nb, why in cuts:
+@@ -202,6 +217,20 @@ for off, ob, nb, why in cuts:
  # Key page indices are fixed; the key page content is written by the loader as "actual key number × 8".
  KEYS = {'K18': 508, 'KTLS': 509, 'KTLR': 510, 'KGATE': 511}
  KEY_INDEX = {k: i for i, k in enumerate(('K18', 'KTLS', 'KTLR', 'KGATE'))}
@@ -4212,7 +4212,7 @@ index 7eb097c..9831f90 100644
  
  # ---- Unreal console variables in main (dm/tools/ue_cvar.py finds them by their registered names, without a build ID) ----
  # The fixups table names each one's TAutoConsoleVariable (UE_CVAR:<name>); the host writes those the profile decides on (hle_fpslock.c, hle_uecvar.c)
-@@ -1532,7 +1561,7 @@ if (BUILD_ID in FRAME_STEP or FS_MATCH) and NAME == 'main':
+@@ -1533,7 +1562,7 @@ if (BUILD_ID in FRAME_STEP or FS_MATCH) and NAME == 'main':
      if FAR:
          # The loader supplies zero-filled BSS/key pages for a front patch area.
          # Reserve the frame state after the key page there too; stubs reach it by ADRP.
@@ -4221,7 +4221,7 @@ index 7eb097c..9831f90 100644
      assert FS_STATE_OFF % 0x1000 == 0 and (FAR or FS_STATE_OFF + 0x40 <= PATCH_OFF) and not any(IMG[FS_STATE_OFF:]), 'frame step state page'
  # What frame step and stub code (STUBS below) may write: a site whose original bytes match and that holds no rewrite site, the cuts list (<name>.cuts.tsv) that names it, and
  # data addresses read from the original text
-@@ -1912,6 +1941,52 @@ for g in spin_regions: spin_emit(g)
+@@ -1913,6 +1942,52 @@ for g in spin_regions: spin_emit(g)
  if os.environ.get('DM_SPIN_LIST'):
      for T, bes, n in spin_sites: print(f'{NAME} spin wait {T:#x} ({n} instructions), back-edges ' + ' '.join(f'{b:#x}' for b in bes))
  
@@ -4274,7 +4274,7 @@ index 7eb097c..9831f90 100644
  os.makedirs(outdir, exist_ok=True)
  P = lambda ext: os.path.join(outdir, f'{NAME}.{ext}')
  patch = patch_front
-@@ -1923,7 +1998,7 @@ if FAR:   # patch area before the base: file = text + ro + data (padded to 16K)
+@@ -1924,7 +1999,7 @@ if FAR:   # patch area before the base: file = text + ro + data (padded to 16K)
          os.execve(sys.executable, [sys.executable] + sys.argv, dict(os.environ, DM_PATCH_FRONT=hex(need)))
      assert len(patch) <= FRONT - 0x4000, f'patch area of {len(patch):#x} bytes does not fit in the {FRONT:#x} before the base'
      if TWO:
@@ -4283,7 +4283,7 @@ index 7eb097c..9831f90 100644
          IMAGE_SIZE = BACK_OFF + BACK_LEN
          patch = patch + bytearray(-len(patch) & 0x3FFF) + patch_back + bytearray(BACK_LEN - len(patch_back))
      open(P('patched.bin'), 'wb').write(IMG + bytearray(FILE_IMAGE_LEN - len(IMG)) + patch)
-@@ -1955,13 +2030,15 @@ def movie_native_color_keys():
+@@ -1956,13 +2031,15 @@ def movie_native_color_keys():
      return RO_OFF <= target < DATA_OFF and IMG[target:target + len(key)] == key
  
  with open(os.path.join(outdir, 'build_src.sha256'), 'w') as f:   # the same for every module: the rewriter and every patch file, by path from dm/tools
@@ -5390,10 +5390,10 @@ index fb1793b..0601577 100644
  
  if __name__ == '__main__': unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index ba997e1..a29b5e7 100755
+index 0a7c940..3e66891 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -2040,12 +2040,78 @@ def provisional_modules(g, exe_dir, nros):
+@@ -2103,12 +2103,78 @@ def provisional_modules(g, exe_dir, nros):
      return set_keys(g, {'modules': (' '.join(mods), f'the NROs the game loads at run time import from {why}, which main does not')} if add else {}, 'After the NRO collection', edit=row)
  
  
@@ -5473,7 +5473,7 @@ index ba997e1..a29b5e7 100755
      try: workers = int(env['DM_REWRITE_J']) if env.get('DM_REWRITE_J') else None
      except ValueError: raise BuildError('DM_REWRITE_J must be a positive integer') from None
      if workers is not None and workers < 1: raise BuildError('DM_REWRITE_J must be a positive integer')
-@@ -2058,14 +2124,20 @@ def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
+@@ -2121,14 +2187,20 @@ def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
      src = {m: exe_dir / m for m in mods} | nros
      names = list(src)
      kf = out.with_name(out.name + '.key')
@@ -5498,7 +5498,7 @@ index ba997e1..a29b5e7 100755
      tmp = out.with_name(out.name + '.partial'); rmtree(tmp); tmp.mkdir(parents=True); logs.mkdir(parents=True, exist_ok=True)
      if manifest.is_file(): shutil.copyfile(manifest, tmp / 'nro.tsv')   # refused-only manifests preserve the game's offline registration path too
      PROG.set(step=', '.join(mods) + (f' and {len(nros)} NROs' if nros else ''), done=0, total=len(names), unit='modules')
-@@ -2082,7 +2154,10 @@ def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
+@@ -2145,7 +2217,10 @@ def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
              while todo and len(groups) < cores:
                  m = todo.pop(0); f = open(logs / f'rewrite_{m}.log', 'w')
                  try:
@@ -5510,7 +5510,7 @@ index ba997e1..a29b5e7 100755
                  except BaseException:
                      f.close(); raise
                  groups[m] = (grp, f)
-@@ -2120,14 +2195,16 @@ def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
+@@ -2183,14 +2258,16 @@ def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
      finally:   # an error or an interrupt stops the other rewrite groups
          stop_remaining()
      rmtree(kf); swap_in(tmp, out); kf.write_text(f'{key}\n')
@@ -5529,7 +5529,7 @@ index ba997e1..a29b5e7 100755
      """An NRO its NRR registers and no file holds (nro_collect.py's missing.tsv): the game decodes it at run time, so boot the rewritten modules with DM_NRO_CAPTURE (dm/host/hle_ro.c), which writes the image
      of the first LoadModule the host has no rewritten copy of, by its SHA-256, and ends the run. That image joins the collected NROs, kept for the next build as they are, and the rewrite runs again with it.
      Mario Tennis Fever: main is a boot stub, and the game's code is one NRO in main's data segment. Returns the profile"""
-@@ -2159,7 +2236,8 @@ def capture_nro(py, repo, exe_dir, out, nro_dir, env, logs, g, provisional):
+@@ -2222,7 +2299,8 @@ def capture_nro(py, repo, exe_dir, out, nro_dir, env, logs, g, provisional):
      missing.write_text(''.join(f'{h}\t{n}\n' for h, n in want.items()))
      rmtree(cap); rmtree(rd)
      PROG.end(f'{name}, {(nro_dir / f"{name}.nro").stat().st_size / 2**20:.1f} MB')
@@ -5539,7 +5539,7 @@ index ba997e1..a29b5e7 100755
  
  
  def captured_nros(patched):   # the folder of the NROs of a build that captured some (capture_nro): the shader split reads them, as it reads main, and the file table of Camelot's archive is in one
-@@ -3901,6 +3979,10 @@ def parse_args(argv):
+@@ -4041,6 +4119,10 @@ def parse_args(argv):
      ap.add_argument('--from-seed', nargs='?', const='auto', default=None, metavar='SEED_DIR',
                      help='fast refresh from a persistent build seed without NSPs or prod.keys (uses --title-id in --seed-cache-dir, or pass a seed folder directly)')
      ap.add_argument('--seed-cache-dir', help='folder holding persistent build seeds (default: app support build-seeds)')
@@ -5550,7 +5550,7 @@ index ba997e1..a29b5e7 100755
      ap.add_argument('--prefill-msl', action='append', default=[], metavar='PATH',
                      help='existing .app, .img with a DMMSLTR1 shader trailer, msl folder, or b-<chain>[.img] used for DMSH_PREFILL on shader chain changes (may be given more than once)')
      ap.add_argument('--keep-extracted', action=argparse.BooleanOptionalAction, help='keep the extracted game files after the IPA is built, for the next build (default: the KEEP_EXTRACTED setting, on)')
-@@ -4934,7 +5016,9 @@ def _main(args, cleanup):
+@@ -5082,7 +5164,9 @@ def _main(args, cleanup):
          + (f'; the game\'s languages: {" ".join(have_langs)}' if have_langs else '; the control data lists no languages (not checked)') + (' (DM_LANG=<code> in the run command changes it)' if mac else ' (DM_LANG=<code> in the app\'s Documents/env.txt changes it)'))
  
      patched = work / f'patched_{pkg_ver}'

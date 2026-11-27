@@ -7,40 +7,40 @@ Upstream-Status: forwarded seedds/nxnative#955 (on #386, patch 0009)
 Reason: the iOS host ignores DM_PAD_MAP, so the shell's button mapping (global and per game) never reaches physical controllers. The Mac host applies it already
 Issue: LNPANDY/NX2Apple#494
 ---
- dm/ios/Sources/DmGamepad.m | 6 ++++++
- 1 file changed, 6 insertions(+)
+ dm/ios/Sources/DmGamepad.m | 7 +++++++
+ 1 file changed, 7 insertions(+)
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 55a9fe2..91ceee8 100644
+index 0cbb947..40e83b2 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
-@@ -29,6 +29,7 @@
- #include "pad_apple.h"
+@@ -30,6 +30,7 @@
  #include "pad_slots.h"
  #include "ctrl_prompt.h"
+ #include "pad_switch2_apple.h"
 +#include "input_map.h"
  #include <stdatomic.h>
  #import "DmLayout.h"
  #import "DmGameMenu.h"
-@@ -565,6 +566,7 @@ - (void)refresh {   // pressed state → fill, sticks → knob position
+@@ -566,6 +567,7 @@ - (void)refresh {   // pressed state → fill, sticks → knob position
  static pad_slots g_slots;
  static GCController *g_held[DM_PLAYERS];   // the controller of each slot, kept alive while it holds it (the slot table keys on its pointer)
  static int g_merge, g_press_to_join;
 +static pad_map g_padmap;   // DM_PAD_MAP affects physical controllers only
  static int32_t axis(float v) { return (int32_t)(fmaxf(-1.f, fminf(1.f, v)) * 32767); }
  static const char *pad_name(GCController *c);
- static void npad_name(int p, char *out, size_t cap);
-@@ -580,6 +582,7 @@ static void pad_report(GCController *c, uint64_t m, float lx, float ly, float rx
-     }
+ static void pad_lights(GCController *c, int p);
+@@ -587,6 +589,7 @@ static void pad_report(GCController *c, uint64_t m, float lx, float ly, float rx
      if (cp_poll()) return;   // the controller applet's prompt has the controllers (front_ctrl_support)
+     if (g_merge_s2_rumble && m) merge_rumble_to_s2(0);   // DM_PAD_MERGE: a button on this controller takes player 1's rumble back from a Switch 2 pad
      dm_haptics_apple_controller(p, c);
 +    m = pad_map_apply(&g_padmap, m);
      dm_pad_set_player(p, m, axis(lx), axis(ly), axis(rx), axis(ry));
  }
  // iOS presents a lone Joy-Con sideways through live input, with no extended gamepad (#2971).
-@@ -655,6 +658,9 @@ static void pad_unlisten(GCController *c) {
- static const char *pad_name(GCController *c) { return c.vendorName.UTF8String ?: "?"; }
- static void npad_name(int p, char *out, size_t cap) { uint32_t id = dm_player_npad(p); if (id == 0x20) snprintf(out, cap, "handheld"); else snprintf(out, cap, "%u", id); }
+@@ -671,6 +674,9 @@ static void pad_lights(GCController *c, int p) {
+ static const dm_switch2_front g_s2front;
+ static int g_s2_off;   // the app is in the background or resigning: no Switch 2 input reaches the game
  static void pads_start(void) {
 +    pad_map_default(&g_padmap);
 +    const char *pm = getenv("DM_PAD_MAP");
@@ -48,3 +48,11 @@ index 55a9fe2..91ceee8 100644
      const char *e = getenv("DM_PAD_MERGE"); g_merge = e && atoi(e);
      e = getenv("DM_PAD_PRESS_TO_JOIN"); g_press_to_join = !g_merge && e && atoi(e);
      LOG("front end: %s", g_merge ? "every controller is player 1 (DM_PAD_MERGE)" : "each controller is a player of its own, the touch gamepad plays with player 1");
+@@ -877,6 +883,7 @@ static void s2pad_read(s2_pad *d) {
+     }
+     if (cp_poll()) return;   // the controller applet's prompt has the controllers (front_ctrl_support)
+     if (m) merge_rumble_to_s2(1);
++    m = pad_map_apply(&g_padmap, m);
+     if (g_merge) dm_pad_set(m, st[0], st[1], st[2], st[3]); else dm_pad_set_player(p, m, st[0], st[1], st[2], st[3]);
+ }
+ static int s2pad_attach(s2_pad *d) {   // 1: kept (a player, or waiting for its first button press); 0: no free player (pad_switch2_apple.h)

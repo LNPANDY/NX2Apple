@@ -12,14 +12,13 @@ Upstream-Status: forwarded seedds/nxnative#2003
 Reason: Fade out the in-game menu gear after 3 idle seconds while a physical controller is connected on the device screen to prevent visual distraction and OLED burn-in, and wake it for 3 seconds on any screen touch.
 Issue: LNPANDY/NX2Apple#809
 ---
- dm/ios/Sources/DmGamepad.m                 |  61 ++++++++++-
- dm/ios/tests/duo/Sources/DuoRuntimeStubs.m |   1 +
- dm/ios/tests/duo/Tests/DuoHarnessTests.m   | 112 ++++++++++++++++++++-
- docs/settings.md                           |   2 +-
- 4 files changed, 168 insertions(+), 8 deletions(-)
+ dm/ios/Sources/DmGamepad.m               |  61 +++++++++++-
+ dm/ios/tests/duo/Tests/DuoHarnessTests.m | 112 ++++++++++++++++++++++-
+ docs/settings.md                         |   2 +-
+ 3 files changed, 167 insertions(+), 8 deletions(-)
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index d2ac6e8..cc60b1a 100644
+index 3cb2870..1cf370f 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -1,6 +1,6 @@
@@ -30,7 +29,7 @@ index d2ac6e8..cc60b1a 100644
  //     (a prompt, front_ios.m), and so does holding a controller's Home button for 2 seconds.
  //   Tap (touch): no control but the menu button, every other touch goes to the game's local touch viewport; offered only while the game is in handheld mode, the only one in which it reads the touch screen (Balatro, played by touch).
  //   2D (simple): top corners ZL above L (one column), ZR above R likewise, teardrops with the tip toward the screen corner; − and + side by side at the top centre; the left stick in the bottom-left corner (fixed ring, tilt measured from the ring centre, small dead zone);
-@@ -124,7 +124,8 @@ static void phone_motion_start(UIView *body) {
+@@ -125,7 +125,8 @@ static void phone_motion_start(UIView *body) {
      K_FULL = 0.8,                                   // full tilt at this fraction of the ring radius (the knob still travels to the ring edge)
      K_DEAD = 0.1,                                   // stick dead zone (times the ring radius)
      K_RSTICK_R = 60,                                // right stick (not drawn): radius around its centre, the touch-down point
@@ -40,7 +39,7 @@ index d2ac6e8..cc60b1a 100644
  static const int k_btns[] = {B_ZL, B_L, B_ZR, B_R, B_MINUS, B_PLUS, B_LS, B_RS};   // keys locked at touch-down (L3 / R3 only in the 3D layout)
  static NSString *const k_layout_key = @"DmPadLayout";   // NSUserDefaults: 0 = 2D, 1 = 3D, 2 = Tap (DM_GAME_PAD_LAYOUT's numbers)
  static NSString *const k_layout_split_key = @"DmPadLayoutSplit";   // NSUserDefaults for portrait/split orientation
-@@ -144,6 +145,11 @@ static int parse_pad_layout_mode(const char *_Nullable v) {
+@@ -145,6 +146,11 @@ static int parse_pad_layout_mode(const char *_Nullable v) {
  @interface DmGamepad : UIView
  - (void)arrange:(DmLayout)layout;
  - (BOOL)menuTakes:(CGPoint)p;
@@ -52,7 +51,7 @@ index d2ac6e8..cc60b1a 100644
  @end
  // The menu button: a UIButton whose menu is the in-game menu (UIKit draws it and takes the touches while it is open). Its hit circle is larger than the drawn one, and a key nearer
  // to the touch wins (− / + sit beside it), so it asks the pad
-@@ -151,6 +157,13 @@ @interface DmMenuButton : UIButton
+@@ -152,6 +158,13 @@ @interface DmMenuButton : UIButton
  @end
  @implementation DmMenuButton
  - (BOOL)pointInside:(CGPoint)p withEvent:(UIEvent *)e { DmGamepad *pad = (DmGamepad *)self.superview; return [pad menuTakes:[self convertPoint:p toView:pad]]; }
@@ -66,7 +65,7 @@ index d2ac6e8..cc60b1a 100644
  @end
  static __weak DmGamepad *g_view;
  static void pads_start(void);   // Physical controllers, below
-@@ -165,6 +178,8 @@ @implementation DmGamepad {
+@@ -166,6 +179,8 @@ @implementation DmGamepad {
      CAShapeLayer *_ring, *_knob;                   // the left stick (the right one is not drawn)
      CALayer *_hint; CATextLayer *_hintText; NSString *_hintWords;   // the 3D layout's right-stick hint: words only, once per launch (see "The right-stick hint")
      DmMenuButton *_menu;                           // opens the in-game menu (GameMenu.swift)
@@ -75,7 +74,7 @@ index d2ac6e8..cc60b1a 100644
      UIImpactFeedbackGenerator *_touchFeedback;       // one short feedback per touch-control press edge
      unsigned _hapticSticks;
      BOOL _stickShown;                              // the left stick was held at the last refresh
-@@ -265,6 +280,7 @@ - (instancetype)initWithFrame:(CGRect)f {
+@@ -266,6 +281,7 @@ - (instancetype)initWithFrame:(CGRect)f {
          NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
          [nc addObserver:self selector:@selector(padsChanged:) name:GCControllerDidConnectNotification object:nil];
          [nc addObserver:self selector:@selector(padsChanged:) name:GCControllerDidDisconnectNotification object:nil];
@@ -83,7 +82,7 @@ index d2ac6e8..cc60b1a 100644
          pads_start();
          [self padsChanged:nil];
          motion_start();
-@@ -446,11 +462,19 @@ - (BOOL)controlAt:(CGPoint)p {
+@@ -447,11 +463,19 @@ - (BOOL)controlAt:(CGPoint)p {
      if (dm_pad_hit(self.geo, _full, _layout.separated, _tap, !_stick[0], p).kind != DM_PAD_HIT_NONE) return YES;   // the geometry touchesBegan hits with (DmPadGeometry.h)
      return _full && !_stick[1] && [self inRightArea:p];
  }
@@ -104,9 +103,9 @@ index d2ac6e8..cc60b1a 100644
      BOOL game = NO;
      for (UITouch *t in ts) {
          if (_padOff) { game |= [self gameBegin:t]; continue; }
-@@ -765,9 +789,38 @@ static BOOL pads_slotted(GCController *gone) {
-     dispatch_async(dispatch_get_main_queue(), ^{ cp_poll(); });   // a controller came or went while the controller applet's prompt is up
-     return waiting || pad_slot_mask(&g_slots) != 0;   // a controller waiting for its first press hides the touch gamepad too
+@@ -809,9 +833,38 @@ static void pads_reread(void) {
+     else for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p]) read_pad(g_held[p]);
+     for (s2_pad *d = dm_switch2_pads(); d; d = d->next) s2pad_read(d);
  }
 +- (void)wakeMenu {
 +    unsigned gen = ++_menuGen;
@@ -144,23 +143,11 @@ index d2ac6e8..cc60b1a 100644
  }
  - (void)padsChanged:(NSNotification *)note {
      GCController *c = note.object, *gone = [note.name isEqual:GCControllerDidDisconnectNotification] ? c : nil;
-diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-index 49a9c9a..6b9ab99 100644
---- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-+++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-@@ -94,6 +94,7 @@ void dm_motion_clear(int player) {
- }
- 
- uint32_t dm_player_npad(int player) { return player == 0 ? 0x20 : (uint32_t)player; }
-+int dm_players_reported(void) { return __builtin_popcount(duo_harness_state().connected_players); }
- 
- static int g_opmode;   // handheld, until a test or the in-game menu docks it
- int dm_opmode(void) { return g_opmode; }
 diff --git a/dm/ios/tests/duo/Tests/DuoHarnessTests.m b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
-index 77163f8..92c4025 100644
+index 06630c8..dc8b3c2 100644
 --- a/dm/ios/tests/duo/Tests/DuoHarnessTests.m
 +++ b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
-@@ -113,6 +113,13 @@ - (GCExtendedGamepad *)extendedGamepad { return nil; }
+@@ -115,6 +115,13 @@ - (GCExtendedGamepad *)extendedGamepad { return nil; }
  - (GCMotion *)motion { return nil; }
  @end
  
@@ -174,7 +161,7 @@ index 77163f8..92c4025 100644
  #if DUO_HARNESS_HAS_NATIVE_POSE_API
  @interface DuoFakeHinge : NSObject
  @property (nonatomic) NSInteger status;
-@@ -169,6 +176,35 @@ static Class DuoHarnessInstallReservedRegionProbe(UIView *view) API_AVAILABLE(io
+@@ -171,6 +178,35 @@ static Class DuoHarnessInstallReservedRegionProbe(UIView *view) API_AVAILABLE(io
  
  #endif
  
@@ -210,7 +197,7 @@ index 77163f8..92c4025 100644
  @interface DuoHarnessTests : XCTestCase
  @property (nonatomic, strong) id savedLayout;
  @property (nonatomic) BOOL controllerListOverridden;
-@@ -1346,7 +1382,8 @@ - (void)testMenuButtonFollowsTheGameViewAndTheController {
+@@ -1350,7 +1386,8 @@ - (void)testMenuButtonFollowsTheGameViewAndTheController {
      GCController *controller = [GCController controllerWithExtendedGamepad];
      @try {
          // The TV scene moves the same game view into its own view hierarchy.
@@ -220,7 +207,7 @@ index 77163f8..92c4025 100644
          XCTAssertEqual([pad hitTest:menu.center withEvent:nil], menu, @"A touch-only player still has the menu on TV");
          [self setHarnessControllers:@[controller] notification:GCControllerDidConnectNotification];
          [self waitForView:menu hidden:YES];
-@@ -1354,10 +1391,79 @@ - (void)testMenuButtonFollowsTheGameViewAndTheController {
+@@ -1358,10 +1395,79 @@ - (void)testMenuButtonFollowsTheGameViewAndTheController {
          [self deliverSnapshotChangeFor:controller button:controller.extendedGamepad.buttonB value:1];
          XCTAssertEqual(duo_harness_state().players[0].buttons, DM_BTN_A);
  
@@ -303,10 +290,10 @@ index 77163f8..92c4025 100644
          [self setHarnessControllers:@[] notification:GCControllerDidDisconnectNotification];
          [self waitForView:menu hidden:NO];
 diff --git a/docs/settings.md b/docs/settings.md
-index eb83514..9d8365b 100644
+index a14b367..7ea0dcd 100644
 --- a/docs/settings.md
 +++ b/docs/settings.md
-@@ -264,7 +264,7 @@ iCloud Drive takes a moment to carry a file from one device to the other. Quit t
+@@ -268,7 +268,7 @@ Each time the game starts, with or without cloud saves, the save it starts from
  
  ## In-game menu
  

@@ -24,7 +24,7 @@ Issue: LNPANDY/NX2Apple#451
  create mode 100644 dm/host/host_image.h
 
 diff --git a/dm/gfx/gl/hle_gl.m b/dm/gfx/gl/hle_gl.m
-index 76ac207..cc747ca 100644
+index a54d1eb..0bbed0b 100644
 --- a/dm/gfx/gl/hle_gl.m
 +++ b/dm/gfx/gl/hle_gl.m
 @@ -26,8 +26,7 @@
@@ -37,7 +37,7 @@ index 76ac207..cc747ca 100644
  #include <math.h>
  #include <stdatomic.h>
  #include <time.h>
-@@ -3824,7 +3823,7 @@ static void renderprogs_job(void) {
+@@ -4352,7 +4351,7 @@ static void renderprogs_job(void) {
  // glVertexAttribPointerNV takes other arguments than glVertexAttribPointer, glGetProgramivARB asks about an ARB assembly program
  static void *gl_entry(const char *name) {
      static const hle_ent *sec; static unsigned long sz;
@@ -47,7 +47,7 @@ index 76ac207..cc747ca 100644
      return NULL;
  }
 diff --git a/dm/gfx/nvn/hle_nvn.c b/dm/gfx/nvn/hle_nvn.c
-index c59c0e2..08da6bc 100644
+index 0e53653..8c8e8e9 100644
 --- a/dm/gfx/nvn/hle_nvn.c
 +++ b/dm/gfx/nvn/hle_nvn.c
 @@ -41,8 +41,7 @@
@@ -70,10 +70,10 @@ index c59c0e2..08da6bc 100644
      for (unsigned i = 0; i < NVN_NFUNC; i++) nvn_slot[i].fn = (void *)nvn_unimpl_entry;
      for (unsigned k = 0; k < nim; k++) {
 diff --git a/dm/gfx/tests/t_gl_imports.m b/dm/gfx/tests/t_gl_imports.m
-index 33817e1..fc87655 100644
+index 94b0315..d2e4ec7 100644
 --- a/dm/gfx/tests/t_gl_imports.m
 +++ b/dm/gfx/tests/t_gl_imports.m
-@@ -1500,7 +1500,7 @@ int main(int argc, char **argv) {
+@@ -1935,7 +1935,7 @@ int main(int argc, char **argv) {
      if (fixture) test_argument_buffers(fixture);
  
      unsigned long sz;
@@ -96,7 +96,7 @@ index 17521a0..47820d2 100644
      *count = bytes / size; return p;
  }
 diff --git a/dm/gfx/vk/hle_vk.m b/dm/gfx/vk/hle_vk.m
-index 1370267..f09911a 100644
+index 8859a8e..70fb66b 100644
 --- a/dm/gfx/vk/hle_vk.m
 +++ b/dm/gfx/vk/hle_vk.m
 @@ -25,8 +25,7 @@
@@ -109,7 +109,7 @@ index 1370267..f09911a 100644
  #include <math.h>
  #include <stdatomic.h>
  #include <time.h>
-@@ -2952,7 +2951,7 @@ static void frame_end(void) {
+@@ -3163,7 +3162,7 @@ static void frame_end(void) {
  static void *vk_lookup(const char *name) {
      static const hle_ent *sec; static unsigned long sz;
      if (!name || strncmp(name, "vk", 2)) return NULL;
@@ -163,7 +163,7 @@ index fcfb4b2..9643caa 100644
      vm_address_t a = (vm_address_t)at; vm_prot_t cur = 0, max = 0;
      if (vm_remap(mach_task_self(), &a, g_img_size, 0, VM_FLAGS_FIXED | VM_FLAGS_OVERWRITE, mach_task_self(), (vm_address_t)sec, FALSE, &cur, &max, VM_INHERIT_NONE) != KERN_SUCCESS || a != (vm_address_t)at || !(cur & VM_PROT_EXECUTE))
 diff --git a/dm/host/hle_sf.c b/dm/host/hle_sf.c
-index 5470a99..10dbf91 100644
+index 6e76fef..0453fb9 100644
 --- a/dm/host/hle_sf.c
 +++ b/dm/host/hle_sf.c
 @@ -9,8 +9,7 @@
@@ -174,9 +174,9 @@ index 5470a99..10dbf91 100644
 -#include <mach-o/ldsyms.h>
 +#include "host_image.h"
  #include <pthread.h>
+ #include <stdatomic.h>
  
- #define SF_H0 0xd0000u   // session handles: outside the kernel handle table (0x1000 + slot, 4096 slots, hle_thread.c)
-@@ -29,7 +28,7 @@ static const struct { const char *name; sf_answer answer; } sf_served[] = {
+@@ -39,7 +38,7 @@ static const struct { const char *name; sf_answer answer; } sf_served[] = {
  };
  // The services other files serve (SF_SERVICE, hle.h): audren:u (hle_audren_sv.c)
  static const sf_service_ent *sf_registered(unsigned long *n) {

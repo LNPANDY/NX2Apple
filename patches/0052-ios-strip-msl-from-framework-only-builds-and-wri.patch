@@ -13,7 +13,7 @@ Issue: LNPANDY/NX2Apple
  2 files changed, 229 insertions(+), 29 deletions(-)
 
 diff --git a/dm/ios/tests/test_framework_build.py b/dm/ios/tests/test_framework_build.py
-index e86c3e9..da83230 100644
+index c31a282..8d1d8ff 100644
 --- a/dm/ios/tests/test_framework_build.py
 +++ b/dm/ios/tests/test_framework_build.py
 @@ -7,19 +7,22 @@ Four parts, each on synthetic inputs, no game files or Xcode:
@@ -88,7 +88,7 @@ index e86c3e9..da83230 100644
 +                    (root / rel).mkdir(parents=True, exist_ok=True)
 +                for stub in ('Gen/dm.xcconfig', 'Gen/framework.xcconfig', 'Gen/embed.S', 'Gen/main/main.c',
 +                             'framework/DmGameMarker.m', 'framework/ShellGlue.m', 'Sources/front_ios.m', 'Sources/DmGamepad.m',
-+                             'Sources/GameMenu.swift', 'Sources/GameMenuCheats.swift', 'Sources/LauncherSettings.swift', 'Sources/CloudSaves.m',
++                             'Sources/GameMenu.swift', 'Sources/GameMenuCheats.swift', 'Sources/LauncherSettings.swift', 'Sources/PrewarmUpload.swift', 'Sources/CloudSaves.m',
 +                             'Sources/DataBookmark.m', 'Gen/framework/profile.tsv',
 +                             'Gen/framework/game.manifest.json', 'Gen/framework/objc_namespace.h', 'Gen/framework/exported_symbols.txt'):
 +                    (root / stub).write_text('')
@@ -235,10 +235,10 @@ index e86c3e9..da83230 100644
  
  if __name__ == '__main__':
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index a7e3cc5..daf3ddc 100755
+index f49348f..5eece46 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
-@@ -297,8 +297,9 @@ if [ "$PREPARE_XCODE" = YES ]; then
+@@ -310,8 +310,9 @@ if [ "$PREPARE_XCODE" = YES ]; then
  fi
  
  # DM_FRAMEWORK_ONLY: the framework target alone, unsigned (build_shell.sh's project embeds it and Xcode signs it with the shell), then the
@@ -250,7 +250,7 @@ index a7e3cc5..daf3ddc 100755
  if [ -n "$FRAMEWORK_ONLY" ]; then
    t "xcodebuild (Release, unsigned, the game framework $FW_NAME with its own host)"
    mkdir -p "$O" "$FRAMEWORK_ONLY" || die "mkdir $FRAMEWORK_ONLY"
-@@ -311,20 +312,95 @@ if [ -n "$FRAMEWORK_ONLY" ]; then
+@@ -324,20 +325,95 @@ if [ -n "$FRAMEWORK_ONLY" ]; then
    [ -f "$BUILT/$FW_NAME" ] || die "no built framework $BUILT"
    OUTFW=$FRAMEWORK_ONLY/$FW_NAME.framework; mkdir -p "$OUTFW"
    t "copying resources into $FW_NAME.framework"
@@ -357,6 +357,3 @@ index a7e3cc5..daf3ddc 100755
    "${DM_PYTHON:-python3}" -c 'import json, sys; m = json.load(open(sys.argv[1])); sys.exit(m["framework_executable"] != sys.argv[2])' "$OUTFW/game.manifest.json" "$FW_NAME" \
      || die "$OUTFW/game.manifest.json does not name $FW_NAME"
    t "done: $OUTFW ($(du -sh "$OUTFW" | cut -f1); build_shell.sh embeds it in the shell)"
--- 
-2.54.0 (Apple Git-157)
-

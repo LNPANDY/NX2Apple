@@ -3638,10 +3638,10 @@ index 0000000..6fd2928
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 451428d..ba997e1 100755
+index edc2bac..0a7c940 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -4138,13 +4138,15 @@ def profile_derivation_reason(g, pkg_ver, have, alias=None, app=None):
+@@ -4278,13 +4278,15 @@ def profile_derivation_reason(g, pkg_ver, have, alias=None, app=None):
  
  def report_profile_status(g, reg, pkg_ver, derived, provisional, artifact='IPA', patched=None):
      """Keep build-specific warnings visible for the IPA, the Xcode project and a Mac-only build"""
@@ -3661,7 +3661,7 @@ index 451428d..ba997e1 100755
              say(f'this {artifact} uses the registered {pkg_ver} ({disp}) builds and every fix for them, with derived shader tables ({derived})')
          elif g.title_id != reg.title_id and not other and pkg_ver in reg.builds():   # a registered build under another title ID (same_build): every fix applies
              say(f'this {artifact} is game profile {reg.id}\'s {pkg_ver} ({disp}) under title ID {g.title_id:016X}: its settings and every fix for its builds, with shaders split from this title\'s own files')
-@@ -4313,6 +4315,19 @@ def _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_na
+@@ -4453,6 +4455,19 @@ def _persist_build_seed(seed_root, app, g, provisional, derived, pkg_ver, app_na
              control_path=ctrl_p,
              icon_path=icon_p,
          )
@@ -3681,7 +3681,7 @@ index 451428d..ba997e1 100755
      except (OSError, ValueError, TypeError) as e:
          say(f'[RED] build seed cache skipped: {e}')
  
-@@ -4439,16 +4454,43 @@ def _prepare_from_seed(args, from_seed_arg, seed_root, prefill_msl, gamemod, env
+@@ -4579,16 +4594,43 @@ def _prepare_from_seed(args, from_seed_arg, seed_root, prefill_msl, gamemod, env
      own = own_profile_folders(args, nsp_dir, app)
      repo_g = gamemod.by_title(app, own)
      staged_prof = staged.get('profile_dir')

@@ -13,7 +13,7 @@ Issue: LNPANDY/NX2Apple#123
  2 files changed, 171 insertions(+)
 
 diff --git a/dm/mac/launcher.c b/dm/mac/launcher.c
-index fb1f35a..9b3781b 100644
+index 125390e..49fe405 100644
 --- a/dm/mac/launcher.c
 +++ b/dm/mac/launcher.c
 @@ -23,7 +23,9 @@
@@ -26,7 +26,7 @@ index fb1f35a..9b3781b 100644
  #include <sys/wait.h>
  #include <unistd.h>
  #include "romfs_image.h"
-@@ -80,6 +82,58 @@ static void mkdirs(const char *path) {   // mkdir -p
+@@ -82,6 +84,58 @@ static void mkdirs(const char *path) {   // mkdir -p
      mkdir(p, 0755);
  }
  
@@ -85,7 +85,7 @@ index fb1f35a..9b3781b 100644
  static void env_file(const char *path) {   // KEY=VALUE lines, # starts a comment; a variable already set stays
      FILE *f = fopen(path, "r"); if (!f) return;
      char ln[4096];
-@@ -224,17 +278,90 @@ int main(int argc, char **argv) {
+@@ -185,17 +239,90 @@ int main(int argc, char **argv) {
          return 1;
      }
      const char *home = getenv("HOME"); if (!home || !*home) return 1;
@@ -173,14 +173,14 @@ index fb1f35a..9b3781b 100644
      fprintf(stderr, "fork patches: %s\n", *fork_patches ? fork_patches : "none");   // first line of the log (Info.plist DMForkPatches)
      fprintf(stderr, "launcher: %s (%s), host %s\n", name, id, host);
 +    if (*library_not_apfs) fprintf(stderr, "[RED] launcher: the game library %s is not on an APFS volume, which saves need: saves stay in %s\n", library_not_apfs, save);
-     CFArrayRef rules = setting_rules();   // the settings the launch environment already set: the window shows them, fixed
-     for (CFIndex i = 0; rules && i < CFArrayGetCount(rules); i++) { char env[128]; if (rule_env(CFArrayGetValueAtIndex(rules, i), env, sizeof env) && getenv(env)) add_key(&g_launch_keys, env); }
-     for (const char **key=(const char *[]){"DM_KEYMAP","DM_PAD_MAP",NULL}; *key; key++) if(getenv(*key)) add_key(&g_launch_keys,*key);
+     dm_mac_record_launch_keys();   // the settings the launch environment already set: fixed across env files and launcher defaults
+     const char *prev_launch = getenv("DM_ENV_LAUNCH_KEYS");
+     char *launch_keys = prev_launch && *prev_launch ? strdup(prev_launch) : NULL;
 diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
-index 54d7720..32d9963 100644
+index a5e7716..25561c5 100644
 --- a/dm/tools/tests/test_nsp_mac_app.py
 +++ b/dm/tools/tests/test_nsp_mac_app.py
-@@ -1060,6 +1060,50 @@ int main(void) { @autoreleasepool {
+@@ -1082,6 +1082,50 @@ int main(void) { @autoreleasepool {
          shutil.rmtree(self.tmp / 'seen-shader', ignore_errors=True)   # not from the last build's own list
          self.assertEqual(keys(), [key, 'b' * 16])
  
