@@ -36,6 +36,9 @@ extension GameLibrary {
             }
         }
         game.lastTarget = BuildTarget.ios
+        if let bid = CheatFiles.buildID(appPath: "", iosAppPath: app, titleID: game.titleID) {
+            game.lastBuildID = bid
+        }
         upsert(game)
         if appExists && !device.isEmpty {
             recordSharedAppInstalled(app: app, device: device)

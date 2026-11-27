@@ -42,6 +42,7 @@ struct LibraryGame: Codable, Identifiable, Equatable {
     var macBuilds: [String: LibraryMacBuild] = [:]
     var ipaBuilds: [String: String] = [:]
     var preferredMacUpstream: String? = nil
+    var lastBuildID = ""
 
     /// An empty path means there is no Mac build. It is not read, because URL(fileURLWithPath:) would make it the current folder.
     /// Reads the bundle on every call: a caller that needs both `isReady` and `playVersion` reads it once here.
@@ -113,6 +114,7 @@ extension LibraryGame {
         macBuilds = (try? c.decodeIfPresent([String: LibraryMacBuild].self, forKey: .macBuilds)) ?? [:]
         ipaBuilds = (try? c.decodeIfPresent([String: String].self, forKey: .ipaBuilds)) ?? [:]
         preferredMacUpstream = try c.decodeIfPresent(String.self, forKey: .preferredMacUpstream)
+        lastBuildID = Self.normalizedBuildID(try c.decodeIfPresent(String.self, forKey: .lastBuildID))
     }
 }
 
@@ -618,6 +620,7 @@ final class GameLibrary: ObservableObject {
         game.name = app.name
         if !app.titleNames.isEmpty { game.titleNames = app.titleNames }
         game.macBuilds[upstream.rawValue] = LibraryMacBuild(upstream: upstream, appPath: path, toolsCommit: commit, lastUpdated: Date())
+        if let bid = CheatFiles.buildID(appPath: path, iosAppPath: "", titleID: app.titleID) { game.lastBuildID = bid }
         if !isFastRefresh {
             if let preferenceDefaults {
                 DefaultBuildPreference.set(upstream, titleID: app.titleID, defaults: preferenceDefaults)

@@ -70,6 +70,125 @@ import NXModel
         XCTAssertEqual(CheatFiles.buildID(appPath: "", iosAppPath: inApp.path, titleID: tid), "1111111111111111", "the framework inside the app")
     }
 
+    private func makeNSOHeader(magic: String = "NSO0", buildIDBytes: [UInt8], totalSize: Int = 0x80) -> Data {
+        var data = Data(repeating: 0, count: totalSize)
+        let magicBytes = Array(magic.utf8)
+        for i in 0..<min(4, data.count) where i < magicBytes.count {
+            data[i] = magicBytes[i]
+        }
+        if totalSize >= 0x48 {
+            for i in 0..<min(8, buildIDBytes.count) {
+                data[0x40 + i] = buildIDBytes[i]
+            }
+        }
+        return data
+    }
+
+    func testNSOBuildIDReadsHeaderAndRejectsInvalidInputs() throws {
+        let validURL = temporary.appendingPathComponent("main-valid")
+        try makeNSOHeader(buildIDBytes: [0xCD, 0x57, 0xB2, 0x3F, 0xA4, 0xBB, 0xAD, 0x65]).write(to: validURL)
+        XCTAssertEqual(CheatFiles.nsoBuildID(atPath: validURL.path), "CD57B23FA4BBAD65")
+
+        let badMagicURL = temporary.appendingPathComponent("main-bad-magic")
+        try makeNSOHeader(magic: "NSO1", buildIDBytes: [0xCD, 0x57, 0xB2, 0x3F, 0xA4, 0xBB, 0xAD, 0x65]).write(to: badMagicURL)
+        XCTAssertNil(CheatFiles.nsoBuildID(atPath: badMagicURL.path))
+
+        let truncatedURL = temporary.appendingPathComponent("main-truncated")
+        try makeNSOHeader(buildIDBytes: [0xCD, 0x57, 0xB2, 0x3F, 0xA4, 0xBB, 0xAD, 0x65], totalSize: 0x47).write(to: truncatedURL)
+        XCTAssertNil(CheatFiles.nsoBuildID(atPath: truncatedURL.path))
+
+        let emptyURL = temporary.appendingPathComponent("main-empty")
+        try Data().write(to: emptyURL)
+        XCTAssertNil(CheatFiles.nsoBuildID(atPath: emptyURL.path))
+        XCTAssertNil(CheatFiles.nsoBuildID(atPath: temporary.appendingPathComponent("missing").path))
+    }
+
+    func testSeedBuildIDVerifiesSeedJSONTitleID() throws {
+        let seedRoot = temporary.appendingPathComponent("build-seeds")
+        let seedDir = seedRoot.appendingPathComponent(titleID)
+        let mainURL = seedDir.appendingPathComponent("ExeFS/main")
+        try fm.createDirectory(at: mainURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try makeNSOHeader(buildIDBytes: [0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89]).write(to: mainURL)
+
+        XCTAssertEqual(CheatFiles.seedBuildID(titleID: titleID.lowercased(), seedRoot: seedRoot.path), "ABCDEF0123456789")
+
+        try write(#"{"schema":1,"title_id":"010015100b514000"}"#, "seed.json", under: seedDir)
+        XCTAssertEqual(CheatFiles.seedBuildID(titleID: titleID, seedRoot: seedRoot.path), "ABCDEF0123456789")
+
+        try write(#"{"schema":1,"title_id":"0100999999999000"}"#, "seed.json", under: seedDir)
+        XCTAssertNil(CheatFiles.seedBuildID(titleID: titleID, seedRoot: seedRoot.path), "mismatched seed.json title_id must be rejected")
+
+        try write("{corrupt", "seed.json", under: seedDir)
+        XCTAssertNil(CheatFiles.seedBuildID(titleID: titleID, seedRoot: seedRoot.path), "corrupt seed.json must be rejected")
+    }
+
+    func testBuildIDFourLevelPriorityChainAndPersistedFallback() throws {
+        let mac = temporary.appendingPathComponent("Priority.app")
+        let ios = temporary.appendingPathComponent("PriorityIOS.app")
+        let seedRoot = temporary.appendingPathComponent("seeds")
+        let seedMain = seedRoot.appendingPathComponent("\(titleID)/ExeFS/main")
+        try fm.createDirectory(at: seedMain.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try makeNSOHeader(buildIDBytes: [0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33]).write(to: seedMain)
+        try write("# BUILD_ID\t2222222222222222bbbbbbbbbbbbbbbb\n", "dm/cheat_trampolines.tsv", under: ios)
+        try write("# BUILD_ID\t1111111111111111aaaaaaaaaaaaaaaa\n", "Contents/Resources/dm/main.fixups.tsv", under: mac)
+
+        let persisted = "4444444444444444"
+        XCTAssertEqual(
+            CheatFiles.buildID(appPath: mac.path, iosAppPath: ios.path, titleID: titleID, seedRoot: seedRoot.path, persistedBuildID: persisted),
+            "1111111111111111"
+        )
+        XCTAssertEqual(
+            CheatFiles.buildID(appPath: "", iosAppPath: ios.path, titleID: titleID, seedRoot: seedRoot.path, persistedBuildID: persisted),
+            "2222222222222222"
+        )
+        XCTAssertEqual(
+            CheatFiles.buildID(appPath: "", iosAppPath: "", titleID: titleID, seedRoot: seedRoot.path, persistedBuildID: persisted),
+            "3333333333333333"
+        )
+        XCTAssertEqual(
+            CheatFiles.buildID(appPath: "", iosAppPath: "", titleID: titleID, seedRoot: "", persistedBuildID: "  4444444444444444deadbeef  "),
+            "4444444444444444"
+        )
+        XCTAssertNil(CheatFiles.buildID(appPath: "", iosAppPath: "", titleID: titleID, seedRoot: "", persistedBuildID: "short"))
+        XCTAssertEqual(LibraryGame.normalizedBuildID("  cd57b23fa4bbad65extra  "), "CD57B23FA4BBAD65")
+        XCTAssertEqual(LibraryGame.normalizedBuildID("zzzzzzzzzzzzzzzz"), "")
+        XCTAssertEqual(LibraryGame.normalizedBuildID("cd57"), "")
+    }
+
+    func testLibraryGameLastBuildIDBackwardCompatibleDecodeAndPersistence() throws {
+        let legacyJSON = """
+        [{"id":"\(UUID().uuidString)","titleID":"\(titleID)","name":"Legacy"}]
+        """
+        let legacy = try JSONDecoder().decode([LibraryGame].self, from: Data(legacyJSON.utf8))
+        XCTAssertEqual(legacy.count, 1)
+        XCTAssertEqual(legacy[0].lastBuildID, "")
+
+        let normalizedJSON = """
+        [{"id":"\(UUID().uuidString)","titleID":"\(titleID)","name":"Lower","lastBuildID":"cd57b23fa4bbad65803d9788c01821ee"}]
+        """
+        let decoded = try JSONDecoder().decode([LibraryGame].self, from: Data(normalizedJSON.utf8))
+        XCTAssertEqual(decoded[0].lastBuildID, build)
+
+        let invalidJSON = """
+        [{"id":"\(UUID().uuidString)","titleID":"\(titleID)","name":"Bad","lastBuildID":"not-hex-value-1234"}]
+        """
+        let decodedInvalid = try JSONDecoder().decode([LibraryGame].self, from: Data(invalidJSON.utf8))
+        XCTAssertEqual(decodedInvalid[0].lastBuildID, "")
+
+        let libFile = temporary.appendingPathComponent("library-bid.json")
+        let library = GameLibrary(file: libFile)
+        var game = LibraryGame(titleID: titleID, name: "Persisted")
+        game.lastBuildID = build
+        XCTAssertTrue(library.upsert(game))
+        let reloaded = GameLibrary(file: libFile)
+        XCTAssertEqual(reloaded.games.first?.lastBuildID, build)
+
+        XCTAssertTrue(reloaded.recordBuildID("aaaa1111bbbb2222cccc", for: game.id))
+        XCTAssertEqual(GameLibrary(file: libFile).games.first?.lastBuildID, "AAAA1111BBBB2222")
+        XCTAssertFalse(reloaded.recordBuildID("invalid", for: game.id))
+        XCTAssertEqual(GameLibrary(file: libFile).games.first?.lastBuildID, "AAAA1111BBBB2222")
+    }
+
     func testTheHostsThreeFoldersAreScannedInItsOrderAndTheFirstFileOfABuildWins() throws {
         try write("[A]\n00000000\n", "\(build).txt")
         try write("[B]\n00000000\n", "atmosphere/contents/\(titleID)/cheats/\(build).txt")

@@ -133,6 +133,16 @@ import NXLauncher
                 library.upsert(game)
             }
         }
+        if let game = library.games.first(where: { $0.id == id }),
+           let bid = CheatFiles.buildID(
+               appPath: build.runningTarget == BuildTarget.mac ? build.macAppPath : "",
+               iosAppPath: build.runningTarget == BuildTarget.ios ? build.installedAppPath : "",
+               titleID: game.titleID,
+               shellRoot: build.shellRoot,
+               seedRoot: build.seedCacheRoot
+           ) {
+            library.recordBuildID(bid, for: id)
+        }
         recorded.send()
     }
 }

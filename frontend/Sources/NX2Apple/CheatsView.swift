@@ -36,6 +36,7 @@ struct CheatsView: View {
     @State var result: (text: String, ok: Bool)?
     @State var fixupsMetadata = CheatMainFixupsMetadata()
     @State var trampolinesMetadata: CheatTrampolineMetadata?
+    @State private var seedBuildID: String?
     @State private var bundle = ""
     @State private var hasUsableSeed = false
     @State private var supportsFastBakeTools = false
@@ -50,6 +51,7 @@ struct CheatsView: View {
         var fetchReceipt: CheatFetchReceipt?
         var fixups: CheatMainFixupsMetadata
         var trampolines: CheatTrampolineMetadata?
+        var seedBuildID: String?
         var cheats: [CheatFiles.Cheat]
         var on: Set<String>
         var bundle: String
@@ -65,7 +67,12 @@ struct CheatsView: View {
         return support.map { CheatFiles(titleID: game.titleID, support: $0) } ?? CheatFiles(titleID: game.titleID)
     }
 
-    var buildID: String? { fixupsMetadata.buildID ?? trampolinesMetadata?.buildID }
+    var buildID: String? {
+        fixupsMetadata.buildID
+            ?? trampolinesMetadata?.buildID
+            ?? seedBuildID
+            ?? CheatFiles.normalizedBuildID(game?.lastBuildID)
+    }
     private var current: CheatFiles.Found? { buildID.flatMap { id in files.first { $0.buildID == id } } }
     private var canCopy: Bool { !busy && (game?.onDevice ?? false) && !bundle.isEmpty && !files.isEmpty }
     var canFetchOnline: Bool {
@@ -464,6 +471,7 @@ struct CheatsView: View {
         let shellRoot = m.shellRoot
         let seedRoot = m.seedCacheRoot
         let repoPath = m.repo.path
+        let persistedBuildID = game.lastBuildID
         let isRunning = CheatsView.running(game: game)
 
         Task.detached(priority: .userInitiated) {
@@ -487,7 +495,11 @@ struct CheatsView: View {
                 titleID: titleID,
                 shellRoot: shellRoot
             )
-            let activeBuildID = fixups.buildID ?? trampolines?.buildID
+            let seedID = CheatFiles.seedBuildID(titleID: titleID, seedRoot: seedRoot)
+            let activeBuildID = fixups.buildID
+                ?? trampolines?.buildID
+                ?? seedID
+                ?? CheatFiles.normalizedBuildID(persistedBuildID)
             let matched = activeBuildID.flatMap { id in found.first { $0.buildID == id } }
             let parsedCheats: [CheatFiles.Cheat]
             let enabledKeys: Set<String>
@@ -511,6 +523,7 @@ struct CheatsView: View {
                 fetchReceipt: savedFetchReceipt,
                 fixups: fixups,
                 trampolines: trampolines,
+                seedBuildID: seedID,
                 cheats: parsedCheats,
                 on: enabledKeys,
                 bundle: bundleID,
@@ -526,11 +539,15 @@ struct CheatsView: View {
                 fetchReceipt = payload.fetchReceipt
                 fixupsMetadata = payload.fixups
                 trampolinesMetadata = payload.trampolines
+                seedBuildID = payload.seedBuildID
                 cheats = payload.cheats
                 on = payload.on
                 bundle = payload.bundle
                 hasUsableSeed = payload.hasUsableSeed
                 supportsFastBakeTools = payload.supportsFastBakeTools
+                if let liveBuildID = payload.fixups.buildID ?? payload.trampolines?.buildID ?? payload.seedBuildID {
+                    library.recordBuildID(liveBuildID, for: targetID)
+                }
             }
         }
     }
