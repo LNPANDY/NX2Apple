@@ -23,7 +23,7 @@ Issue: LNPANDY/NX2Apple#347
  create mode 100644 dm/ios/tests/test_pad_geometry.py
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index c3d5cd0..4c4d495 100644
+index f495fc8..218ca48 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -8,9 +8,12 @@
@@ -40,7 +40,7 @@ index c3d5cd0..4c4d495 100644
  //   Touches no control takes (in 3D, those outside the right third) go to the game's touch screen when DmLayout assigns a local game viewport (pushGame; Super Mario Galaxy's pointer in handheld mode).
  //   The virtual gamepad (all but the menu button) hides while a physical controller is connected and comes back when it is removed; unclaimed touches go to the game only when a local game viewport exists. Physical controllers keep every button (D-pad and right stick included) and map by position: bottom = B, right = A, left = Y, top = X (same positions as on a Switch controller); a Nintendo pad maps by its labels (pad_apple.h).
  //   Each physical controller is a player of its own (local co-op), as on the Mac: the first one connected is player 1, together with the touch gamepad, the next player 2, and so on up to 8; see "Physical controllers" below.
-@@ -33,6 +36,7 @@
+@@ -34,6 +37,7 @@
  #include "input_map.h"
  #include <stdatomic.h>
  #import "DmLayout.h"
@@ -48,7 +48,7 @@ index c3d5cd0..4c4d495 100644
  #import "DmGameMenu.h"
  
  enum { B_A = 0, B_B, B_X, B_Y, B_LS, B_RS, B_L, B_R, B_ZL, B_ZR, B_PLUS, B_MINUS, B_LEFT, B_UP, B_RIGHT, B_DOWN, B_N };
-@@ -110,29 +114,28 @@ static void phone_motion_start(UIView *body) {
+@@ -111,29 +115,28 @@ static void phone_motion_start(UIView *body) {
      }];
  }
  
@@ -95,7 +95,7 @@ index c3d5cd0..4c4d495 100644
  int dm_opmode(void);   // hle_oe.c: 0 = handheld
  void front_ios_quit_poll(void);          // front_ios.m: a controller's buttons changed (the Home hold, A and B in the quit prompt)
  int front_ios_quit_blocks_input(void);   // front_ios.m: the quit prompt has the controllers, the game gets none
-@@ -160,6 +163,7 @@ @implementation DmGamepad {
+@@ -161,6 +164,7 @@ @implementation DmGamepad {
      NSMapTable<UITouch *, NSNumber *> *_faceOf;    // which keys each touch on the diamond currently holds
      CAShapeLayer *_key[B_N]; CATextLayer *_label[B_N];   // one layer per key
      CAShapeLayer *_ring, *_knob;                   // the left stick (the right one is not drawn)
@@ -103,7 +103,7 @@ index c3d5cd0..4c4d495 100644
      DmMenuButton *_menu;                           // opens the in-game menu (GameMenu.swift)
      UIImpactFeedbackGenerator *_touchFeedback;       // one short feedback per touch-control press edge
      unsigned _hapticSticks;
-@@ -168,7 +172,13 @@ @implementation DmGamepad {
+@@ -169,7 +173,13 @@ @implementation DmGamepad {
      CALayer *_controls;                            // holds every control layer: hidden while a physical controller is connected (the view itself stays, for game touches)
      BOOL _padOff;                                  // a physical controller is connected: every touch goes to the game
      DmLayout _layout;
@@ -118,7 +118,7 @@ index c3d5cd0..4c4d495 100644
  }
  
  static UIColor *k_idle, *k_on, *k_line, *k_ringFill, *k_text, *k_textOn;
-@@ -188,6 +198,23 @@ @implementation DmGamepad {
+@@ -189,6 +199,23 @@ @implementation DmGamepad {
  - (instancetype)initWithFrame:(CGRect)f {
      if ((self = [super initWithFrame:f])) {
          _layout = dm_layout(self.bounds, UIEdgeInsetsZero, NO, CGRectNull, DM_PICTURE_16_9);   // until the front end arranges it
@@ -142,7 +142,7 @@ index c3d5cd0..4c4d495 100644
          [self registerForTraitChanges:@[UITraitDisplayScale.class] withHandler:^(id<UITraitEnvironment> environment, UITraitCollection *previous) {
              [(UIView *)environment setNeedsLayout];
          }];
-@@ -222,10 +249,18 @@ - (instancetype)initWithFrame:(CGRect)f {
+@@ -223,10 +250,18 @@ - (instancetype)initWithFrame:(CGRect)f {
          __weak DmGamepad *weakSelf = self;
          [_menu addAction:[UIAction actionWithHandler:^(UIAction *a) { (void)a; [weakSelf reset]; }] forControlEvents:UIControlEventMenuActionTriggered];   // the menu opens: release every key and touch first
          [self addSubview:_menu];
@@ -165,7 +165,7 @@ index c3d5cd0..4c4d495 100644
          [self applyLayout];
          NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
          [nc addObserver:self selector:@selector(padsChanged:) name:GCControllerDidConnectNotification object:nil];
-@@ -243,12 +278,24 @@ - (void)applyLayout {   // show / hide the controls for the current layout
+@@ -244,12 +279,24 @@ - (void)applyLayout {   // show / hide the controls for the current layout
      _ring.hidden = _knob.hidden = _tap;
      [CATransaction commit];
  }
@@ -191,7 +191,7 @@ index c3d5cd0..4c4d495 100644
      [self applyLayout]; [self setNeedsLayout];
  }
  - (void)opmodeChanged {   // docked: the Tap layout goes (the game reads no touch screen then), unsaved, so handheld mode at the next start brings it back
-@@ -262,93 +309,63 @@ - (void)setTouchFeedback:(BOOL)on {
+@@ -263,93 +310,63 @@ - (void)setTouchFeedback:(BOOL)on {
  
  // ---- Layout (points; computed inside the safe area) ----
  - (void)arrange:(DmLayout)layout {
@@ -329,7 +329,7 @@ index c3d5cd0..4c4d495 100644
  }
  - (uint64_t)faceAt:(CGPoint)p {   // keys under the finger in the diamond (between two keys both count)
      uint64_t m = 0; CGFloat r = self.faceHitR;
-@@ -414,7 +431,7 @@ - (void)pushGame {
+@@ -415,7 +432,7 @@ - (void)pushGame {
      dm_touch_set(t, n);
  }
  - (BOOL)gameBegin:(UITouch *)t {
@@ -338,7 +338,7 @@ index c3d5cd0..4c4d495 100644
      for (int i = 0; i < 16; i++) if (!_game[i]) { _game[i] = t; [_owner setObject:@(C_GAME | (uint64_t)i << 8) forKey:t]; return YES; }
      return NO;
  }
-@@ -424,10 +441,7 @@ - (BOOL)gameBegin:(UITouch *)t {
+@@ -425,10 +442,7 @@ - (BOOL)gameBegin:(UITouch *)t {
  - (BOOL)controlAt:(CGPoint)p {
      if (_padOff || (_layout.separated && !CGRectContainsPoint(_layout.controls, p))) return NO;
      if (_tap) return NO;
@@ -350,7 +350,7 @@ index c3d5cd0..4c4d495 100644
      return _full && !_stick[1] && [self inRightArea:p];
  }
  - (UIView *)hitTest:(CGPoint)p withEvent:(UIEvent *)e {
-@@ -440,15 +454,11 @@ - (void)touchesBegan:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
+@@ -441,15 +455,11 @@ - (void)touchesBegan:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
          if (_padOff) { game |= [self gameBegin:t]; continue; }
          CGPoint p = [t locationInView:self];
          if (_layout.separated && !CGRectContainsPoint(_layout.controls, p)) { game |= [self gameBegin:t]; continue; }
@@ -370,7 +370,7 @@ index c3d5cd0..4c4d495 100644
          if (kind == C_FACE) { [_owner setObject:@(C_FACE) forKey:t]; [_faceOf setObject:@([self faceAt:p]) forKey:t]; }
          else if (kind == C_DPAD) [_owner setObject:@(C_DPAD) forKey:t];
          else if (kind == C_STICK) { [_owner setObject:@(C_STICK | (uint64_t)idx << 8) forKey:t]; _stick[idx] = t; _stickNow[idx] = p; }
-@@ -487,7 +497,7 @@ - (void)reset { [_owner removeAllObjects]; [_faceOf removeAllObjects]; _stick[0]
+@@ -488,7 +498,7 @@ - (void)reset { [_owner removeAllObjects]; [_faceOf removeAllObjects]; _stick[0]
  // ---- Shapes ----
  static CGPathRef circlePath(CGPoint c, CGFloat r) { return CGPathCreateWithEllipseInRect(CGRectMake(c.x - r, c.y - r, 2 * r, 2 * r), NULL); }
  static CGPathRef dropPath(CGPoint c, CGFloat r, CGFloat tipAngle, CGFloat round) {   // teardrop: circle + two tangents meeting at the tip, tip slightly rounded
@@ -379,7 +379,7 @@ index c3d5cd0..4c4d495 100644
      CGPoint tip = CGPointMake(c.x + d * cos(tipAngle), c.y + d * sin(tipAngle));
      CGPoint p1 = CGPointMake(c.x + r * cos(tipAngle + th), c.y + r * sin(tipAngle + th)), p2 = CGPointMake(c.x + r * cos(tipAngle - th), c.y + r * sin(tipAngle - th));
      CGMutablePathRef p = CGPathCreateMutable();
-@@ -530,26 +540,65 @@ - (void)layoutSubviews {
+@@ -531,26 +541,65 @@ - (void)layoutSubviews {
              BOOL right = b == B_ZR || b == B_R; CGPoint c = [self dropCenter:b];
              setPath(_key[b], dropPath(c, [self dropR:b], right ? -M_PI_4 : -3 * M_PI_4, 4 * u)); placeLabel(_label[b], c, 16 * u);   // tip toward the near top corner
          } else if (isClick(b)) {
@@ -982,10 +982,10 @@ index 0000000..d2efd77
 +
 +NS_ASSUME_NONNULL_END
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index e9c5a1d..8998ca0 100644
+index 0690096..6178dc0 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
-@@ -91,6 +91,7 @@ - (void)updateConstraints {
+@@ -93,6 +93,7 @@ - (void)updateConstraints {
  @end
  
  @interface DmRootVC : UIViewController
@@ -993,7 +993,7 @@ index e9c5a1d..8998ca0 100644
  @property (nonatomic, strong) DmGameView *game;
  @property (nonatomic, strong) UIView *pad;
  @property (nonatomic, strong) UILabel *fps;
-@@ -156,6 +157,30 @@ - (void)hingeChanged:(UIHinge *)hinge API_AVAILABLE(ios(27.1)) {
+@@ -158,6 +159,30 @@ - (void)hingeChanged:(UIHinge *)hinge API_AVAILABLE(ios(27.1)) {
      [self.view setNeedsLayout];
  }
  #endif
@@ -1024,7 +1024,7 @@ index e9c5a1d..8998ca0 100644
  // The game view, the pad and the frame-rate counter are made once the launcher has set the switches they read (DM_SHOW_FPS, DM_METAL_HUD); the host's loading began at app launch (main.m)
  - (void)startGame {
      if (self.game) return;
-@@ -171,23 +196,19 @@ - (void)startGame {
+@@ -173,24 +198,20 @@ - (void)startGame {
      front_hud_env();   // apply the Play selection before the device check and game view (GitHub issue #840)
      const char *dev = front_ios_device_check();
      if (dev) { [self showHint:[NSString stringWithFormat:@"This device is not supported.\n%s", dev]]; return; }   // the host does not start
@@ -1049,16 +1049,17 @@ index e9c5a1d..8998ca0 100644
      self.view.clipsToBounds = YES;   // with Fill the game view is larger than the screen
      self.view.window.traitOverrides.preferredContentSizeCategory = UIContentSizeCategorySmall;   // UIKit draws the in-game menu (GameMenu.swift) in this window: it keeps one compact text size over the game, whatever the system's text size
 -    self.game = [[DmGameView alloc] initWithFrame:self.view.bounds];
--    [self.view addSubview:self.game];
 +    self.gameClip = [[UIView alloc] initWithFrame:self.view.bounds];
 +    self.gameClip.clipsToBounds = YES;
 +    [self.view addSubview:self.gameClip];
 +    self.game = [[DmGameView alloc] initWithFrame:self.gameClip.bounds];
+     dm_prewarm_upload_schedule();
+-    [self.view addSubview:self.game];
 +    [self.gameClip addSubview:self.game];
      g_layer = (CAMetalLayer *)self.game.layer;
      if (getenv("DM_METAL_HUD") && atoi(getenv("DM_METAL_HUD"))) { g_layer.developerHUDProperties = @{@"mode": @"default"}; LOG("front end: Metal performance HUD on (DM_METAL_HUD)"); }   // Apple's HUD over the game: frame rate, frame and GPU time, memory
      else if (front_ios_hud_enabled_from_saved_choice()) g_layer.developerHUDProperties = @{@"mode": @"disabled"};   // the launcher switched off a HUD enabled by the saved choice
-@@ -218,10 +239,18 @@ - (void)viewDidLayoutSubviews {
+@@ -221,10 +242,18 @@ - (void)viewDidLayoutSubviews {
  #endif
      BOOL duoPortrait = b.size.height > b.size.width && (self.hingeStatus != 0 || !CGRectIsNull(division));
      UIEdgeInsets gameInsets = dm_game_safe_insets(b, self.view.safeAreaInsets, duoPortrait);
@@ -1079,7 +1080,7 @@ index e9c5a1d..8998ca0 100644
      NSString *line = [NSString stringWithFormat:@"%@, hinge %ld%s, divisions %@, picture %@, controls %@", onTV ? @"pad only (picture on the TV)" : layout.separated ? @"split" : self.fill ? @"overlay, Fill" : @"overlay",
                        (long)self.hingeStatus, self.partiallyOpen ? " (half open)" : "", regionLog, NSStringFromCGRect(layout.game), NSStringFromCGRect(layout.controls)];
      if (![line isEqualToString:self.layoutLog]) { self.layoutLog = line; LOG("front end: layout %s", line.UTF8String); }
-@@ -312,7 +341,11 @@ static void tv_attach(void) {
+@@ -315,7 +344,11 @@ static void tv_attach(void) {
  }
  static void tv_detach(void) {
      DmGameView *v = g_root.game; g_tv = nil; v.maxPixelWidth = 0;
@@ -1092,7 +1093,7 @@ index e9c5a1d..8998ca0 100644
      if (g_tv_mode_was >= 0) { dm_set_opmode(g_tv_mode_was); g_tv_mode_was = -1; dm_gamepad_opmode_changed(); }
      LOG("front end: TV disconnected, the picture is back on the phone");
  }
-@@ -454,7 +487,8 @@ static void screen_refresh(void) {
+@@ -457,7 +490,8 @@ static void screen_refresh(void) {
  // shown (DmGamepad.m hitTest); the page takes them as a click on what they land on, and the gamepad and controllers drive it as on the Switch
  void front_web_attach(UIView *box) {
      UIView *v = g_root.view; box.frame = v.bounds;
@@ -1103,10 +1104,10 @@ index e9c5a1d..8998ca0 100644
  void front_web_detach(UIView *box) { (void)box; }
  // An app of several programs (main.m: dm/programs.txt; DM_EXEC_OUT is set only there). iOS cannot start the app's process again, so oe::ExecuteProgram records the next program and the
 diff --git a/dm/ios/tests/duo/Tests/DuoHarnessTests.m b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
-index e136ecd..4f73746 100644
+index b85cf40..d1435d6 100644
 --- a/dm/ios/tests/duo/Tests/DuoHarnessTests.m
 +++ b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
-@@ -191,6 +191,7 @@ - (void)tearDown {
+@@ -193,6 +193,7 @@ - (void)tearDown {
      NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
      if (self.savedLayout) [defaults setObject:self.savedLayout forKey:@"DmPadLayout"];
      else [defaults removeObjectForKey:@"DmPadLayout"];
@@ -1114,7 +1115,7 @@ index e136ecd..4f73746 100644
      if (self.controllerListOverridden) {
          @synchronized (GCController.class) {
              Method original = class_getClassMethod(GCController.class, @selector(controllers));
-@@ -489,12 +490,37 @@ - (void)testPictureFillCoversTheLandscapeViewWithoutStretching {
+@@ -491,12 +492,37 @@ - (void)testPictureFillCoversTheLandscapeViewWithoutStretching {
      XCTAssertTrue(CGRectIsEmpty(dm_aspect_fill(CGRectZero, DM_PICTURE_16_9)));
  }
  
@@ -1154,7 +1155,7 @@ index e136ecd..4f73746 100644
      CGRect landscape = CGRectMake(0, 0, 844, 390);
      DmLayout tabletop = dm_layout(landscape, UIEdgeInsetsZero, YES, CGRectMake(0, 180, 844, 24), DM_PICTURE_16_9);
      XCTAssertTrue(tabletop.separated);
-@@ -770,9 +796,11 @@ - (void)testInGameMenuSettingsTakeEffectAtOnce {
+@@ -772,9 +798,11 @@ - (void)testInGameMenuSettingsTakeEffectAtOnce {
      BOOL duo = [[root valueForKey:@"hingeStatus"] integerValue] != 0;
      DmLayout fit = dm_layout(b, dm_game_safe_insets(b, root.view.safeAreaInsets, duo), [[root valueForKey:@"partiallyOpen"] boolValue], CGRectNull, DM_PICTURE_16_9);
      dm_setting_live("DM_PICTURE_FIT", "fill"); [root.view layoutIfNeeded];
@@ -1168,7 +1169,7 @@ index e136ecd..4f73746 100644
  
      dm_setting_live("DM_RUMBLE", "0"); XCTAssertEqual(duo_harness_rumble(), 0);
      dm_setting_live("DM_RUMBLE", "1"); XCTAssertEqual(duo_harness_rumble(), 1);
-@@ -1555,4 +1583,174 @@ - (void)testRotationSettingSetsTheOrientationMasks {
+@@ -1569,4 +1597,174 @@ - (void)testRotationSettingSetsTheOrientationMasks {
      unsetenv("DM_ROTATION");
  }
  

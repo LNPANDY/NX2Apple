@@ -11,13 +11,13 @@ Issue: LNPANDY/NX2Apple#123
  dm/ios/Sources/DataBookmark.h          |  32 ++++++
  dm/ios/Sources/DataBookmark.m          |  79 +++++++++++++
  dm/ios/Sources/DmIOS-Bridging-Header.h |   7 +-
- dm/ios/Sources/Launcher.swift          |  64 ++++++++++-
+ dm/ios/Sources/Launcher.swift          |  84 +++++++++++++-
  dm/ios/Sources/front_ios.m             |  13 ++-
  dm/ios/Sources/main.m                  | 148 +++++++++++++++++++++----
  dm/ios/project.yml                     |   2 +-
  dm/ios/tests/test_aoc_layouts.py       |  92 +++++++++++++++
  dm/ios/tests/test_romfs_startup.py     |  49 +++++++-
- 9 files changed, 459 insertions(+), 27 deletions(-)
+ 9 files changed, 475 insertions(+), 31 deletions(-)
  create mode 100644 dm/ios/Sources/DataBookmark.h
  create mode 100644 dm/ios/Sources/DataBookmark.m
  create mode 100644 dm/ios/tests/test_aoc_layouts.py
@@ -163,13 +163,18 @@ index c63e36f..7de6a83 100644
 +// action (re-send the game data as romfs.img from the launcher), or NULL. The launcher's Game data section shows it.
 +const char *dm_old_archive_message(void);
 diff --git a/dm/ios/Sources/Launcher.swift b/dm/ios/Sources/Launcher.swift
-index 49774f2..852cafd 100644
+index 0e8b8ed..85218b2 100644
 --- a/dm/ios/Sources/Launcher.swift
 +++ b/dm/ios/Sources/Launcher.swift
-@@ -10,6 +10,65 @@ import os
+@@ -10,6 +10,43 @@ import os
  private func info(_ key: String) -> Any? { Bundle.main.object(forInfoDictionaryKey: key) }
  
  
++private enum FilePickerTarget {
++    case gameData
++    case cloudSaves
++}
++
 +/// Where this game's data comes from, and a picker to change it.
 +///
 +/// The app can only read files it owns unless the player hands it a location through the document
@@ -177,9 +182,10 @@ index 49774f2..852cafd 100644
 +/// before this. Picking an image (romfs.img) or a folder stores a bookmark (DataBookmark.m), and
 +/// romfs_locate() prefers it from the next launch on.
 +private struct GameDataSection: View {
-+    @State private var picked: String = ""
-+    @State private var note: String = ""
-+    @State private var picking = false
++    let picked: String
++    let note: String
++    let choose: () -> Void
++    let clear: () -> Void
 +
 +    var body: some View {
 +        Section {
@@ -189,42 +195,14 @@ index 49774f2..852cafd 100644
 +                Text(picked.isEmpty ? "This app's folder" : (picked as NSString).lastPathComponent)
 +                    .foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
 +            }
-+            Button(picked.isEmpty ? "Choose game data…" : "Choose a different location…") { picking = true }
-+                // The sheet sits on the button, not on the Section: SwiftUI hands a Section's modifiers to every row, so one tap presented a picker per row and they invalidated each other (LNPANDY/NX2Apple#315).
-+                .sheet(isPresented: $picking) {
-+                    DocumentPicker(types: [.item]) { url in
-+                        picking = false
-+                        if dm_store_picked_data(url) {
-+                            note = "Saved. The game uses this location when you press Play."
-+                            refresh()
-+                        } else {
-+                            note = "That location could not be remembered — try a different one."
-+                        }
-+                    } onCancel: { picking = false }
-+                }
++            Button(picked.isEmpty ? "Choose game data…" : "Choose a different location…", action: choose)
 +            if !picked.isEmpty {
-+                Button("Use the app's own data again", role: .destructive) {
-+                    dm_clear_picked_data(); refresh(); note = ""
-+                }
++                Button("Use the app's own data again", role: .destructive, action: clear)
 +            }
 +        } footer: {
 +            Text(note.isEmpty
 +                 ? "Pick the game's romfs.img or its RomFS folder — an external drive or iCloud Drive works. The app remembers the choice; a re-signed build asks once more."
 +                 : note)
-+        }
-+        .onAppear(perform: refresh)
-+    }
-+
-+    private func refresh() {
-+        // ObjC BOOL* is ObjCBool, not Bool: the bookmark header takes an indirect flag for
-+        // "the bookmark exists but does not resolve under this signature", which is the one
-+        // state worth telling the player about.
-+        var stale: ObjCBool = false
-+        picked = dm_picked_data_path(&stale) ?? ""
-+        if stale.boolValue && picked.isEmpty {
-+            note = "The location you picked before is no longer readable (the app was signed differently). Please choose it again."
-+        } else if note.isEmpty, let old = dm_old_archive_message() {
-+            note = String(cString: old)
 +        }
 +    }
 +}
@@ -232,44 +210,111 @@ index 49774f2..852cafd 100644
  /// Cloud saves: an iCloud Drive folder shared with the Mac app (chosen in its settings window's
  /// Cloud saves too). The host brings the save in from there when the game starts and
  /// sends it there after each save (dm/host/save_sync.h); the folder is a bookmark (CloudSaves.m).
-@@ -64,14 +123,14 @@ private struct CloudSavesSection: View {
+@@ -50,7 +87,10 @@ private struct LauncherView: View {
+     @State private var check = 0   // which Play the running check is for: one the player went on from without it is dropped
+     @State private var report: SaveSyncReport?
+     @State private var asking: SaveSyncReport.Step?
+-    @State private var pickingCloudFolder = false
++    @State private var pickingFile = false
++    @State private var pickerTarget: FilePickerTarget = .cloudSaves
++    @State private var gameDataPicked = ""
++    @State private var gameDataNote = ""
+     @State private var cloudFolder = ""
+     @State private var cloudNote = ""
+ 
+@@ -73,16 +113,28 @@ private struct LauncherView: View {
+         }
+         .preferredColorScheme(.dark)
+         // Native fileImporter above the landscape/portrait split: presents UIDocumentPickerViewController directly (not embedded as a child of a SwiftUI sheet host), avoids per-row Section modifiers (LNPANDY/NX2Apple#315), and keeps picker identity across orientation changes (seedds/nxnative#3278).
+-        .fileImporter(isPresented: $pickingCloudFolder, allowedContentTypes: [.folder]) { result in
+-            switch result {
+-            case .success(let url):
++        .fileImporter(isPresented: $pickingFile, allowedContentTypes: pickerTarget == .cloudSaves ? [.folder] : [.item]) { result in
++            switch (pickerTarget, result) {
++            case (.gameData, .success(let url)):
++                if dm_store_picked_data(url) {
++                    gameDataNote = "Saved. The game uses this location when you press Play."
++                    refreshGameData()
++                } else {
++                    gameDataNote = "That location could not be remembered — try a different one."
++                }
++            case (.gameData, .failure(let error)):
++                let ns = error as NSError
++                if error is CancellationError || (ns.domain == NSCocoaErrorDomain && ns.code == NSUserCancelledError) { return }
++                fputs("launcher: game-data picker failed: \(error.localizedDescription)\n", stderr)
++                gameDataNote = "That location could not be opened — try a different one."
++            case (.cloudSaves, .success(let url)):
+                 if dm_store_cloud_saves(url) {
+                     cloudNote = "Saved. The game uses this folder when you press Play."
+                     refreshCloudSaves()
+                 } else {
+                     cloudNote = "That folder could not be remembered — try a different one."
+                 }
+-            case .failure(let error):
++            case (.cloudSaves, .failure(let error)):
+                 let ns = error as NSError
+                 if error is CancellationError || (ns.domain == NSCocoaErrorDomain && ns.code == NSUserCancelledError) { return }
+                 fputs("launcher: cloud-save folder picker failed: \(error.localizedDescription)\n", stderr)
+@@ -113,12 +165,26 @@ private struct LauncherView: View {
+         }
+         // Rotation turns the screen as soon as it is picked, before Play (front_ios.m dm_rotation_set); the saved pick at once when the screen shows
+         .onAppear {
++            refreshGameData()
+             refreshCloudSaves()
+             if let v = m.values["DM_ROTATION"] { dm_rotation_set(v) }
+         }
+         .onChange(of: m.values["DM_ROTATION"]) { _, v in if let v { dm_rotation_set(v) } }
      }
- }
  
--/// UIDocumentPickerViewController for a folder, in the two callbacks a SwiftUI sheet wants.
-+/// UIDocumentPickerViewController for files or folders (`types`), in the two callbacks a SwiftUI sheet wants.
- private struct DocumentPicker: UIViewControllerRepresentable {
-     var types: [UTType] = [.folder]
-     let onPick: (URL) -> Void
-     let onCancel: () -> Void
- 
-     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
--        // .open (not .import): the folder stays where it is and the bookmark keeps pointing at it.
-+        // .open (not .import): the file or folder stays where it is and the bookmark keeps pointing at it (an import would copy 16 GB of game data into the app's container).
-         let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: false)
-         picker.allowsMultipleSelection = false
-         picker.delegate = context.coordinator
-@@ -180,6 +239,7 @@ private struct LauncherView: View {
++    private func refreshGameData() {
++        // ObjC BOOL* is ObjCBool, not Bool: the bookmark header takes an indirect flag for
++        // "the bookmark exists but does not resolve under this signature", which is the one
++        // state worth telling the player about.
++        var stale: ObjCBool = false
++        gameDataPicked = dm_picked_data_path(&stale) ?? ""
++        if stale.boolValue && gameDataPicked.isEmpty {
++            gameDataNote = "The location you picked before is no longer readable (the app was signed differently). Please choose it again."
++        } else if gameDataNote.isEmpty, let old = dm_old_archive_message() {
++            gameDataNote = String(cString: old)
++        }
++    }
++
+     private func refreshCloudSaves() {
+         var stale: ObjCBool = false
+         cloudFolder = dm_cloud_saves_path(&stale) ?? ""
+@@ -158,12 +224,18 @@ private struct LauncherView: View {
              } footer: {
                  Text("Brings back all settings this game was tested with.")
              }
-+            GameDataSection()
++            GameDataSection(
++                picked: gameDataPicked,
++                note: gameDataNote,
++                choose: { pickerTarget = .gameData; pickingFile = true },
++                clear: { dm_clear_picked_data(); refreshGameData(); gameDataNote = "" }
++            )
              // The background save check reads the selected folder until it returns.
-             CloudSavesSection(checking: checking)
-             Section {
+             CloudSavesSection(
+                 checking: checking,
+                 folder: cloudFolder,
+                 note: cloudNote,
+-                choose: { pickingCloudFolder = true },
++                choose: { pickerTarget = .cloudSaves; pickingFile = true },
+                 clear: { dm_clear_cloud_saves(); refreshCloudSaves(); cloudNote = "" }
+             )
+             if PrewarmUpload.available {
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index c6b0de3..5cd1b62 100644
+index a441290..2cec6f4 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
-@@ -27,6 +27,7 @@
- const char *front_ios_device_check(void);   // main.m: why this device cannot run the games (its GPU has no BC textures; NULL = supported)
+@@ -29,6 +29,7 @@
  bool front_ios_hud_enabled_from_saved_choice(void);   // main.m: the saved choice enabled Metal's HUD at launch
  bool dm_show_launcher(void *view_controller, void (*done)(void));   // Launcher.swift: false = no launcher (no dm/launcher.json, or DM_LAUNCHER=0)
+ void dm_prewarm_upload_schedule(void);
 +int dm_locate_game_data(void);   // main.m: (re)decide where the game data is; NO when there still is none
  
  static CAMetalLayer *g_layer;
  static void front_ios_notify_setup(void);
-@@ -97,6 +98,7 @@ @interface DmRootVC : UIViewController
+@@ -99,6 +100,7 @@ @interface DmRootVC : UIViewController
  #if __has_include(<UIKit/UIHingeInteraction.h>)
  - (void)hingeChanged:(UIHinge *)hinge API_AVAILABLE(ios(27.1));
  #endif
@@ -277,7 +322,7 @@ index c6b0de3..5cd1b62 100644
  - (void)startGame;
  - (void)showFPS:(BOOL)on;
  @end
-@@ -152,6 +154,14 @@ - (void)hingeChanged:(UIHinge *)hinge API_AVAILABLE(ios(27.1)) {
+@@ -154,6 +156,14 @@ - (void)hingeChanged:(UIHinge *)hinge API_AVAILABLE(ios(27.1)) {
  // The game view, the pad and the frame-rate counter are made once the launcher has set the switches they read (DM_SHOW_FPS, DM_METAL_HUD); the host's loading began at app launch (main.m)
  - (void)startGame {
      if (self.game) return;
@@ -292,7 +337,7 @@ index c6b0de3..5cd1b62 100644
      dm_cloud_saves_env();   // DM_SAVE_SYNC from the launcher's Cloud saves pick, before the game's first save mount reads it (CloudSaves.m, save_sync.h)
      front_hud_env();   // apply the Play selection before the device check and game view (GitHub issue #840)
      const char *dev = front_ios_device_check();
-@@ -231,7 +241,8 @@ - (void)viewDidAppear:(BOOL)a {
+@@ -234,7 +244,8 @@ - (void)viewDidAppear:(BOOL)a {
      }
      if (self.launched || !front_ios_boot_ok()) return;
      self.launched = YES; g_root = self;
@@ -303,7 +348,7 @@ index c6b0de3..5cd1b62 100644
  }
  - (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index 5f9b420..6f61c33 100644
+index f20117d..2cc23cc 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
 @@ -9,9 +9,10 @@
@@ -531,10 +576,10 @@ index 5f9b420..6f61c33 100644
  }
  static int g_boot_ok;
 diff --git a/dm/ios/project.yml b/dm/ios/project.yml
-index d89d0ae..4835c62 100644
+index c7db4b1..7548122 100644
 --- a/dm/ios/project.yml
 +++ b/dm/ios/project.yml
-@@ -83,7 +83,7 @@ targets:
+@@ -84,7 +84,7 @@ targets:
        OTHER_CFLAGS: $(inherited) -mcpu=apple-m1   # the oldest chip the app supports (an M1 iPad; iPhones from the A17 Pro, as the games need BC textures), the Mac build's default too: it has the LSE atomics the host assembly uses, which the default baseline does not accept. Not newer: dav1d turns on every feature the target promises, and the A18 target (its I8MM) stopped an M1 iPad with SIGILL in the AV1 decoder (dm/ios/tests/test_cpu_target.py)
        CLANG_ENABLE_OBJC_ARC: YES
        SWIFT_VERSION: "5.0"                         # Launcher.swift (SwiftUI)

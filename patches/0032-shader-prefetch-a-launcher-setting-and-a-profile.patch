@@ -74,10 +74,10 @@ index c8c221b..40a5027 100644
  # The rewritten modules require 76 MB, more than the default 64 MB deducted from the pool.
  mem_used	0x4c00000
 diff --git a/dm/games/README.md b/dm/games/README.md
-index 5a23e6d..b788547 100644
+index 8390369..44f2907 100644
 --- a/dm/games/README.md
 +++ b/dm/games/README.md
-@@ -310,6 +310,7 @@ One row per profile; the notes are each profile's `README.md`. Entries marked pr
+@@ -337,6 +337,7 @@ One row per profile; the notes are each profile's `README.md`. Entries marked pr
  | `present_snap` | `on` / `off` (the default): present snapshots by default (`nvn_mtl.m` `mtl_snap_on`, a ring of 2 host textures): each present is copied and the game's swapchain texture is free at once, so the GPU does not idle between frames ([Present snapshots](../../docs/reference/frame-rate.md#present-snapshots-the-games-swapchain-texture-free-at-once)). A setting the game was tested with: the iOS launcher's **Frame buffering** defaults to it, and `DM_PRESENT_SNAP` / `Documents/env.txt` override it. Breath of the Wild sets it on |
  | `pso_mtl4` | `on` / `off` (the default): on iOS, render pipelines through MTL4Compiler by default, with the pipeline archive, the prepare step, the hybrid pipelines and the prebuild (on by default on the Mac; `DM_PSO_MTL4=1` / `0` overrides). A setting the game was tested with on an iPhone. It also gives the app the [pipeline archive made offline](../../docs/development.md#the-pipeline-archive-made-offline) (`build_ipa.sh` builds it for the `pso_gpu` key's list when present, else for `g18p`, unless `DM_PSO_GPUS` says otherwise). An iOS build carries the pulling libraries (`_bp`) whatever this key says, since the launcher's Metal 4 pipelines toggle can turn the path on. Profiles with `pso_mtl4 off` get no archive unless a build override selects one. Breath of the Wild sets it on |
  | `pso_gpu` | Optional, whitespace-separated GPU architectures: the ones the [pipeline archive made offline](../../docs/development.md#the-pipeline-archive-made-offline) is made for when the profile also sets `pso_mtl4 on`. The bases are made per GPU family and each family's archive costs its own `metal-tt` run, so a profile names exactly the devices it serves. 1-4 tokens, each alphanumeric, with or without the `applegpu_` prefix (for example `g18p applegpu_g19p`); `none` is not a value. Without this key, `pso_mtl4 on` keeps the A19 / A19 Pro default `g18p`; `pso_mtl4 off` gets no archive. The `DM_PSO_GPUS` switch / the NSP script's `--gpu` overrides the archive selection; this key does not enable Metal 4 pipelines |
@@ -107,7 +107,7 @@ index ec30f6a..6508b95 100644
           f'#define DM_GAME_PAD_LAYOUT {("simple", "full", "touch").index(pl)}',
           f'#define DM_GAME_OPMODE {int(om == "console")}',
 diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
-index cc4f3ff..1d1e3b7 100644
+index cd0e41b..eb3b9a0 100644
 --- a/dm/games/settings.tsv
 +++ b/dm/games/settings.tsv
 @@ -40,5 +40,6 @@ DM_PRESENT_SNAP	toggle	-	DM_GAME_PRESENT_SNAP	gfxapi:nvn	Performance	Frame buffe
@@ -146,7 +146,7 @@ index 87d315e..4cdde2d 100644
       'why': "the output size is the host's, but the stubs that follow it (projections, layout panes, screen copies) are this build's code"}),
      ('game_env', 'DOTNET_GCRegionRange=', {'what': ".NET's garbage-collector region range", 'now': 'game', 'goal': 'game', 'purpose': 'address space', 'why': "measured for the game's regions"}),
 diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
-index 25feee6..1587bbe 100644
+index 8805fce..28bc462 100644
 --- a/dm/tools/tests/test_launcher_settings.py
 +++ b/dm/tools/tests/test_launcher_settings.py
 @@ -15,7 +15,7 @@ settings = importlib.util.module_from_spec(spec)
@@ -174,7 +174,7 @@ index 25feee6..1587bbe 100644
          s = build(BOTW, 'nvn')['DM_FPS_HOLD']
          self.assertEqual((s['on'], s['off'], s['default']), ('on', 'off', 'on'))
 diff --git a/docs/settings.md b/docs/settings.md
-index 9d8365b..86d646a 100644
+index 7ea0dcd..7f3532d 100644
 --- a/docs/settings.md
 +++ b/docs/settings.md
 @@ -5,7 +5,7 @@ The screen before the game starts shows the settings the game supports. A settin
@@ -186,7 +186,7 @@ index 9d8365b..86d646a 100644
  - [The Mac settings window](#the-mac-settings-window): [Display mode](#display-mode)
  - [In-game menu](#in-game-menu)
  - [TV](#tv)
-@@ -202,6 +202,14 @@ The app turns the game's graphics commands into Metal commands on a thread of it
+@@ -206,6 +206,14 @@ The app turns the game's graphics commands into Metal commands on a thread of it
  
  - **When to change it:** leave it on unless a game misbehaves with it; turning it off is a diagnostic step.
  

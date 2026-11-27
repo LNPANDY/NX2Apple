@@ -10,9 +10,10 @@ Upstream-Status: forwarded seedds/nxnative#1612
 Reason: Keep the pinned engine test fixtures aligned with JSON shader progress, staged shader outputs and RomFS format validation
 Issue: LNPANDY/NX2Apple#861
 ---
- dm/gfx/tests/test_dmsh_pairs.py     | 15 ++++++++++++---
- dm/ios/tests/test_xcode_workflow.py |  4 +++-
- 2 files changed, 15 insertions(+), 4 deletions(-)
+ dm/gfx/tests/test_dmsh_pairs.py          | 15 ++++++++++++---
+ dm/ios/tests/test_xcode_workflow.py      |  4 +++-
+ dm/tools/tests/test_nsp_multi_program.py |  2 +-
+ 3 files changed, 16 insertions(+), 5 deletions(-)
 
 diff --git a/dm/gfx/tests/test_dmsh_pairs.py b/dm/gfx/tests/test_dmsh_pairs.py
 index 57f770f..d9dc13b 100644
@@ -63,10 +64,10 @@ index 57f770f..d9dc13b 100644
          self.g.table('pso_pairs.tsv').write_text('v\tf6\n')
          self.assertEqual(self.ns['load_pairs'](self.g, self.package), {'v': {'f0', 'f6'}})
 diff --git a/dm/ios/tests/test_xcode_workflow.py b/dm/ios/tests/test_xcode_workflow.py
-index f60dbe4..bf7dbe7 100644
+index 920f290..2f46306 100644
 --- a/dm/ios/tests/test_xcode_workflow.py
 +++ b/dm/ios/tests/test_xcode_workflow.py
-@@ -20,6 +20,7 @@ import game
+@@ -21,6 +21,7 @@ import game
  import gen_resources
  import nacp
  import profile_guess
@@ -74,7 +75,7 @@ index f60dbe4..bf7dbe7 100644
  import xcode_projects
  
  
-@@ -50,6 +51,7 @@ class XcodePipelineTests(unittest.TestCase):
+@@ -51,6 +52,7 @@ class XcodePipelineTests(unittest.TestCase):
              extraction = root / 'extracted' / version
              (extraction / 'RomFS').mkdir(parents=True)
              (extraction / 'ExeFS').mkdir()
@@ -82,7 +83,7 @@ index f60dbe4..bf7dbe7 100644
              def fake_run(cmd, log, **kwargs):
                  log.parent.mkdir(parents=True, exist_ok=True)
                  log.write_text('')  # a successful command with no diagnostic output
-@@ -85,7 +87,7 @@ class XcodePipelineTests(unittest.TestCase):
+@@ -86,7 +88,7 @@ class XcodePipelineTests(unittest.TestCase):
                                        '--language', 'ja', '--no-show-fps', '--no-motion', '--progress', 'json'])
              finally:
                  progress.close()
@@ -91,3 +92,16 @@ index f60dbe4..bf7dbe7 100644
              events = [json.loads(line) for line in output.getvalue().splitlines()]
              self.assertTrue(any(event.get('name') == 'prepare Xcode' for event in events))
              self.assertFalse(any(event.get('name') == 'app build' for event in events))
+diff --git a/dm/tools/tests/test_nsp_multi_program.py b/dm/tools/tests/test_nsp_multi_program.py
+index aac282f..3604a99 100644
+--- a/dm/tools/tests/test_nsp_multi_program.py
++++ b/dm/tools/tests/test_nsp_multi_program.py
+@@ -203,7 +203,7 @@ class EndToEndBuildOrder(unittest.TestCase):
+         def fake_write_profile(pdir, app, facts, program_of=None):
+             make_profile(pdir.parent, app, program_of=f'{program_of:016X}' if program_of is not None else '')
+ 
+-        def fake_extract(nx, keys, ex, ver, b, u, logs, app, repo):
++        def fake_extract(nx, keys, ex, ver, b, u, logs, app, repo, romfs_marker=None):
+             dst = ex / ver
+             (dst / 'ExeFS').mkdir(parents=True, exist_ok=True)
+             (dst / 'ExeFS/main').write_bytes(b'NSO0' + bytes(0x3c) + bytes.fromhex('11' * 16))

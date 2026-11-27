@@ -23,10 +23,10 @@ Issue: LNPANDY/NX2Apple#446
  2 files changed, 99 insertions(+), 2 deletions(-)
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index fba5bc8..136083c 100644
+index 7fae3b3..adfcf2c 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -19761,6 +19761,10 @@ static void copy_t2b(const p_copy_b2t *c, uint32_t size) {
+@@ -20324,6 +20324,10 @@ static void copy_t2b(const p_copy_b2t *c, uint32_t size) {
      int is3d = c->tex->d.target == 2, nz = c->r.depth ? c->r.depth : 1;
      void *mb; uint64_t mo;
      if (!mtl_addr(c->src, img * nz, &mb, &mo)) { RED_ONCE(31, "texture→buffer copy destination is in no memory pool"); return; }
@@ -37,7 +37,7 @@ index fba5bc8..136083c 100644
      sbw_note(c->src, img * nz, SBW_GPU);
      if (!fam_is_valid(t)) { mtl_sub_fill(c->src, img * nz, 0); return; }   // cross-size read of a compressed family: zero without decoding another size's blocks or disturbing the live size
      id<MTL4ComputeCommandEncoder> b = blit();
-@@ -19837,7 +19841,10 @@ void mtl_read_texels(const tex_t *t, unsigned level, unsigned layer0, const NVNc
+@@ -20400,7 +20404,10 @@ void mtl_read_texels(const tex_t *t, unsigned level, unsigned layer0, const NVNc
      int in_storage = 0; AP_B;
      id<MTLTexture> mt = tex_mtl_(t, &in_storage); AP_E(4);
      if (in_storage) { read_texels_storage(t, level, layer0, r, dst, row, img); return; }
@@ -49,7 +49,7 @@ index fba5bc8..136083c 100644
      mtl_finish_gpu_at(WS_READTEX);
      id<MTLBuffer> buf = [g_dev newBufferWithLength:wb * hb * nz options:MTLResourceStorageModeShared];
      id<MTLCommandBuffer> cb = q_cb(); id<MTLBlitCommandEncoder> b = enc_b_begin(cb);
-@@ -19912,7 +19919,28 @@ static void copy_b2t(const p_copy_b2t *c, uint32_t size) {
+@@ -20476,7 +20483,28 @@ static void copy_b2t(const p_copy_b2t *c, uint32_t size) {
      // Into Metal's order (rb_copy_shift): converted on the GPU into a staging area of the frame arena, which the blit copies from
      int shift = rb_copy_shift(c->tex, t);
      uint64_t gsrc = sb.gpuAddress + mo; size_t grow = row, gimg = img;   // the guest's bytes, the storage's order (gsb_store_buf)

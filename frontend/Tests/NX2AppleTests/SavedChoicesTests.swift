@@ -334,6 +334,11 @@ final class SavedChoicesTests: IsolatedDefaultsTestCase {
     func testAppReadsTheStoreOnlyWithDMSettings() throws {
         let withRules = try app([fps, scale, hold], dmSettings: true)
         XCTAssertTrue(SavedChoices.appReadsStore(app: withRules))
+        let modern = try app([fps, scale, hold])
+        let modernPlist = URL(fileURLWithPath: modern).appendingPathComponent("Contents/Info.plist")
+        let modernInfo: [String: Any] = ["CFBundleIdentifier": bundleID, "DMTitleID": titleID, "DMSaveSyncChoice": 1]
+        try PropertyListSerialization.data(fromPropertyList: modernInfo, format: .xml, options: 0).write(to: modernPlist)
+        XCTAssertTrue(SavedChoices.appReadsStore(app: modern), "upstream >= 7cf637e1 omits DMSettings but stamps DMSaveSyncChoice")
         let older = try app([fps, scale, hold])
         XCTAssertFalse(SavedChoices.appReadsStore(app: older))
         let store = SavedChoices(domain: bundleID)

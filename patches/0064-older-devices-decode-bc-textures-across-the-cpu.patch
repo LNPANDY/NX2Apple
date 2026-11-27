@@ -34,10 +34,10 @@ Issue: LNPANDY/NX2Apple#777
  5 files changed, 67 insertions(+), 10 deletions(-)
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 136083c..c07e51f 100644
+index adfcf2c..1c70547 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -4906,7 +4906,7 @@ static int tex_cpu_wait(const tex_t *t) {
+@@ -4985,7 +4985,7 @@ static int tex_cpu_wait(const tex_t *t) {
                  if (nvn_deswizzle(&t->d, l, y, src, bc_tmp, pitch)) { RED_ONCE(9, "deswizzle failed format %#x target %d", t->d.format, t->d.target); break; }
                  size_t dst_pitch = (size_t)w * bc_bpp;
                  for (uint32_t zz = 0; zz < z; zz++)
@@ -46,7 +46,7 @@ index 136083c..c07e51f 100644
                                    (uint8_t *)stg.contents + off + (size_t)zz * dst_pitch * h, dst_pitch);
                  up_blit_add(stg, off, dst_pitch, dst_pitch * h, MTLSizeMake(w, h, z), mt, y, l);
                  off += dst_pitch * h * z;
-@@ -19938,7 +19938,7 @@ static void copy_b2t(const p_copy_b2t *c, uint32_t size) {
+@@ -20502,7 +20502,7 @@ static void copy_b2t(const p_copy_b2t *c, uint32_t size) {
          size_t urow = (size_t)c->r.width * (size_t)bc_bpp, uimg = urow * (size_t)c->r.height;
          id<MTLBuffer> ab; size_t ao = arena_alloc(uimg * (size_t)nz, &ab);
          for (int z = 0; z < nz; z++)

@@ -19,10 +19,10 @@ Issue: LNPANDY/NX2Apple#123
  4 files changed, 52 insertions(+), 7 deletions(-)
 
 diff --git a/dm/ios/tests/test_ipa_unsigned.py b/dm/ios/tests/test_ipa_unsigned.py
-index 028d506..4208688 100644
+index 7a86af8..bf8c0a0 100644
 --- a/dm/ios/tests/test_ipa_unsigned.py
 +++ b/dm/ios/tests/test_ipa_unsigned.py
-@@ -54,8 +54,13 @@ class UnsignedIpaTests(unittest.TestCase):
+@@ -45,8 +45,13 @@ class UnsignedIpaTests(unittest.TestCase):
                  if identity is not None: identity.append((archive.read('Payload/DmIOS.app/romfs.id').decode() if 'Payload/DmIOS.app/romfs.id' in archive.namelist() else None, (root / 'RomFS.img').read_bytes() if image else None))
                  return set(archive.namelist())
  
@@ -37,7 +37,7 @@ index 028d506..4208688 100644
          self.assertIn('Payload/DmIOS.app/romfs/marker', names)
          self.assertIn('Payload/DmIOS.app/aoc/0/file', names)
  
-@@ -64,7 +69,7 @@ class UnsignedIpaTests(unittest.TestCase):
+@@ -55,7 +60,7 @@ class UnsignedIpaTests(unittest.TestCase):
          self.assertFalse([n for n in names if '/romfs' in n])
          self.assertIn('Payload/DmIOS.app/executable', names)
          self.assertIn('Payload/DmIOS.app/msl/b-fixture/fixture_b.metallib', names)
@@ -46,7 +46,7 @@ index 028d506..4208688 100644
  
      def test_slim_ipa_of_an_image_carries_its_identity_and_the_default_does_not(self):
          got = []
-@@ -76,8 +81,8 @@ class UnsignedIpaTests(unittest.TestCase):
+@@ -67,8 +72,8 @@ class UnsignedIpaTests(unittest.TestCase):
          with tempfile.NamedTemporaryFile() as f:
              f.write(data); f.flush(); self.assertTrue(romfs_image.same_identity(line, romfs_image.identity(f.name)))
          got = []
@@ -58,10 +58,10 @@ index 028d506..4208688 100644
      def test_slim_ipa_of_a_folder_has_no_identity(self):
          self.assertNotIn('Payload/DmIOS.app/romfs.id', self.pack(DM_COPY_ROMFS='NO'))
 diff --git a/dm/ios/tests/test_profile_pack.py b/dm/ios/tests/test_profile_pack.py
-index 3d84931..6558530 100644
+index 840e7b9..913453d 100644
 --- a/dm/ios/tests/test_profile_pack.py
 +++ b/dm/ios/tests/test_profile_pack.py
-@@ -71,7 +71,8 @@ class ProfilePackTests(unittest.TestCase):
+@@ -68,7 +68,8 @@ class ProfilePackTests(unittest.TestCase):
                      self.assertEqual(prefix + 'fixture_bp.metallib' in names, included)
                      for name in ('fixture_b.metallib', 'fixture_bv.metallib', 'fixture_b.json'):
                          self.assertIn(prefix + name, names)
@@ -72,10 +72,10 @@ index 3d84931..6558530 100644
  
  
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index c12a091..09aed02 100755
+index 1e30280..0c12713 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
-@@ -271,6 +271,9 @@ if [ -n "${PROGRAMS_TSV:-}" ]; then   # each program's shader libraries, RomFS,
+@@ -285,6 +285,9 @@ if [ -n "${PROGRAMS_TSV:-}" ]; then   # each program's shader libraries, RomFS,
    done < <(prog_rows); prog_back
  else
  MAPS=()
@@ -85,7 +85,7 @@ index c12a091..09aed02 100755
  if [ "${DM_COPY_ROMFS:-YES}" = NO ]; then
    t "no game files in the IPA (DM_COPY_ROMFS=NO): the app takes Documents/romfs.img (scripts/push_romfs.sh)"
    # The image's identity (dm/host/romfs_identity.h) goes into the app as romfs.id: main.m then uses only a Documents/romfs.img with the same size and index hash, and says so when it is another version or missing.
-@@ -280,7 +283,11 @@ if [ "${DM_COPY_ROMFS:-YES}" = NO ]; then
+@@ -294,7 +297,11 @@ if [ "${DM_COPY_ROMFS:-YES}" = NO ]; then
      MAPS=("$P/romfs.id=$O/romfs.id"); t "game files identity: $(cat "$O/romfs.id")"
    fi
  elif [ -f "$ROMFS" ]; then MAPS=("$P/romfs.img=$ROMFS"); else MAPS=("$P/romfs=$ROMFS"); fi
@@ -97,7 +97,7 @@ index c12a091..09aed02 100755
 +fi
  if [ -n "${PSO:-}" ]; then MAPS+=("$P/pso=$PSO"); fi
  MAPS+=("$P/msl/$MSLDIR=$MSL_IOS/$MSLDIR" "$P=$APP")
-   if [ -d "$(dirname "$ROMFS")/html" ]; then MAPS+=("$P/html=$(dirname "$ROMFS")/html"); t "offline HTML pages: $(dirname "$ROMFS")/html"; fi   # beside its RomFS, where the host finds them (hle_web.c)
+ if [ "$GFXAPI" = nvn ] && [ -s "$GD/gl_capture.tsv" ]; then MAPS+=("$P/msl/gl=$MSL_IOS/gl"); fi
 diff --git a/dm/ios/tools/xcode_projects.py b/dm/ios/tools/xcode_projects.py
 index a832ad5..0f5485d 100644
 --- a/dm/ios/tools/xcode_projects.py

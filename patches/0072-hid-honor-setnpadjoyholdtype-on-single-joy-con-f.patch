@@ -19,10 +19,10 @@ Issue: none
  2 files changed, 132 insertions(+), 7 deletions(-)
 
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index cfd411a..a3f98dd 100644
+index bca001b..f340124 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
-@@ -653,6 +653,52 @@ static uint64_t single_joy_fold(uint32_t style, uint64_t buttons, int32_t a[4])
+@@ -656,6 +656,52 @@ static uint64_t single_joy_fold(uint32_t style, uint64_t buttons, int32_t a[4])
      a[2 * !side] = 0; a[2 * !side + 1] = 0;
      return folded;
  }
@@ -75,7 +75,7 @@ index cfd411a..a3f98dd 100644
  static void fill(NpadState *s, uint32_t id, uint32_t style) {
      memset(s, 0, sizeof *s);
      s->sampling = atomic_fetch_add(&g_sampling, 1) + 1;
-@@ -669,10 +715,7 @@ static void fill(NpadState *s, uint32_t id, uint32_t style) {
+@@ -672,10 +718,7 @@ static void fill(NpadState *s, uint32_t id, uint32_t style) {
          b = atomic_load(&g_btn) | atomic_exchange(&g_latch, 0);
          uint64_t k = atomic_load(&g_axes); for (int i = 0; i < 4; i++) a[i] = ax(k, i);
      }
@@ -87,7 +87,7 @@ index cfd411a..a3f98dd 100644
      if (!pl) {   // the physical sources so far (DM_REC records them, DM_BTN_SHAKE only from player 1's own controller and the keyboard, as shake_note), then the scripted path
          if (atomic_load_explicit(&g_rec_on, memory_order_relaxed)) rec_read((b & 0xffffull) | ((atomic_load(&g_btn) | atomic_load(&g_pad_btn[0])) & DM_BTN_SHAKE), a);
          b |= atomic_load(&g_sc_btn) | atomic_exchange(&g_sc_latch, 0);
-@@ -751,8 +794,7 @@ HLE_FORCE("_ZN2nn3hid13GetNpadStatesEPNS0_16NpadJoyDualStateEiRKj", "dual Joy-Co
+@@ -755,8 +798,7 @@ HLE_FORCE("_ZN2nn3hid13GetNpadStatesEPNS0_16NpadJoyDualStateEiRKj", "dual Joy-Co
  HLE_FORCE("_ZN2nn3hid13GetNpadStatesEPNS0_16NpadJoyLeftStateEiRKj", "left Joy-Con states (not connected on the host)", int, h_hid_StatesJoyLeft, NpadState *s, int n, const uint32_t *id) { return states(s, n, *id, STYLE_JOYLEFT); }
  HLE_FORCE("_ZN2nn3hid13GetNpadStatesEPNS0_17NpadJoyRightStateEiRKj", "right Joy-Con states (not connected on the host)", int, h_hid_StatesJoyRight, NpadState *s, int n, const uint32_t *id) { return states(s, n, *id, STYLE_JOYRIGHT); }
  HLE_FORCE("_ZN2nn3hid14DisconnectNpadERKj", "disconnect a controller; ignored by the host", void, h_hid_Disconnect, const uint32_t *id) { (void)id; }
@@ -97,7 +97,7 @@ index cfd411a..a3f98dd 100644
  // The game's choice of how the Joy-Cons of a pad are used (npad_resolve): single, left or right staying on the npad, or dual. NpadJoyDeviceType: Left 0, Right 1; NpadJoyAssignmentMode: Dual 0, Single 1
  static void joy_assign(uint32_t id, int single, int keep) {
      if (id >= DM_PLAYERS) return;
-@@ -1788,7 +1830,7 @@ HLE_FORCE("_ZN2nn3hid12GetNpadStateEPNS0_16NpadJoyLeftStateERKj", "left Joy-Con
+@@ -1844,7 +1886,7 @@ HLE_FORCE("_ZN2nn3hid12GetNpadStateEPNS0_16NpadJoyLeftStateERKj", "left Joy-Con
  HLE_FORCE("_ZN2nn3hid12GetNpadStateEPNS0_17NpadJoyRightStateERKj", "right Joy-Con current state (not connected on the host)", void, h_hid_StateJoyRight, NpadState *s, const uint32_t *id) { fill(s, *id, STYLE_JOYRIGHT); }
  
  static uint32_t g_comm_mode, g_hh_mode;
@@ -106,7 +106,7 @@ index cfd411a..a3f98dd 100644
  HLE_FORCE("_ZN2nn3hid24GetSupportedNpadStyleSetEv", "supported controller styles: all", uint32_t, h_hid_GetStyles, void) { return atomic_load(&g_styles_supported); }
  HLE_FORCE("_ZN2nn3hid24GetNpadCommunicationModeEv", "wireless communication mode: returns the value that was set", int, h_hid_GetComm, void) { return (int)g_comm_mode; }
  HLE_FORCE("_ZN2nn3hid24SetNpadCommunicationModeENS0_21NpadCommunicationModeE", "wireless communication mode; the host only records it", void, h_hid_SetComm, int m) { g_comm_mode = (uint32_t)m; }
-@@ -1869,6 +1911,8 @@ static int touch_read(void *s, int N, int want) {
+@@ -1925,6 +1967,8 @@ static int touch_read(void *s, int N, int want) {
      return cnt;
  }
  void dm_hid_touch_teardown(void) {
@@ -116,10 +116,10 @@ index cfd411a..a3f98dd 100644
      memset(g_touch_hist, 0, sizeof g_touch_hist);
      g_touch_kept = g_touch_newest = g_touch_points = 0;
 diff --git a/dm/host/tests/t_hid.c b/dm/host/tests/t_hid.c
-index b59786e..5961bd9 100644
+index d6ef1c5..cbbe71b 100644
 --- a/dm/host/tests/t_hid.c
 +++ b/dm/host/tests/t_hid.c
-@@ -2005,6 +2005,86 @@ static void t_bind_gap(void) {
+@@ -2067,6 +2067,86 @@ static void t_bind_gap(void) {
      dm_pad_players(0x1); g_signals = 0; g_signalled = NULL;
  }
  
@@ -206,7 +206,7 @@ index b59786e..5961bd9 100644
  int main(void) {
      CHECK(setenv("DM_RUMBLE_LOG", "1", 1) == 0, "enable rumble diagnostics");
      setenv("DM_IMU_DELAY", "0", 1);   // the tests of the live history read it at the present; t_live_delay checks the playout delay
-@@ -2137,6 +2217,7 @@ int main(void) {
+@@ -2200,6 +2280,7 @@ int main(void) {
      }
      t_bind_gap();
      t_applet_input();

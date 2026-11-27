@@ -14,11 +14,11 @@ Reason: Let iOS players mix game audio with other apps without large-callback un
 Issue: LNPANDY/NX2Apple#1269
 ---
  dm/games/settings.tsv                      |   1 +
- dm/host/hle_audio.c                        | 227 +++++++++++++++++++--
- dm/host/tests/t_audio_stats.c              | 216 ++++++++++++++++++++
+ dm/host/hle_audio.c                        | 230 +++++++++++++++++++--
+ dm/host/tests/t_audio_stats.c              | 216 +++++++++++++++++++
  dm/ios/Sources/audio_session_policy.h      |  41 ++++
  dm/ios/Sources/front_ios.m                 |  22 +-
- dm/ios/tests/duo/Sources/DuoRuntimeStubs.m |   4 +-
+ dm/ios/tests/duo/Sources/DuoRuntimeStubs.m |   1 +
  dm/ios/tests/duo/Tests/DuoHarnessTests.m   |  41 +++-
  dm/ios/tests/test_audio_session_policy.py  | 108 ++++++++++
  dm/tools/tests/test_launcher_settings.py   |   2 +-
@@ -29,7 +29,7 @@ Issue: LNPANDY/NX2Apple#1269
  create mode 100644 dm/ios/tests/test_audio_session_policy.py
 
 diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
-index 5ef85e7..b0d63c0 100644
+index 2c4559f..04341f7 100644
 --- a/dm/games/settings.tsv
 +++ b/dm/games/settings.tsv
 @@ -28,6 +28,7 @@ DM_FULLSCREEN	choice	0=Window,1=Fullscreen	0	platform:mac	Game	Display mode		lev
@@ -41,7 +41,7 @@ index 5ef85e7..b0d63c0 100644
  DM_TOUCH_SIZE	choice	small=Small,medium=Medium,large=Large	medium	platform:ios	Controls	Size	The size of the on-screen controls. Controls move toward medium when a size does not fit the screen.
  DM_TOUCH_STICK	choice	corner=Corner,higher=Higher,inward=Inward	corner	platform:ios	Controls	Left stick	Where the left stick of the on-screen controls sits.
 diff --git a/dm/host/hle_audio.c b/dm/host/hle_audio.c
-index 422e687..c0d4450 100644
+index fce7391..f09bc9c 100644
 --- a/dm/host/hle_audio.c
 +++ b/dm/host/hle_audio.c
 @@ -17,6 +17,8 @@ enum { FMT_PCM16 = 2, STATE_STARTED = 0, STATE_STOPPED = 1, RATE = 48000, STAGED
@@ -69,7 +69,7 @@ index 422e687..c0d4450 100644
      uint64_t pos;                      // Bytes already played of the current block
      uint8_t staged[STAGED_FRAMES * sizeof(int16_t) * 8]; // Up to 10 ms of PCM for at most eight channels
      size_t staged_pos, staged_size;    // Owned by the active consumer, like pos
-@@ -67,6 +78,45 @@ static pthread_cond_t g_aos_cv __attribute__((section("__DATA,__dm_keep"))) = PT
+@@ -68,6 +79,45 @@ static pthread_cond_t g_aos_cv __attribute__((section("__DATA,__dm_keep"))) = PT
  static pthread_t g_wd_th;
  static int g_wd_on;
  static int g_suspended;
@@ -115,7 +115,7 @@ index 422e687..c0d4450 100644
  static aout *ao(const void *g) { aout *a = objmap_get(g); if (!a) die("AudioOut %p was not created by the host", g); return a; }
  // the call site as "module+offset"; "host" when the host itself calls (in-process audio renderer)
  static const char *site(void *lr, char *buf, size_t n) {
-@@ -105,6 +155,40 @@ static void *event_notify(void *p) {
+@@ -106,6 +156,40 @@ static void *event_notify(void *p) {
      return NULL;
  }
  
@@ -156,7 +156,7 @@ index 422e687..c0d4450 100644
  // Copy PCM to the active consumer and return buffers once the host no longer needs their memory.
  static void pull_pcm(aout *a, uint8_t *dst, uint64_t n, int stage_tail) {
      int released = 0;
-@@ -125,29 +209,39 @@ static void pull_pcm(aout *a, uint8_t *dst, uint64_t n, int stage_tail) {
+@@ -126,29 +210,39 @@ static void pull_pcm(aout *a, uint8_t *dst, uint64_t n, int stage_tail) {
              if (qh == qt && atomic_load_explicit(&a->state, memory_order_acquire) == STATE_STARTED) { atomic_fetch_add(&a->under_n, 1); atomic_fetch_add(&a->under_b, n); }
              memset(dst, 0, n); break; }
          aout_buf *b = a->q[qh & (QMAX - 1)];
@@ -204,7 +204,7 @@ index 422e687..c0d4450 100644
          }
      }
      uint32_t vb = atomic_load_explicit(&a->vol, memory_order_relaxed);
-@@ -236,8 +330,48 @@ static OSStatus au_render(void *ctx, AudioUnitRenderActionFlags *f, const AudioT
+@@ -237,8 +331,48 @@ static OSStatus au_render(void *ctx, AudioUnitRenderActionFlags *f, const AudioT
      if (atomic_load_explicit(&a->hold_device, memory_order_acquire)) {
          memset(bl->mBuffers[0].mData, 0, bl->mBuffers[0].mDataByteSize);
      } else {
@@ -255,15 +255,15 @@ index 422e687..c0d4450 100644
      }
      return noErr;
  }
-@@ -523,6 +657,7 @@ static void aout_free(aout *a) {
-     if (a->au) au_dispose(a->au);
+@@ -525,6 +659,7 @@ static void aout_free(aout *a) {
      dispatch_release(a->notify_sem);
      if (a->rel_sem) dispatch_release(a->rel_sem);
+     if (a->dump) fclose(a->dump);
 +    free(a->owned_pcm);
      pthread_mutex_destroy(&a->m); free(a);
  }
  // A HAL start can block for seconds. Each output keeps consuming on the silent sink while its
-@@ -675,9 +810,14 @@ static Result au_open_at(void *g, void *ev, const char *name, const uint8_t *par
+@@ -677,9 +812,14 @@ static Result au_open_at(void *g, void *ev, const char *name, const uint8_t *par
      pthread_mutex_init(&a->m, NULL); a->event = ev; a->ch = ch; a->dev_ch = ch;
      a->sink_pcm = source == AU_DEVICE_SINK;
      a->allow_early_release = source == AU_GUEST_AUDIO_OUT;
@@ -278,7 +278,7 @@ index 422e687..c0d4450 100644
      atomic_init(&a->null_run, 0); atomic_init(&a->notify_run, 1);
      atomic_init(&a->notify_pending, 0); atomic_init(&a->notify_armed, 0);
      atomic_init(&a->st_pending, 0);
-@@ -716,6 +856,7 @@ static Result au_start_at(void *g, void *lr) {
+@@ -720,6 +860,7 @@ static Result au_start_at(void *g, void *lr) {
      aout *a = ao(g);
      pthread_mutex_lock(&g_aos_lock);
      int was = atomic_exchange_explicit(&a->state, STATE_STARTED, memory_order_acq_rel);
@@ -286,12 +286,14 @@ index 422e687..c0d4450 100644
      au_note(a, was == STATE_STARTED ? "Start (already playing)" : g_suspended ? "Start (app in the background: the silent sink takes over for now)" : "Start", lr);
      if (was != STATE_STARTED) {
          null_start(a); au_request_start(a);
-@@ -736,15 +877,25 @@ static void au_release_pending(aout *a) {
+@@ -740,16 +881,26 @@ static bool au_release_pending(aout *a) {
      pthread_mutex_lock(&a->m);
      uint32_t qh = atomic_load_explicit(&a->q_head, memory_order_relaxed), qt = atomic_load_explicit(&a->q_tail, memory_order_acquire);
      uint32_t rr = atomic_load_explicit(&a->rel_head, memory_order_acquire), rw = atomic_load_explicit(&a->rel_tail, memory_order_relaxed);
--    int released = qh != qt;
-+    int released = 0;
+-    bool released = qh != qt;
+-    bool flushed = released || a->staged_pos != a->staged_size;
++    bool released = false;
++    bool flushed = (qh != qt) || a->staged_pos != a->staged_size;
      while (qh != qt) {
 -        if (rw - rr >= RELMAX) die("AudioOut released queue overflow while stopping");
 -        a->rel[rw++ & (RELMAX - 1)] = a->q[qh++ & (QMAX - 1)];
@@ -302,7 +304,7 @@ index 422e687..c0d4450 100644
 +        } else {
 +            if (rw - rr >= RELMAX) die("AudioOut released queue overflow while stopping");
 +            a->rel[rw++ & (RELMAX - 1)] = b;
-+            released = 1;
++            released = true;
 +        }
      }
 -    atomic_store_explicit(&a->q_head, qh, memory_order_release); a->pos = 0;
@@ -315,8 +317,8 @@ index 422e687..c0d4450 100644
 +    a->pos = 0; a->prebuf_need = 0; a->prebuf_holds = 0;
      pthread_mutex_unlock(&a->m);
      if (released) { if (a->event) notify_release(a); if (a->rel_sem) dispatch_semaphore_signal(a->rel_sem); }
- }
-@@ -782,7 +933,12 @@ HLE_FORCE("_ZN2nn5audio13CloseAudioOutEPNS0_8AudioOutE", "close the audio output
+     return flushed;
+@@ -804,7 +955,12 @@ HLE_FORCE("_ZN2nn5audio13CloseAudioOutEPNS0_8AudioOutE", "close the audio output
  HLE_FORCE("_ZN2nn5audio16GetAudioOutStateEPKNS0_8AudioOutE", "playback state", int, h_au_State, const void *g) { return atomic_load_explicit(&ao(g)->state, memory_order_acquire); }
  // Pokémon Legends: Z-A (SDK 19): Wwise's sink wakeup thread (main+0x30faae8) asks after every release event and marks the sink starved at 0; the SDK's own version read the audout session the host never made
  HLE_FORCE("_ZN2nn5audio22GetAudioOutBufferCountEPKNS0_8AudioOutE", "buffers appended and not yet played to the end (the one playing included)", unsigned, h_au_BufCount, const void *g) {
@@ -330,17 +332,18 @@ index 422e687..c0d4450 100644
  }
  HLE_FORCE("_ZN2nn5audio21GetAudioOutSampleRateEPKNS0_8AudioOutE", "sample rate", int, h_au_Rate, const void *g) { (void)ao(g); return RATE; }
  HLE_FORCE("_ZN2nn5audio23GetAudioOutChannelCountEPKNS0_8AudioOutE", "channel count", int, h_au_Ch, const void *g) { return ao(g)->ch; }
-@@ -805,12 +961,43 @@ HLE_FORCE("_ZN2nn5audio20AppendAudioOutBufferEPNS0_8AudioOutEPNS0_14AudioOutBuff
-     // cross-correlate the original game's audio against it (this is how the tier-one drop sound was verified). The file is opened only when the variable is set; when unset this costs only one extra cached check
-     { static FILE *df; static int on = -1; if (on < 0) { const char *e = getenv("DM_AUDIO_DUMP"); on = e != NULL; if (on && !(df = fopen(e, "wb"))) LOG("[RED] DM_AUDIO_DUMP cannot open %s", e); }
-       if (df && b && b->ptr && b->size) fwrite(b->ptr, 1, (size_t)b->size, df); }
+@@ -855,12 +1011,44 @@ static void audio_dump(aout *a, const aout_buf *b) {
+ }
+ HLE_FORCE("_ZN2nn5audio20AppendAudioOutBufferEPNS0_8AudioOutEPNS0_14AudioOutBufferE", "append a buffer to play", unsigned, h_au_Append, void *g, aout_buf *b) {
+     aout *a = ao(g);
 +    int early = 0;
      pthread_mutex_lock(&a->m);
      uint32_t qt = atomic_load_explicit(&a->q_tail, memory_order_relaxed);
      uint32_t qh = atomic_load_explicit(&a->q_head, memory_order_acquire);
      int ok = qt - qh < QMAX;
--    if (ok) { a->q[qt & (QMAX - 1)] = b; atomic_store_explicit(&a->q_tail, qt + 1, memory_order_release); }
+-    if (ok) { audio_dump(a, b); a->q[qt & (QMAX - 1)] = b; atomic_store_explicit(&a->q_tail, qt + 1, memory_order_release); }
 +    if (ok) {
++        audio_dump(a, b);
 +        size_t slot_cap = (size_t)OWNED_MAX_FRAMES * (size_t)a->ch * sizeof(int16_t);
 +        uint64_t target = atomic_load_explicit(&a->target_bytes, memory_order_acquire);
 +        uint64_t qbytes = atomic_load_explicit(&a->queued_bytes, memory_order_acquire);
@@ -375,7 +378,7 @@ index 422e687..c0d4450 100644
      return ok;      // bool: false when the queue is full (the real device has a limit too)
  }
  HLE_FORCE("_ZN2nn5audio25GetReleasedAudioOutBufferEPNS0_8AudioOutE", "get a played buffer; NULL if none", aout_buf *, h_au_Released, void *g) {
-@@ -818,7 +1005,12 @@ HLE_FORCE("_ZN2nn5audio25GetReleasedAudioOutBufferEPNS0_8AudioOutE", "get a play
+@@ -868,7 +1056,12 @@ HLE_FORCE("_ZN2nn5audio25GetReleasedAudioOutBufferEPNS0_8AudioOutE", "get a play
      pthread_mutex_lock(&a->m);
      uint32_t rr = atomic_load_explicit(&a->rel_head, memory_order_relaxed);
      uint32_t rw = atomic_load_explicit(&a->rel_tail, memory_order_acquire);
@@ -389,7 +392,7 @@ index 422e687..c0d4450 100644
      pthread_mutex_unlock(&a->m);
      return b;
  }
-@@ -1132,6 +1324,7 @@ void dm_audio_stop_all(void) {
+@@ -1182,6 +1375,7 @@ void dm_audio_stop_all(void) {
      pthread_t wd_th; int join_wd = 0;
      pthread_mutex_lock(&g_aos_lock);
      g_suspended = 2;
@@ -678,7 +681,7 @@ index 0000000..90bbb28
 +#endif
 +#endif
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index 328856a..740d1de 100644
+index a644557..ce4d977 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
 @@ -19,6 +19,7 @@
@@ -688,8 +691,8 @@ index 328856a..740d1de 100644
 +#import "audio_session_policy.h"
  
  void dm_gamepad_active(void);
- void dm_gamepad_pads_read(void);
-@@ -31,6 +32,7 @@
+ void dm_gamepad_inactive(void);
+@@ -32,6 +33,7 @@
  
  void front_ios_boot(void);
  int front_ios_boot_ok(void);
@@ -697,7 +700,7 @@ index 328856a..740d1de 100644
  const char *front_ios_boot_message(void);   // main.m: why a build that keeps the game files off the IPA found none usable (NULL = the generic hint)
  const char *front_ios_device_check(void);   // main.m: why this device cannot run the games (its GPU has no BC textures; NULL = supported)
  bool front_ios_hud_enabled_from_saved_choice(void);   // main.m: the saved choice enabled Metal's HUD at launch
-@@ -380,6 +382,14 @@ bool dm_setting_live(const char *env, const char *value) {
+@@ -400,6 +402,14 @@ bool dm_setting_live(const char *env, const char *value) {
      if (!strcmp(env, "DM_SHOW_FPS")) { if (value) [g_root showFPS:atoi(value) != 0]; return true; }
      if (!strcmp(env, "DM_TOUCH_HAPTICS")) { if (value) dm_gamepad_touch_feedback(atoi(value) != 0); return true; }
      if (!strcmp(env, "DM_RUMBLE")) { if (value) { dm_haptics_set_enabled(atoi(value) != 0); LOG("front end: game rumble %s (in-game menu)", atoi(value) ? "on" : "off"); } return true; }
@@ -712,7 +715,7 @@ index 328856a..740d1de 100644
      return false;
  }
  @implementation DmTVSceneDelegate
-@@ -641,7 +651,7 @@ void front_save_failed(int err) {
+@@ -661,7 +671,7 @@ void front_save_failed(int err) {
  
  // Audio session: the frames RemoteIO asks for in each callback follow the I/O buffer duration, about 21 ms by default on iOS (1024 frames at 48 kHz). The game keeps only 4 blocks × 5 ms = 20 ms in flight,
  // so every callback came up 1.3 ms short and was zero-filled, about 47 gaps per second (crackling; reproducible on the Mac by forcing 1024-frame callbacks: 1999 underruns in 2000 callbacks). Ask for 5 ms and the system picks the nearest it supports;
@@ -721,7 +724,7 @@ index 328856a..740d1de 100644
  // Set once at boot and again on return to the foreground (the system may reset it after an interruption)
  static int g_session_off;   // the last activation failed (another app or a call still held the session): tried again when the app becomes active
  // Six channels when the route takes them (HDMI, a multichannel interface or dock): the session's maximum is the route's, and it stays 2 on headphones, AirPods included.
-@@ -651,14 +661,20 @@ static void front_ios_audio_channels(AVAudioSession *s) {
+@@ -671,14 +681,20 @@ static void front_ios_audio_channels(AVAudioSession *s) {
      if (want > 2 && ![s setPreferredOutputNumberOfChannels:want error:&e]) LOG("[RED] audio session: %ld output channels could not be set: %s", (long)want, e.localizedDescription.UTF8String);
      LOG("audio session: route %s, output channels %ld (route maximum %ld)", s.currentRoute.outputs.firstObject.portType.UTF8String ?: "(none)", (long)s.outputNumberOfChannels, (long)most);
  }
@@ -745,27 +748,19 @@ index 328856a..740d1de 100644
  }
  // The channels the route takes now (hle_audio.c decides the output from it: six only when the session has six)
 diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-index d669c43..f29e8b8 100644
+index bc63699..886582c 100644
 --- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 +++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-@@ -106,6 +106,9 @@ void dm_haptics_apple_init(void) {}
- void dm_haptics_apple_controller(int player, GCController *controller) { (void)player; (void)controller; }
- 
- int front_web_touch(void) { return 0; }   // no offline web page above the synthetic game
-+void front_web_close(void) {}
-+void dm_host_teardown_for_shell(void) {}
+@@ -243,6 +243,7 @@ void dm_fstep_settle(void) {}
+ void dm_audio_suspend(int on) { (void)on; }
+ void dm_audio_reset(void) {}
+ void dm_audio_route_changed(void) {}
 +void dm_audio_io_buffer_hint(unsigned frames) { (void)frames; }
- int dm_locate_game_data(void) { return 1; }
- const struct dm_profile *dm_profile(void) {
-     static const struct dm_profile profile = {.name = "DuoHarness", .pad_layout = DM_GAME_PAD_LAYOUT};
-@@ -134,5 +137,4 @@ void dm_audio_route_changed(void) {}
- bool front_ios_hud_enabled_from_saved_choice(void) { return false; }
- void dm_cloud_saves_env(void) {}
- int save_sync_flush(int timeout_ms) { (void)timeout_ms; return 1; }
--int front_web_touch(void) { return 0; }
- void dm_host_shutdown(const char *why) { (void)why; }
+ int dm_audio_route(void) { return 2; }
+ void dm_movie_active(int active) { (void)active; }
+ void dm_focus_set(int state) { (void)state; }
 diff --git a/dm/ios/tests/duo/Tests/DuoHarnessTests.m b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
-index 92c4025..069c242 100644
+index dc8b3c2..46944ad 100644
 --- a/dm/ios/tests/duo/Tests/DuoHarnessTests.m
 +++ b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
 @@ -1,4 +1,5 @@
@@ -789,7 +784,7 @@ index 92c4025..069c242 100644
  
  static NSArray<GCController *> *gDuoHarnessControllers;
  static BOOL gDuoHarnessControllerSwizzleInstalled;
-@@ -824,7 +827,7 @@ - (void)testInGameMenuSettingsTakeEffectAtOnce {
+@@ -826,7 +829,7 @@ - (void)testInGameMenuSettingsTakeEffectAtOnce {
      [root.view layoutIfNeeded];
      UIView *game = [root valueForKey:@"game"];
      XCTAssertTrue(dm_setting_live("DM_PICTURE_FIT", NULL) && dm_setting_live("DM_OPMODE", NULL) && dm_setting_live("DM_RUMBLE", NULL)
@@ -798,7 +793,7 @@ index 92c4025..069c242 100644
      XCTAssertFalse(dm_setting_live("DM_LANG", NULL), @"A setting the game reads once at start is not offered");
      XCTAssertFalse(dm_setting_live("DM_FPS_TARGET", NULL));
  
-@@ -846,6 +849,42 @@ - (void)testInGameMenuSettingsTakeEffectAtOnce {
+@@ -850,6 +853,42 @@ - (void)testInGameMenuSettingsTakeEffectAtOnce {
      dm_setting_live("DM_SHOW_FPS", "0"); XCTAssertTrue(fps.hidden);
  }
  
@@ -956,7 +951,7 @@ index 0000000..270855c
 +if __name__ == "__main__":
 +    unittest.main()
 diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
-index e3d8ee4..5a10854 100644
+index 9f55007..a2ac62f 100644
 --- a/dm/tools/tests/test_launcher_settings.py
 +++ b/dm/tools/tests/test_launcher_settings.py
 @@ -108,7 +108,7 @@ class LauncherSettingsTests(unittest.TestCase):
@@ -966,7 +961,7 @@ index e3d8ee4..5a10854 100644
 -        self.assertEqual(set(ios) - set(mac), {'DM_SHOW_FPS', 'DM_TOUCH_HAPTICS', 'DM_ROTATION', 'DM_TOUCH_SIZE', 'DM_TOUCH_STICK'})
 +        self.assertEqual(set(ios) - set(mac), {'DM_SHOW_FPS', 'DM_TOUCH_HAPTICS', 'DM_ROTATION', 'DM_TOUCH_SIZE', 'DM_TOUCH_STICK', 'DM_AUDIO_MIX'})
          self.assertIn('DM_RUMBLE', mac); self.assertIn('DM_METAL_HUD', mac)
-         self.assertEqual(set(mac) - set(ios), {'DM_FULLSCREEN', 'DM_SW2', 'DM_NVN_ANISO'})   # Mac-only Display mode, Switch 2 controllers, and NVN texture filtering
+         self.assertEqual(set(mac) - set(ios), {'DM_FULLSCREEN', 'DM_NVN_ANISO'})   # Mac-only Display mode and NVN texture filtering
          self.assertNotIn('DM_NVN_ANISO', build('0100535012974000', 'vulkan', 'mac'))
 diff --git a/dm/tools/tests/test_player_env.py b/dm/tools/tests/test_player_env.py
 index a62565e..f0b35ca 100644
@@ -982,7 +977,7 @@ index a62565e..f0b35ca 100644
     "DM_TOUCH_HAPTICS","DM_RUMBLE","DM_SAVE","DM_ROMFS","DM_NVN_ENC_THREAD"};
   for(unsigned i=0;i<sizeof drop/sizeof *drop;i++)assert(dm_player_diagnostic_key(drop[i]));
 diff --git a/docs/settings.md b/docs/settings.md
-index bfaf7ff..c3f022d 100644
+index c1f6948..476518a 100644
 --- a/docs/settings.md
 +++ b/docs/settings.md
 @@ -3,7 +3,7 @@
@@ -1005,7 +1000,7 @@ index bfaf7ff..c3f022d 100644
  ## Controls
  
  **Microphone (Mac).** Apps that support microphone input have this switch off by default. Turn it on and press Play to grant macOS access. The first enabled launch can ask even if the settings window is hidden. Choose an input device while the switch is on. Microphone gain is under Advanced settings.
-@@ -253,7 +257,7 @@ Sets every setting back to the game's tested default; **Play** then forgets your
+@@ -257,7 +261,7 @@ Sets every setting back to the game's tested default; **Play** then forgets your
  
  ## The Mac settings window
  
@@ -1014,7 +1009,7 @@ index bfaf7ff..c3f022d 100644
  
  Click **Play** (or press Return) to start the game. **Quit**, ⌘Q or closing the window ends the app without the game. The app remembers your choices for that game, and a game started without the window, from a front end or with the window turned off, uses them too ([Saved choices](frontends.md#saved-choices)). A setting fixed by an `env.txt` or by the program that started the app is shown greyed out.
  
-@@ -283,7 +287,7 @@ iCloud Drive takes a moment to carry a file from one device to the other. Quit t
+@@ -287,7 +291,7 @@ Each time the game starts, with or without cloud saves, the save it starts from
  
  ## In-game menu
  
@@ -1023,7 +1018,7 @@ index bfaf7ff..c3f022d 100644
  
  Console mode changes as on a Switch put in or taken out of its dock. While a TV shows the game it stays **Docked**, and the mode you pick applies when the TV is disconnected. **Docked** removes the Tap layout, as a docked Switch reads no touch screen.
  
-@@ -308,6 +312,7 @@ A line like `DM_PRESENT_SNAP=0` in `Documents/env.txt` (in the Files app, under
+@@ -317,6 +321,7 @@ A line like `DM_PRESENT_SNAP=0` in `Documents/env.txt` (in the Files app, under
  | Picture shape | `DM_SCREEN_ASPECT` | On builds with screen-shape stubs, `auto` the app window's own shape where it is taller than 16:9 (iPad 4:3, iPhone Duo 1.43:1), else 16:9 (iOS only); `1.6` MacBook (16:10, Mac only); `1.43` the iPhone Duo's shape, `0` 16:9 |
  | Rotation (iPhone and iPad) | `DM_ROTATION` | `auto` as the device turns, `landscape`, `portrait` |
  | Frame-rate counter | `DM_SHOW_FPS` | `1`, `0` |

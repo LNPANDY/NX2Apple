@@ -13,10 +13,10 @@ Issue: LNPANDY/NX2Apple#221
  3 files changed, 13 insertions(+), 1 deletion(-)
 
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index 637bec2..a7aefc6 100644
+index 0555e7e..d2aa501 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
-@@ -1805,6 +1805,17 @@ void front_run(void (*guest)(void)) {
+@@ -1828,6 +1828,17 @@ void front_run(void (*guest)(void)) {
          if (getenv("DM_METAL_HUD") && atoi(getenv("DM_METAL_HUD"))) LOG("front end: Metal performance HUD on (DM_METAL_HUD)");
          v.layer = g_layer; [(DmGameView *)v fitDrawable];
          [win center];
@@ -35,7 +35,7 @@ index 637bec2..a7aefc6 100644
          screen_refresh(win.screen ?: NSScreen.mainScreen);
          layer_opaque_sync(win.screen ?: NSScreen.mainScreen, want_fs);
 diff --git a/docs/development.md b/docs/development.md
-index eecd51e..72d03da 100644
+index 43e3bb5..ccdd50f 100644
 --- a/docs/development.md
 +++ b/docs/development.md
 @@ -10,7 +10,7 @@ The README covers packing and playing. This page is for working on nxnative itse
@@ -48,13 +48,13 @@ index eecd51e..72d03da 100644
  | Known gaps | Conditional render is always drawn; [indirect-count multi-draws](reference/rendering.md#indirect-count-multi-draws) can wait for a GPU-written count when the records need conversion, cannot be GPU-masked, or exceed the mask table capacity; multi-viewport broadcast is not implemented. TBDR optimizations are off by default (they don't understand bindless textures yet). No amiibo. On the Mac, Mario's menu and dialogue text render blank (fine on the iPhone) |
  
 diff --git a/docs/frontends.md b/docs/frontends.md
-index 33e6802..58e3de4 100644
+index ff6aa38..79d5ab7 100644
 --- a/docs/frontends.md
 +++ b/docs/frontends.md
 @@ -89,6 +89,7 @@ Each app keeps the player's choices in its own preferences domain, its bundle ID
-   5. the tested defaults (the host's own, from the game's profile).
+   5. the bundle's tested defaults (`dm/launcher.json`, then the host's built-in fallbacks).
  - **Launch overrides are temporary.** A front end that starts the game with a variable in its environment overrides the saved choice for that start only. It writes the store only when the player means to keep the choice.
- - **`DM_SAVED_CHOICES=0`** (in the environment or an `env.txt`) starts with the tested defaults and leaves the saved choices as they are. **`DM_LAUNCHER=0`** only skips the settings screen (the iPhone's, or a Mac app's window): the saved choices still apply.
+ - **`DM_SAVED_CHOICES=0`** (in the environment or an `env.txt`) starts with the tested defaults and leaves the saved choices as they are. **`DM_LAUNCHER=0`** only skips the settings screen (the iPhone's, or a Mac app's window): saved choices and `dm/launcher.json` defaults still apply in the same order without writing the store.
 +- **`DM_SCREEN=<number>`** opens the Mac game's window on the screen with that `NSScreenNumber` (`CGDirectDisplayID`), centred, before any `DM_FULLSCREEN` request, so a front end can keep the game on its own display. An unknown number is ignored and logged. NX2Apple sets it to the screen of its own window.
  - **A sandboxed front end** cannot write another app's preferences domain; this store is for front ends outside the App Sandbox, as NX2Apple is.
  

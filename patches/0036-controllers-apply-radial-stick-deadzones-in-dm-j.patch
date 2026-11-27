@@ -22,10 +22,10 @@ Issue: LNPANDY/NX2Apple#1025
  3 files changed, 148 insertions(+), 8 deletions(-)
 
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index e630710..af7b0db 100644
+index 0d8bcc3..e608a35 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
-@@ -64,12 +64,16 @@ void dm_input_set(uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t
+@@ -65,12 +65,16 @@ void dm_input_set(uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t
      uint64_t old = atomic_exchange(&g_btn, buttons); atomic_fetch_or(&g_latch, buttons & ~old); atomic_fetch_or(&g_peek_latch, buttons & ~old); atomic_store(&g_axes, pack(lx, ly, rx, ry));
      shake_note(0);
  }
@@ -47,7 +47,7 @@ index e630710..af7b0db 100644
  }
  void dm_pad_set_player(int p, uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t ry) {
      if (p < 0 || p >= DM_PLAYERS) return;
-@@ -459,6 +463,7 @@ void dm_joy_attach(int p, uint32_t sides) {
+@@ -462,6 +466,7 @@ void dm_joy_attach(int p, uint32_t sides) {
  }
  void dm_joy_set(int p, int side, uint64_t buttons, int32_t sx, int32_t sy) {
      if (p < 0 || p >= DM_PLAYERS || (side != 0 && side != 1)) return;
@@ -56,10 +56,10 @@ index e630710..af7b0db 100644
      atomic_store(&g_joy_axes[p][side], pack(sx, sy, 0, 0));
  }
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index c1c3b19..3a1d548 100644
+index 045ee9f..8f6b59f 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
-@@ -103,6 +103,7 @@ run: $(B)/t_mii $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_siz
+@@ -105,6 +105,7 @@ run: $(B)/t_mii $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_siz
  	$(B)/t_pad_map
  	$(B)/t_pad_motion
  	$(B)/t_controllers_mac
@@ -67,7 +67,7 @@ index c1c3b19..3a1d548 100644
  run: $(B)/t_nro
  run: $(B)/t_album
  $(B)/t_album: t_album.c ../hle_album.c ../hle.h ../dm.h $(GAME_H) ../hle_profile.c ../hle_profile.h | $(B)
-@@ -594,8 +595,8 @@ profile-runtime: $(B)/t_profile_runtime
+@@ -605,8 +606,8 @@ profile-runtime: $(B)/t_profile_runtime
  	TMPDIR="$(abspath $(B))" $(B)/t_profile_runtime
  
  run: $(B)/t_pad_map $(B)/t_pad_motion $(B)/t_controllers_mac $(B)/t_stick_deadzone

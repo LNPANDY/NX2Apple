@@ -10,34 +10,33 @@ Upstream-Status: pending
 Reason: Fix SIGSEGV in bs_free on active bigstack, SIGTRAP in AudRen/AudioOut shell teardown, route guest exit back to shell, reset GL state on teardown, and add - + + 2s hold to quit
 Issue: LNPANDY/NX2Apple#1314
 ---
- dm/gfx/gl/hle_gl.m                         |  65 +++-
- dm/host/dm.h                               |   7 +-
- dm/host/hle_audio.c                        | 388 +++++++++++++++++----
- dm/host/hle_audren.c                       |  86 ++++-
- dm/host/hle_bigstack.c                     |  52 ++-
- dm/host/hle_lifecycle.c                    |  46 ++-
- dm/host/hle_svc.c                          |  15 +
- dm/host/hle_thread.c                       |  10 +
- dm/host/home_quit.h                        |   5 +
- dm/host/tests/Makefile                     |   2 +-
- dm/host/tests/t_audio.c                    | 308 +++++++++++++++-
- dm/host/tests/t_audio_spsc.c               | 109 +++++-
- dm/host/tests/t_audren_layout.c            |   1 +
- dm/host/tests/t_audren_work.c              |   1 +
- dm/host/tests/t_bigstack.c                 |  29 ++
- dm/host/tests/t_home_quit.c                |   9 +
- dm/ios/Sources/DmGamepad.m                 | 122 ++++++-
- dm/ios/Sources/front_ios.m                 |  47 ++-
- dm/ios/framework/ShellGlue.h               |   1 +
- dm/ios/framework/ShellGlue.m               |   4 +
- dm/ios/tests/duo/Sources/DuoRuntimeStubs.m |   1 -
- 21 files changed, 1176 insertions(+), 132 deletions(-)
+ dm/gfx/gl/hle_gl.m              |  48 ++--
+ dm/host/dm.h                    |   7 +-
+ dm/host/hle_audio.c             | 397 ++++++++++++++++++++++++++------
+ dm/host/hle_audren.c            |  86 +++++--
+ dm/host/hle_bigstack.c          |  52 ++++-
+ dm/host/hle_lifecycle.c         |  46 +++-
+ dm/host/hle_svc.c               |  15 ++
+ dm/host/hle_thread.c            |  10 +
+ dm/host/home_quit.h             |   5 +
+ dm/host/tests/Makefile          |   2 +-
+ dm/host/tests/t_audio.c         | 307 +++++++++++++++++++++++-
+ dm/host/tests/t_audio_spsc.c    | 109 ++++++++-
+ dm/host/tests/t_audren_layout.c |   1 +
+ dm/host/tests/t_audren_work.c   |   1 +
+ dm/host/tests/t_bigstack.c      |  29 +++
+ dm/host/tests/t_home_quit.c     |   9 +
+ dm/ios/Sources/DmGamepad.m      | 122 +++++++++-
+ dm/ios/Sources/front_ios.m      |  47 +++-
+ dm/ios/framework/ShellGlue.h    |   1 +
+ dm/ios/framework/ShellGlue.m    |   4 +
+ 20 files changed, 1168 insertions(+), 130 deletions(-)
 
 diff --git a/dm/gfx/gl/hle_gl.m b/dm/gfx/gl/hle_gl.m
-index 3b3c16f..87ff55f 100644
+index fede774..ddf558b 100644
 --- a/dm/gfx/gl/hle_gl.m
 +++ b/dm/gfx/gl/hle_gl.m
-@@ -295,7 +295,12 @@ static void dev_init_once(void) {
+@@ -354,7 +354,12 @@ static void dev_init_once(void) {
          GLOG("Metal device %s; %d shader table entries", g_dev.name.UTF8String, g_nsh);
      }
  }
@@ -51,47 +50,24 @@ index 3b3c16f..87ff55f 100644
  
  // ---------- Command buffers ----------
  // Transient memory (converted indices, staging for blits, large uniform blocks): bump allocation in 4 MB shared buffers, each reused once the command buffer that last used it completed
-@@ -2116,7 +2121,15 @@ static void ubo_bind(GLenum target, GLuint index, GLuint b, GLintptr off, GLsize
-     }
-     if (!timeout_ns) return GL_TIMEOUT_EXPIRED;
+@@ -2280,7 +2285,15 @@ static int sync_wait(id<MTLSharedEvent> event, uint64_t serial, uint64_t timeout
+     if (event.signaledValue >= serial) return 1;
+     if (!timeout_ns || !event) return 0;
      uint64_t ms = timeout_ns / 1000000;
--    return [g_ev waitUntilSignaledValue:s->serial timeoutMS:ms ? ms : 1] ? GL_CONDITION_SATISFIED : GL_TIMEOUT_EXPIRED;
+-    return [event waitUntilSignaledValue:serial timeoutMS:ms ? ms : 1];
 +    if (!ms) ms = 1;
 +    for (;;) {
 +        dm_teardown_check_current_thread();
 +        uint64_t step = ms > 10 ? 10 : ms;
-+        if ([g_ev waitUntilSignaledValue:s->serial timeoutMS:step]) return GL_CONDITION_SATISFIED;
++        if ([event waitUntilSignaledValue:serial timeoutMS:step]) return 1;
 +        if (dm_teardown_is_parking()) dm_teardown_check_current_thread();
-+        if (ms <= step) return GL_TIMEOUT_EXPIRED;
++        if (ms <= step) return 0;
 +        ms -= step;
 +    }
  }
- GL(glGenVertexArrays, void, GLsizei n, GLuint *out) { for (GLsizei i = 0; i < n; i++) out[i] = name_new((void ***)&g_vaos, &g_nvaos, &g_capvaos, sizeof(vao_t)); }
- GL(glDeleteVertexArrays, void, GLsizei n, const GLuint *v) { for (GLsizei i = 0; i < n; i++) if (v[i] && v[i] < g_nvaos && g_vaos[v[i]]) { free(g_vaos[v[i]]); g_vaos[v[i]] = NULL; if (S.vao == v[i]) S.vao = 0; } }
-@@ -3750,8 +3763,9 @@ static void frame_end(void) {
- static int g_cur_key_ok __attribute__((section("__DATA,__dm_keep")));
- static void cur_release(void *binding) { pthread_mutex_lock(&g_cur_mu); if (g_cur_owner == binding) g_cur_owner = NULL; pthread_mutex_unlock(&g_cur_mu); }
- static void cur_key_init(void) { g_cur_key_ok = pthread_key_create(&g_cur_key, cur_release) == 0; }
-+static pthread_t g_mc_th;   // the thread a context was last made current on, and whether the first drawable sized it (reset by dm_gl_teardown)
-+static int g_mc_known, g_mc_sized;
- EGL(eglMakeCurrent, EGLBoolean, EGLDisplay d, EGLSurface dr, EGLSurface rd, EGLContext c) {
--    static pthread_t th; static int known, sized;
-     pthread_once(&g_cur_once, cur_key_init);
-     if (!g_cur_key_ok) { t_egl_error = 0x3003; return EGL_FALSE; }   // BAD_ALLOC
-     pthread_mutex_lock(&g_cur_mu);
-@@ -3760,9 +3774,9 @@ static void frame_end(void) {
-         if (pthread_setspecific(g_cur_key, &t_cur)) { pthread_mutex_unlock(&g_cur_mu); t_egl_error = 0x3003; return EGL_FALSE; }
-         g_cur_owner = &t_cur; t_cur.dpy = d; t_cur.ctx = c; t_cur.draw = dr; t_cur.read = rd;
-     } else { if (g_cur_owner == &t_cur) g_cur_owner = NULL; pthread_setspecific(g_cur_key, NULL); memset(&t_cur, 0, sizeof t_cur); }
--    if (c && dr) { pthread_t me = pthread_self(); if (!known || !pthread_equal(th, me)) { th = me; known = 1; OLOG("context current on a new thread"); } }
-+    if (c && dr) { pthread_t me = pthread_self(); if (!g_mc_known || !pthread_equal(g_mc_th, me)) { g_mc_th = me; g_mc_known = 1; OLOG("context current on a new thread"); } }
-     // a context's viewport and scissor box start as its first drawable's size (LÖVE reads them back at start)
--    if (c && dr && !sized && g_win.made) { sized = 1; if (!S.vp[2] && !S.vp[3]) { S.vp[2] = S.sc[2] = g_win.w; S.vp[3] = S.sc[3] = g_win.h; } }
-+    if (c && dr && !g_mc_sized && g_win.made) { g_mc_sized = 1; if (!S.vp[2] && !S.vp[3]) { S.vp[2] = S.sc[2] = g_win.w; S.vp[3] = S.sc[3] = g_win.h; } }
-     pthread_mutex_unlock(&g_cur_mu);
-     return EGL_TRUE;
- }
-@@ -3799,25 +3813,33 @@ static void renderprogs_job(void) {
+ int dm_gl_wait_serial(uint64_t serial, uint64_t timeout_ns) { return sync_wait(g_ev, serial, timeout_ns); }
+ GLB(glFenceSync, void *, GLenum cond, GLbitfield flags) {
+@@ -4331,26 +4344,34 @@ static void renderprogs_job(void) {
  static uint64_t g_next_swap;   // pacing without the display link: the earliest time of the next swap
  EGL(eglSwapBuffers, EGLBoolean, EGLDisplay d, EGLSurface s) {
      (void)d; (void)s;
@@ -105,6 +81,7 @@ index 3b3c16f..87ff55f 100644
          uint64_t v = cb_commit();
 -        int vs = S.swap_interval < 1 ? 1 : S.swap_interval > 4 ? 4 : S.swap_interval;
 +        vs = S.swap_interval < 1 ? 1 : S.swap_interval > 4 ? 4 : S.swap_interval;
+         mtl_set_origin_lower_left(1);   // the window image is stored bottom row first
          int k = g_win.cur;
          g_win.ticket[k] = mtl_present_ext(g_win.serial[k], vs / 60.0, (__bridge void *)g_ev, v, NULL);
 -        g_win.cur = (k + 1) % NWIN;
@@ -135,7 +112,7 @@ index 3b3c16f..87ff55f 100644
      frame_end();
      renderprogs_job();
      return EGL_TRUE;
-@@ -3924,7 +3946,7 @@ void dm_gl_teardown(void) { @autoreleasepool {
+@@ -4480,7 +4501,7 @@ void dm_gl_teardown(void) { @autoreleasepool {
      g_nclr_cache = 0;
  
      for (int i = 0; i < NWIN; i++) { g_win.col[i] = g_win.srgb_rt[i] = nil; g_win.serial[i] = g_win.ticket[i] = 0; }
@@ -144,27 +121,16 @@ index 3b3c16f..87ff55f 100644
  
      for (int i = 0; i < g_nsh; i++) { free(g_sh[i].a); free(g_sh[i].u); free(g_sh[i].t); free(g_sh[i].b); }
      free(g_sh); g_sh = NULL; g_nsh = 0;
-@@ -3954,7 +3976,18 @@ void dm_gl_teardown(void) { @autoreleasepool {
- #endif
-     g_capture_dir = g_capture_compiler = NULL;
-     memset(&P, 0, sizeof P); enc_reset(); memset(&g_pend_clear, 0, sizeof g_pend_clear);
-+    S = (__typeof__(S)){.cmask = {0xf, 0xf, 0xf, 0xf, 0xf, 0xf, 0xf, 0xf}, .default_draw = 1, .default_read = 1,
-+                        .dmask = 1, .dfunc = 0x201, .cull_face = GL_BACK, .front = GL_CCW, .bsrc = 1, .bdst = 0, .bsa = 1, .bda = 0, .eqc = GL_FUNC_ADD, .eqa = GL_FUNC_ADD,
-+                        .st = {STFACE0, STFACE0}, .clear_d = 1, .unpack_align = 4, .pack_align = 4,
-+                        .swap_interval = 1, .psize = 1, .sample_mask = UINT32_MAX,
-+                        .va = {{0, 0, 0, 1}, {0, 0, 0, 1}, {0, 0, 0, 1}, {0, 0, 0, 1}, {0, 0, 0, 1}, {0, 0, 0, 1}, {0, 0, 0, 1}, {0, 0, 0, 1},
-+                               {0, 0, 0, 1}, {0, 0, 0, 1}, {0, 0, 0, 1}, {0, 0, 0, 1}, {0, 0, 0, 1}, {0, 0, 0, 1}, {0, 0, 0, 1}, {0, 0, 0, 1}}};
-     g_gl_error = 0; g_compiles = 0;
-+    memset(&g_mc_th, 0, sizeof g_mc_th);
-+    g_mc_known = g_mc_sized = 0;
-+    pthread_mutex_lock(&g_cur_mu); g_cur_owner = NULL; pthread_mutex_unlock(&g_cur_mu);   // the next game's thread may make the context current
-+    g_next_swap = 0;
+@@ -4514,6 +4535,7 @@ void dm_gl_teardown(void) { @autoreleasepool {
+     g_next_surface = 3;
+     g_next_handle = 2;
+     g_next_swap = 0;
 +    g_frames = 0;
+     g_renderprogs_done = 0;
  
-     g_lib = nil; g_util = nil; g_read_bc_pso = nil;
-     g_samp0 = nil;
+ #if TARGET_OS_OSX
 diff --git a/dm/host/dm.h b/dm/host/dm.h
-index 87cd4b7..5132d84 100644
+index 6139a82..b8a48b8 100644
 --- a/dm/host/dm.h
 +++ b/dm/host/dm.h
 @@ -305,5 +305,10 @@ void dm_gfx_shot_at(long k, const char *path);   // graphics side: screenshot of
@@ -180,10 +146,10 @@ index 87cd4b7..5132d84 100644
 +int  dm_teardown_is_guest_thread(void);
 +void dm_teardown_park_self(void);
 diff --git a/dm/host/hle_audio.c b/dm/host/hle_audio.c
-index c0d4450..e363de2 100644
+index f09bc9c..21cbb9b 100644
 --- a/dm/host/hle_audio.c
 +++ b/dm/host/hle_audio.c
-@@ -66,6 +66,9 @@ typedef struct {
+@@ -67,6 +67,9 @@ typedef struct {
      uint64_t wd_n, wd_t;               // watchdog: callback count last seen and when it last moved (under g_aos_lock)
      uint64_t route_until;              // allow the device switch to settle before intervening (under g_aos_lock)
      int stalled, retry_ms; uint64_t retry_at;   // the device stopped calling back (or would not start): the silent sink stands in and the watchdog retries the AudioUnit at retry_at, backing off
@@ -193,7 +159,7 @@ index c0d4450..e363de2 100644
  } aout;
  
  // Registry of open outputs: suspended / resumed all at once by the front-end lifecycle (going to background).
-@@ -77,6 +80,7 @@ static pthread_mutex_t g_aos_lock __attribute__((section("__DATA,__dm_keep"))) =
+@@ -78,6 +81,7 @@ static pthread_mutex_t g_aos_lock __attribute__((section("__DATA,__dm_keep"))) =
  static pthread_cond_t g_aos_cv __attribute__((section("__DATA,__dm_keep"))) = PTHREAD_COND_INITIALIZER;
  static pthread_t g_wd_th;
  static int g_wd_on;
@@ -201,7 +167,7 @@ index c0d4450..e363de2 100644
  static int g_suspended;
  static _Atomic uint32_t g_io_buffer_hint_frames;
  
-@@ -118,6 +122,16 @@ void dm_audio_io_buffer_hint(unsigned frames) {
+@@ -119,6 +123,16 @@ void dm_audio_io_buffer_hint(unsigned frames) {
      pthread_mutex_unlock(&g_aos_lock);
  }
  static aout *ao(const void *g) { aout *a = objmap_get(g); if (!a) die("AudioOut %p was not created by the host", g); return a; }
@@ -218,13 +184,14 @@ index c0d4450..e363de2 100644
  // the call site as "module+offset"; "host" when the host itself calls (in-process audio renderer)
  static const char *site(void *lr, char *buf, size_t n) {
      module_t *m = lr ? module_of(lr) : NULL;
-@@ -654,11 +668,34 @@ static void au_replace(aout *a, int route) {
+@@ -655,12 +669,35 @@ static void au_replace(aout *a, int route) {
      a->reset_pending = 0;
  }
  static void aout_free(aout *a) {
 -    if (a->au) au_dispose(a->au);
 -    dispatch_release(a->notify_sem);
 -    if (a->rel_sem) dispatch_release(a->rel_sem);
+-    if (a->dump) fclose(a->dump);
 -    free(a->owned_pcm);
 -    pthread_mutex_destroy(&a->m); free(a);
 +    if (!a || atomic_exchange_explicit(&a->freed, 1, memory_order_acq_rel)) return;
@@ -249,6 +216,7 @@ index c0d4450..e363de2 100644
 +            a->early_rel[a->early_head & (RELMAX - 1)] = NULL;
 +        }
 +    }
++    if (a->dump) { fclose(a->dump); a->dump = NULL; }
 +    free(a->owned_pcm); a->owned_pcm = NULL;
 +    if (au) au_dispose(au);
 +    if (notify_sem) dispatch_release(notify_sem);
@@ -258,7 +226,7 @@ index c0d4450..e363de2 100644
  }
  // A HAL start can block for seconds. Each output keeps consuming on the silent sink while its
  // own start is in flight. Stop/suspend cancel it without waiting; Close leaves the unit and the output to this worker.
-@@ -686,7 +723,7 @@ static void au_start_device(void *p) {
+@@ -688,7 +725,7 @@ static void au_start_device(void *p) {
      pthread_mutex_unlock(&g_aos_lock);
  }
  static void au_request_start(aout *a) {
@@ -267,7 +235,7 @@ index c0d4450..e363de2 100644
      a->start_phase = AU_STARTING;
      dispatch_async_f(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), a, au_start_device);
  }
-@@ -772,8 +809,8 @@ static void *au_watchdog(void *p) {
+@@ -774,8 +811,8 @@ static void *au_watchdog(void *p) {
          ts.tv_nsec += WD_TICK_MS * 1000000L;
          if (ts.tv_nsec >= 1000000000L) { ts.tv_sec++; ts.tv_nsec -= 1000000000L; }
          pthread_mutex_lock(&g_aos_lock);
@@ -278,7 +246,7 @@ index c0d4450..e363de2 100644
          uint64_t t = now_ns(), gap = t - last; last = t;
          for (int i = 0; i < AOMAX; i++) {
              aout *a = g_aos[i]; if (!a || !a->au) continue;
-@@ -797,7 +834,7 @@ HLE_FORCE("_ZN2nn5audio13ListAudioOutsEPNS0_12AudioOutInfoEi", "audio output dev
+@@ -799,7 +836,7 @@ HLE_FORCE("_ZN2nn5audio13ListAudioOutsEPNS0_12AudioOutInfoEi", "audio output dev
  // middleware that checks the first word before it stops and closes its output skipped the close while the host left it zero, freed the PCM buffers and the host's consumer read freed memory (Luigi's Mansion 3, PR #109)
  static void au_info(void *g, int ch, int state) { uint32_t *f = g; f[0] = RATE; f[1] = (uint32_t)ch; f[2] = FMT_PCM16; f[3] = (uint32_t)state; }
  static void route_sync(int route, int moved);
@@ -287,7 +255,7 @@ index c0d4450..e363de2 100644
      static _Atomic int nopen;
      int ch = *(const uint16_t *)(param + 4); int rate = *(const int32_t *)param;
      if (!ch) ch = 2;
-@@ -810,9 +847,11 @@ static Result au_open_at(void *g, void *ev, const char *name, const uint8_t *par
+@@ -812,9 +849,11 @@ static Result au_open_at(void *g, void *ev, const char *name, const uint8_t *par
      pthread_mutex_init(&a->m, NULL); a->event = ev; a->ch = ch; a->dev_ch = ch;
      a->sink_pcm = source == AU_DEVICE_SINK;
      a->allow_early_release = source == AU_GUEST_AUDIO_OUT;
@@ -299,7 +267,7 @@ index c0d4450..e363de2 100644
      atomic_init(&a->state, STATE_STOPPED); atomic_init(&a->vol, 0x3f800000u);
      atomic_init(&a->q_head, 0); atomic_init(&a->q_tail, 0); atomic_init(&a->q_played, 0);
      atomic_init(&a->rel_head, 0); atomic_init(&a->rel_tail, 0);
-@@ -821,7 +860,9 @@ static Result au_open_at(void *g, void *ev, const char *name, const uint8_t *par
+@@ -823,7 +862,9 @@ static Result au_open_at(void *g, void *ev, const char *name, const uint8_t *par
      atomic_init(&a->null_run, 0); atomic_init(&a->notify_run, 1);
      atomic_init(&a->notify_pending, 0); atomic_init(&a->notify_armed, 0);
      atomic_init(&a->st_pending, 0);
@@ -310,10 +278,10 @@ index c0d4450..e363de2 100644
      pthread_create(&a->notify_th, NULL, event_notify, a);
      if (ev) hle_bind_system_event(ev, 1);   // Buffer release event: bind a kernel event on the guest thread (auto-clear), afterwards signaled by the audio thread
      char sb[64]; int use_au = real_audio();
-@@ -829,19 +870,21 @@ static Result au_open_at(void *g, void *ev, const char *name, const uint8_t *par
-     // The helper finishes (and is joined) before lifecycle/watchdog readers can find this output.
-     // Keep construction outside g_aos_lock: joining the helper can yield the guest core.
+@@ -833,19 +874,21 @@ static Result au_open_at(void *g, void *ev, const char *name, const uint8_t *par
      if (use_au) au_open(a);
+     // Latch the dump channel count before publication: DeviceSink blocks pack 6 surround channels plus their 2-channel stereo fold, so audio_dump picks the opening route's representation
+     a->dump_ch = a->sink_pcm ? (a->au && a->dev_ch == 6 ? 6 : 2) : a->ch;
 -    objmap_put(g, a);
 +    au_info(g, ch, STATE_STOPPED);
      pthread_mutex_lock(&g_aos_lock);
@@ -335,7 +303,7 @@ index c0d4450..e363de2 100644
  HLE_FORCE("_ZN2nn5audio12OpenAudioOutEPNS0_8AudioOutEPNS_2os11SystemEventEPKcRKNS0_17AudioOutParameterE", "connect to the audout service; host AudioUnit / silent sink",
            Result, h_au_Open, void *g, void *ev, const char *name, const uint8_t *param) { return au_open_at(g, ev, name, param, dm_bigstack_caller(__builtin_return_address(0)), AU_GUEST_AUDIO_OUT); }
  // The two default-device overloads (Engage, SDK 12): as OpenAudioOut with the default device name; the overload without an event binds no release event (the game polls GetReleasedAudioOutBuffer)
-@@ -853,8 +896,13 @@ HLE_FORCE("_ZN2nn5audio19OpenDefaultAudioOutEPNS0_8AudioOutEPNS_2os11SystemEvent
+@@ -857,8 +900,13 @@ HLE_FORCE("_ZN2nn5audio19OpenDefaultAudioOutEPNS0_8AudioOutEPNS_2os11SystemEvent
  HLE_FORCE("_ZN2nn5audio19OpenDefaultAudioOutEPNS0_8AudioOutERKNS0_17AudioOutParameterE", "connect to the audout service (default device, no event); same as OpenAudioOut",
            Result, h_au_OpenDef0, void *g, const uint8_t *param) { return au_open_at(g, NULL, NULL, param, dm_bigstack_caller(__builtin_return_address(0)), AU_GUEST_AUDIO_OUT); }
  static Result au_start_at(void *g, void *lr) {
@@ -350,9 +318,9 @@ index c0d4450..e363de2 100644
      int was = atomic_exchange_explicit(&a->state, STATE_STARTED, memory_order_acq_rel);
      au_sync_mix_hint(a);
      au_note(a, was == STATE_STARTED ? "Start (already playing)" : g_suspended ? "Start (app in the background: the silent sink takes over for now)" : "Start", lr);
-@@ -899,29 +947,41 @@ static void au_release_pending(aout *a) {
-     pthread_mutex_unlock(&a->m);
+@@ -905,21 +953,34 @@ static bool au_release_pending(aout *a) {
      if (released) { if (a->event) notify_release(a); if (a->rel_sem) dispatch_semaphore_signal(a->rel_sem); }
+     return flushed;
  }
 -static void au_stop_at(void *g, void *lr) {   // lr NULL: the stop inside Close, not logged separately
 -    aout *a = ao(g);
@@ -376,6 +344,22 @@ index c0d4450..e363de2 100644
      pthread_mutex_unlock(&g_aos_lock);
  }
  HLE_FORCE("_ZN2nn5audio12StopAudioOutEPNS0_8AudioOutE", "stop playback", void, h_au_Stop, void *g) { au_stop_at(g, dm_bigstack_caller(__builtin_return_address(0))); }
+ // audout flushes a started output. Quiesce its consumer before returning descriptors and dropping staged PCM, then resume with the same guest playback state.
+ HLE_FORCE("_ZN2nn5audio20FlushAudioOutBuffersEPNS0_8AudioOutE", "flush queued audio while playing", bool, h_au_Flush, void *g) {
+-    aout *a = ao(g);
+     pthread_mutex_lock(&g_aos_lock);
++    aout *a = ao_find_locked(g);
++    if (!a) {
++        pthread_mutex_unlock(&g_aos_lock);
++        if (!au_was_opened(g)) die("AudioOut %p was not created by the host", g);
++        return false;
++    }
+     bool flushed = false;
+     if (atomic_load_explicit(&a->state, memory_order_acquire) == STATE_STARTED && queued_pcm_blocks(a)) {
+         au_halt(a);
+@@ -932,18 +993,22 @@ HLE_FORCE("_ZN2nn5audio20FlushAudioOutBuffersEPNS0_8AudioOutE", "flush queued au
+     return flushed;
+ }
  static void au_close(void *g, void *lr) {
 -    au_note(ao(g), "Close", lr);
 -    au_stop_at(g, NULL);
@@ -393,6 +377,7 @@ index c0d4450..e363de2 100644
      atomic_store_explicit(&a->notify_run, 0, memory_order_release);
      dispatch_semaphore_signal(a->notify_sem);
      pthread_join(a->notify_th, NULL);
+     if (a->dump) { fclose(a->dump); a->dump = NULL; }
 -    audio_report report;
 +    // Mark closed only after notify_th joins: otherwise au_start_device() can free `a` mid-join.
      pthread_mutex_lock(&g_aos_lock);
@@ -402,7 +387,7 @@ index c0d4450..e363de2 100644
      int in_flight = a->start_phase == AU_CANCELED;
      a->closed = in_flight; a->reset_pending = 0;
      pthread_mutex_unlock(&g_aos_lock);
-@@ -930,33 +990,78 @@ static void au_close(void *g, void *lr) {
+@@ -952,26 +1017,72 @@ static void au_close(void *g, void *lr) {
      au_info(g, ch, STATE_STOPPED);
  }
  HLE_FORCE("_ZN2nn5audio13CloseAudioOutEPNS0_8AudioOutE", "close the audio output", void, h_au_Close, void *g) { au_close(g, dm_bigstack_caller(__builtin_return_address(0))); }
@@ -487,15 +472,17 @@ index c0d4450..e363de2 100644
  }
  
  // The buffer descriptor functions (both SetAudioOutBufferInfo overloads, GetAudioOutBufferDataPointer / BufferSize / DataSize) only fill and read the game's own struct and run in
- // the sdk, as AudioIn's do: aout_buf (hle.h) is that struct, so the host reads what they wrote. Until 2026-11 the host took three of them over to keep a private layout, and the ones
- // it left (GetAudioOutBufferBufferSize, the overload without a buffer size) read it wrong (docs/reference/audio.md)
+@@ -1009,8 +1120,7 @@ static void audio_dump(aout *a, const aout_buf *b) {
+         src += n * DM_AUDIO_SINK_CHANNELS; frames -= n;
+     }
+ }
 -HLE_FORCE("_ZN2nn5audio20AppendAudioOutBufferEPNS0_8AudioOutEPNS0_14AudioOutBufferE", "append a buffer to play", unsigned, h_au_Append, void *g, aout_buf *b) {
 -    aout *a = ao(g);
 +static unsigned au_append(aout *a, aout_buf *b) {
-     // Diagnostic switch DM_AUDIO_DUMP=<file>: every PCM block the game appends is written out as is (16-bit, 48 kHz, channel count per the OpenAudioOut log, usually 6). Used to judge "did a given sound play or not":
-     // cross-correlate the original game's audio against it (this is how the tier-one drop sound was verified). The file is opened only when the variable is set; when unset this costs only one extra cached check
-     { static FILE *df; static int on = -1; if (on < 0) { const char *e = getenv("DM_AUDIO_DUMP"); on = e != NULL; if (on && !(df = fopen(e, "wb"))) LOG("[RED] DM_AUDIO_DUMP cannot open %s", e); }
-@@ -1000,8 +1105,16 @@ HLE_FORCE("_ZN2nn5audio20AppendAudioOutBufferEPNS0_8AudioOutEPNS0_14AudioOutBuff
+     int early = 0;
+     pthread_mutex_lock(&a->m);
+     uint32_t qt = atomic_load_explicit(&a->q_tail, memory_order_relaxed);
+@@ -1051,8 +1161,16 @@ HLE_FORCE("_ZN2nn5audio20AppendAudioOutBufferEPNS0_8AudioOutEPNS0_14AudioOutBuff
      }
      return ok;      // bool: false when the queue is full (the real device has a limit too)
  }
@@ -514,7 +501,7 @@ index c0d4450..e363de2 100644
      pthread_mutex_lock(&a->m);
      uint32_t rr = atomic_load_explicit(&a->rel_head, memory_order_relaxed);
      uint32_t rw = atomic_load_explicit(&a->rel_tail, memory_order_acquire);
-@@ -1014,6 +1127,14 @@ HLE_FORCE("_ZN2nn5audio25GetReleasedAudioOutBufferEPNS0_8AudioOutE", "get a play
+@@ -1065,6 +1183,14 @@ HLE_FORCE("_ZN2nn5audio25GetReleasedAudioOutBufferEPNS0_8AudioOutE", "get a play
      pthread_mutex_unlock(&a->m);
      return b;
  }
@@ -529,7 +516,7 @@ index c0d4450..e363de2 100644
  
  // Audio input (a microphone): the host has none. SDL3's Switch audio driver lists the input devices when its audio starts (Absolum); the SDK's versions reach the audin service.
  // No device is listed and an open fails, so the calls that need an open AudioIn are never reached; they still answer without touching the guest object, in case a game ignores the open's result.
-@@ -1048,11 +1169,42 @@ HLE_FORCE("_ZN2nn5audio22GetAudioInSampleFormatEPKNS0_7AudioInE", "recording sam
+@@ -1099,11 +1225,42 @@ HLE_FORCE("_ZN2nn5audio22GetAudioInSampleFormatEPKNS0_7AudioInE", "recording sam
  // so the free count is the capacity less the frames still queued and the event fires as blocks play. States as the game reads them: 0 not open, 1 open (stopped), 2 started
  // (main+0xad1310: a started stream is stopped, then purged and closed). Without these the SDK connected to auddmg:u itself and aborted with 0xa99 (sdk+0x221520)
  enum { OS_NONE = 0, OS_STOPPED = 1, OS_STARTED = 2, OS_FLOAT = 5, OS_PCM16 = 2 };
@@ -575,7 +562,7 @@ index c0d4450..e363de2 100644
  }
  enum { VDEV_NAME = 0x100 };   // nn::audio::AudioDeviceName
  static const char VDEV_OUT[] = "AudioVirtualOutput";   // the host's one virtual output device, a name of the host's
-@@ -1079,11 +1231,16 @@ static Result os_open(void *g, void *ev, const int32_t *fmt, int frames, void *l
+@@ -1130,11 +1287,16 @@ static Result os_open(void *g, void *ev, const int32_t *fmt, int frames, void *l
      if (rate && rate != RATE) { LOG("[RED] OutputStream sample rate %d: not supported (48 kHz only), the open fails", rate); return RES_FAIL; }
      if (ch <= 0 || frames <= 0) return RES_FAIL;
      ostream *o = calloc(1, sizeof *o); if (!o) die("OutputStream calloc");
@@ -595,7 +582,7 @@ index c0d4450..e363de2 100644
      return RES_OK;
  }
  HLE_FORCE("_ZN2nn5audio16OpenOutputStreamEPNS0_16OutputStreamTypeEPNS_2os11SystemEventEPvmRKNS0_15AudioDeviceNameERKNS0_12StreamFormatEiiNS_4util10BitFlagSetILi32ENS0_16OutputStreamFlagEEE",
-@@ -1103,48 +1260,75 @@ HLE_FORCE("_ZN2nn5audio16OpenOutputStreamEPNS0_16OutputStreamTypeEPvmRKNS0_15Aud
+@@ -1154,48 +1316,75 @@ HLE_FORCE("_ZN2nn5audio16OpenOutputStreamEPNS0_16OutputStreamTypeEPvmRKNS0_15Aud
      return os_open(g, NULL, fmt, frames, dm_bigstack_caller(__builtin_return_address(0)));
  }
  HLE_FORCE("_ZN2nn5audio17StartOutputStreamEPNS0_16OutputStreamTypeE", "start the stream's output", Result, h_os_Start, void *g) {
@@ -686,7 +673,7 @@ index c0d4450..e363de2 100644
      oblock *k = malloc(sizeof *k + (size_t)frames * o->ch * 2); if (!k) die("OutputStream block malloc");
      size_t n = (size_t)frames * o->ch;
      if (o->fmt == OS_FLOAT) {
-@@ -1155,17 +1339,26 @@ HLE_FORCE("_ZN2nn5audio17WriteOutputStreamEPNS0_16OutputStreamTypeEPKvi", "frame
+@@ -1206,17 +1395,26 @@ HLE_FORCE("_ZN2nn5audio17WriteOutputStreamEPNS0_16OutputStreamTypeEPKvi", "frame
          }
      } else memcpy(k->pcm, data, n * 2);
      k->b.ptr = k->pcm; k->b.cap = k->b.size = (uint64_t)frames * o->ch * 2; k->frames = frames;
@@ -716,7 +703,7 @@ index c0d4450..e363de2 100644
      return n;
  }
  // The statistics, returned by value through x8, 24 bytes: Star Fox keeps them at sp with its stack canary right behind them at sp+0x18 (main+0xbce9b90), so a larger result ends in
-@@ -1229,18 +1422,44 @@ HLE_FORCE("_ZN2nn5audio18SetInputStreamGainEPNS0_15InputStreamTypeEfNS_8TimeSpan
+@@ -1280,18 +1478,44 @@ HLE_FORCE("_ZN2nn5audio18SetInputStreamGainEPNS0_15InputStreamTypeEfNS_8TimeSpan
  // Host-internal PCM output (used by the in-process audio renderer, see hle_audren.c): the same AudioOut machinery (real output / silent sink / background take-over), keyed by a host-allocated dummy object
  static void *pcmout_open(int ch, int sink_pcm) {
      void *key = calloc(1, 64); uint8_t param[8] = {0}; *(uint16_t *)(param + 4) = (uint16_t)ch;
@@ -766,7 +753,7 @@ index c0d4450..e363de2 100644
  
  // Front-end lifecycle / audio session interruption: suspend real audio output, with the silent sink taking over real-time consumption meanwhile (pacing unbroken); switch back to the AudioUnit on resume.
  // The front end calls with 1 on going to background / interruption began, and with 0 on returning to foreground / interruption ended (shouldResume).
-@@ -1321,21 +1540,34 @@ void dm_audio_route_changed(void) { audio_route_check(1); }
+@@ -1372,21 +1596,34 @@ void dm_audio_route_changed(void) { audio_route_check(1); }
  
  void dm_audio_stop_all(void) {
      aout *stopped[AOMAX] = {0};
@@ -806,7 +793,7 @@ index c0d4450..e363de2 100644
      for (int i = 0; i < AOMAX; i++) if (stopped[i]) {
          aout *a = stopped[i];
          atomic_store_explicit(&a->notify_run, 0, memory_order_release);
-@@ -1347,4 +1579,12 @@ void dm_audio_stop_all(void) {
+@@ -1398,4 +1635,12 @@ void dm_audio_stop_all(void) {
          pthread_mutex_unlock(&g_aos_lock);
          if (!in_flight) aout_free(a);
      }
@@ -1195,10 +1182,10 @@ index d532b59..f5a4f8d 100644
      }
      // GetSystemTick: Horizon returns the 64-bit tick directly in x0 (libnx and the SDK's svc::GetSystemTick read x0). Returning 0 in x0 seeded exlaunch's
 diff --git a/dm/host/hle_thread.c b/dm/host/hle_thread.c
-index 955fff1..1b24420 100644
+index 824fb65..f4f0c73 100644
 --- a/dm/host/hle_thread.c
 +++ b/dm/host/hle_thread.c
-@@ -341,6 +341,16 @@ void dm_teardown_check_current_thread(void) {
+@@ -342,6 +342,16 @@ void dm_teardown_check_current_thread(void) {
      g_lock();
      teardown_exit_locked(t);
  }
@@ -1232,10 +1219,10 @@ index e7b8eba..f2933a9 100644
  // "system" (the system keeps Home whatever the app asks), "app" (the app decides), "off" (the system does nothing with Home in apps),
  // "unavailable" (could not be read)
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index fa85a18..5896cb8 100644
+index 1a99961..c569e4f 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
-@@ -221,7 +221,7 @@ save-sync: $(B)/t_save_sync $(B)/t_save_sync_metadata $(B)/t_save_sync_apple
+@@ -225,7 +225,7 @@ save-sync: $(B)/t_save_sync $(B)/t_save_sync_metadata $(B)/t_save_sync_apple
  	TMPDIR="$(abspath $(B))" $(B)/t_save_sync_apple $(QUIET)
  AUDIO_INPUT_STUB = ../audio_input.c audio_input_platform_stub.c
  AUDIO_INPUT_DEPS = $(AUDIO_INPUT_STUB) ../audio_input.h
@@ -1245,7 +1232,7 @@ index fa85a18..5896cb8 100644
  $(B)/t_mii: t_mii.c ../hle_mii.c ../hle.h ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -fsanitize=address,undefined -I.. $(GINC) -o $@ t_mii.c
 diff --git a/dm/host/tests/t_audio.c b/dm/host/tests/t_audio.c
-index f5190db..28cf192 100644
+index 6d56d57..1ec15fc 100644
 --- a/dm/host/tests/t_audio.c
 +++ b/dm/host/tests/t_audio.c
 @@ -1,21 +1,109 @@
@@ -1362,11 +1349,10 @@ index f5190db..28cf192 100644
  // A callback can finish several buffers, and the notifier can combine pending wakes.
  // Only inspect the released queue after an event, then take everything it announced.
  static int drain_signaled(void *out, aout_buf *buffers, int count, int *got, int *seen) {
-@@ -136,8 +224,216 @@ static int test_rate_refused(void) {
-     puts("AudioOut rate: 44.1 kHz refused with 0x699 and nothing opened; 0 and 48000 open at 48 kHz");
-     return 0;
+@@ -177,9 +265,216 @@ static int test_dump_per_output(void) {
+     if (ok) printf("DM_AUDIO_DUMP: outputs #%d, #%d and DeviceSink #%d each in a file of their own\n", id1, id2, ids);
+     return !ok;
  }
-+
 +typedef struct {
 +    _Atomic int go;
 +    void *pcmout;
@@ -1575,19 +1561,20 @@ index f5190db..28cf192 100644
 +}
 +
  int main(void) {
+     if (test_dump_per_output()) return 1;
 -    if (test_buffer_layout() || test_surround_output() || test_output_lifetime() || test_rate_refused()) return 1;
 +    if (test_buffer_layout() || test_surround_output() || test_output_lifetime() || test_rate_refused() || test_concurrent_close_and_stop_all()) return 1;
      char out[64], ev[64]; uint8_t prm[16]; aout_buf b[3]; static int16_t pcm[3][4800 * 2];
      h_au_InitParam(prm);
      if (h_au_Open(out, ev, NULL, prm)) return 1;
-@@ -214,5 +510,3 @@ int main(void) {
+@@ -256,5 +551,3 @@ int main(void) {
      printf("device stall: released %d/20 in order=%d in %.0f ms (expected 1900-5000), AudioUnit restarted and calling back again=%d (silent sink stood in %d times, %.0f ms) %s\n", got3, order3, total3, back, standins, waited3, ok3 ? "✓" : "✗");
      return !ok3;
  }
 -
 -void dm_audio_device_changed(void) {}   // renderer notification delivery is checked by t_audren_work
 diff --git a/dm/host/tests/t_audio_spsc.c b/dm/host/tests/t_audio_spsc.c
-index e8c9f42..d3d68f5 100644
+index 9607611..1e9eda1 100644
 --- a/dm/host/tests/t_audio_spsc.c
 +++ b/dm/host/tests/t_audio_spsc.c
 @@ -7,10 +7,27 @@ __thread _Atomic int dm_host_work;   // defined by the graphics host in a full b
@@ -1622,11 +1609,10 @@ index e8c9f42..d3d68f5 100644
  
  static _Atomic int g_sig, g_after_last;
  static _Atomic int g_last_pull;
-@@ -117,8 +134,92 @@ static int stop_pending(void) {
-     printf("Stop releases partial/pending buffers in order, signals and preserves pre-start buffers: %s\n",failed?"FAIL":"PASS");
-     atomic_store(&g_sig,0); return failed;
+@@ -142,8 +159,92 @@ static int flush_pending(void) {
+     return failed;
  }
-+
+ 
 +typedef struct {
 +    void *out;
 +    _Atomic int entered;
@@ -1709,8 +1695,9 @@ index e8c9f42..d3d68f5 100644
 +    printf("pcmout wake + teardown while waiting (%llu ms) + stop_all reopen: %s\n", (unsigned long long)elapsed_ms, failed ? "FAIL" : "PASS");
 +    return failed;
 +}
++
  int main(void) {
-     if (stop_pending()) return 1;
+     if (stop_pending() || flush_pending()) return 1;
 +    if (pcmout_teardown_while_waiting()) return 1;
      char out[64], ev[64]; uint8_t prm[16];
      test_ctx t = {0};
@@ -1821,10 +1808,10 @@ index b904d9b..6431357 100644
      return fails != 0;
  }
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 78f4666..fe50af2 100644
+index 6d967a6..91658b7 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
-@@ -178,6 +178,8 @@ @implementation DmGamepad {
+@@ -180,6 +180,8 @@ @implementation DmGamepad {
      CAShapeLayer *_ring, *_knob;                   // the left stick (the right one is not drawn)
      CALayer *_hint; CATextLayer *_hintText; NSString *_hintWords;   // the 3D layout's right-stick hint: words only, once per launch (see "The right-stick hint")
      DmMenuButton *_menu;                           // opens the in-game menu (GameMenu.swift)
@@ -1833,7 +1820,7 @@ index 78f4666..fe50af2 100644
      unsigned _menuGen;                             // generation counter for the controller-idle menu fade timer
      BOOL _menuOpen;                                // the in-game menu is currently presented
      UIImpactFeedbackGenerator *_touchFeedback;       // one short feedback per touch-control press edge
-@@ -263,6 +265,14 @@ - (instancetype)initWithFrame:(CGRect)f {
+@@ -265,6 +267,14 @@ - (instancetype)initWithFrame:(CGRect)f {
          __weak DmGamepad *weakSelf = self;
          [_menu addAction:[UIAction actionWithHandler:^(UIAction *a) { (void)a; [weakSelf reset]; }] forControlEvents:UIControlEventMenuActionTriggered];   // the menu opens: release every key and touch first
          [self addSubview:_menu];
@@ -1848,7 +1835,7 @@ index 78f4666..fe50af2 100644
          const char *hint = getenv("DM_TOUCH_HINT");   // the shell passes the player's language; empty turns the hint off
          _hintWords = hint ? [NSString stringWithUTF8String:hint] : @"Right stick: drag here";
          _hint = [CALayer layer]; _hint.backgroundColor = [UIColor colorWithWhite:0 alpha:0.5].CGColor; _hint.opacity = 0; _hint.hidden = YES;
-@@ -584,6 +594,8 @@ - (void)layoutSubviews {
+@@ -586,6 +596,8 @@ - (void)layoutSubviews {
      in.frame = _knob.bounds; in.path = ip; CGPathRelease(ip);
      [CATransaction commit];
      [self placeHint];
@@ -1857,7 +1844,7 @@ index 78f4666..fe50af2 100644
      [self refresh];
  }
  
-@@ -711,7 +723,7 @@ static void read_pad(GCController *c) {
+@@ -719,7 +731,7 @@ static void read_pad(GCController *c) {
  static BOOL pad_listen(GCController *c) {
      GCExtendedGamepad *g = c.extendedGamepad;
      if (g) {
@@ -1866,9 +1853,9 @@ index 78f4666..fe50af2 100644
          for (NSString *b in @[GCInputButtonHome, GCInputButtonShare]) c.physicalInputProfile.buttons[b].preferredSystemGestureState = GCSystemGestureStateDisabled;
          g.buttonHome.pressedChangedHandler = ^(GCControllerButtonInput *b, float v, BOOL down) { (void)b; (void)v; (void)down; front_ios_quit_poll(); };
          if (g.valueChangedHandler) return NO;
-@@ -788,23 +800,126 @@ static BOOL pads_slotted(GCController *gone) {
-     dispatch_async(dispatch_get_main_queue(), ^{ cp_poll(); });   // a controller came or went while the controller applet's prompt is up
-     return waiting || pad_slot_mask(&g_slots) != 0;   // a controller waiting for its first press hides the touch gamepad too
+@@ -834,23 +846,126 @@ static void pads_reread(void) {
+     else for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p]) read_pad(g_held[p]);
+     for (s2_pad *d = dm_switch2_pads(); d; d = d->next) s2pad_read(d);
  }
 +- (void)hidePadHintNow {
 +    [_padHint.layer removeAllAnimations];
@@ -1995,7 +1982,7 @@ index 78f4666..fe50af2 100644
          }];
      });
  }
-@@ -817,6 +932,7 @@ - (void)updateControlVisibility {
+@@ -863,6 +978,7 @@ - (void)updateControlVisibility {
      if (_padOff && _layout.onTV) {
          ++_menuGen; [_menu.layer removeAllAnimations];
          _menu.alpha = 1; _menu.hidden = YES;
@@ -2004,10 +1991,10 @@ index 78f4666..fe50af2 100644
          [self wakeMenu];
      }
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index 740d1de..852cc3e 100644
+index ce4d977..b8b8e7b 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
-@@ -362,6 +362,12 @@ void front_picture_shape(int w, int h) {   // front.h: the views take the presen
+@@ -382,6 +382,12 @@ void front_picture_shape(int w, int h) {   // front.h: the views take the presen
      });
  }
  
@@ -2020,7 +2007,7 @@ index 740d1de..852cc3e 100644
  // The settings the in-game menu offers (GameMenu.swift, from the gamepad's menu button), each taking effect while the game runs; the launcher's other settings need the next start.
  // value NULL: only whether env is one of them; otherwise apply it (GameMenu.swift has saved it and put it in the environment). Console mode changes as on a Switch put in or taken out of its
  // dock (the operation mode change notification); while a TV shows the picture the game stays docked, and the choice applies when the TV is unplugged
-@@ -390,6 +396,16 @@ bool dm_setting_live(const char *env, const char *value) {
+@@ -410,6 +416,16 @@ bool dm_setting_live(const char *env, const char *value) {
          }
          return true;
      }
@@ -2037,7 +2024,7 @@ index 740d1de..852cc3e 100644
      return false;
  }
  @implementation DmTVSceneDelegate
-@@ -740,8 +756,10 @@ static void save_sync_background(void) {
+@@ -760,8 +776,10 @@ static void save_sync_background(void) {
  }
  
  static _Atomic int g_quitting;
@@ -2047,12 +2034,12 @@ index 740d1de..852cc3e 100644
 -    if (!g_layer || atomic_load(&g_quitting)) return;
 +    if (ev != 4 && (!g_layer || atomic_load(&g_quitting))) return;
      switch (ev) {
-         case 0: quit_close(); dm_movie_active(0); dm_gamepad_reset(); dm_focus_set(2); break;
+         case 0: quit_close(); dm_movie_active(0); dm_gamepad_inactive(); dm_focus_set(2); break;
          case 1:
-@@ -759,12 +777,23 @@ void front_ios_focus_event(int ev) {
-             if (g_audio_intr) { LOG("audio session: active again with no interruption-ended notice; resuming"); g_audio_intr = 0; g_session_off = 1; }
-             if (g_session_off) front_ios_audio_session();
-             front_ios_audio_apply(); dm_gamepad_active(); dm_focus_set(1); dm_movie_active(1); break;
+@@ -781,12 +799,23 @@ void front_ios_focus_event(int ev) {
+             front_ios_audio_apply(); dm_gamepad_active(); dm_focus_set(1); dm_movie_active(1);
+             dm_prewarm_upload_schedule();
+             break;
 +        case 4: {   // DM_GLUE_FOCUS_REQUEST_QUIT: cross-game deep link / shell return request
 +            uint64_t epoch = atomic_load(&g_quit_epoch);
 +            if ([NSThread isMainThread]) {
@@ -2074,7 +2061,7 @@ index 740d1de..852cc3e 100644
  // while it is held). A tap on Quit or A quits, a tap on Cancel or outside the card, B or a new press of Home closes it. While it is open the game is told it lost
  // the focus, as the Switch's HOME menu does, and gets no touch or controller input.
  // Quitting ends the process: one game runs per process (dm_profile() and the host's early loading run once, the shell's ShellMain.m), so the engine cannot hand
-@@ -819,7 +848,7 @@ static void quit_buttons(int *home, int *a, int *b, GCController *__strong *hold
+@@ -841,7 +870,7 @@ static void quit_buttons(int *home, int *a, int *b, GCController *__strong *hold
      *home = *a = *b = 0;
      for (GCController *c in GCController.controllers) {
          GCExtendedGamepad *g = c.extendedGamepad; if (!g) continue;
@@ -2083,7 +2070,7 @@ index 740d1de..852cc3e 100644
          *a |= g.buttonA.isPressed; *b |= g.buttonB.isPressed;
      }
  }
-@@ -887,9 +916,21 @@ static void front_ios_teardown(void) {
+@@ -909,9 +938,21 @@ static void front_ios_teardown(void) {
      }
      g_layer = nil;
      g_rotation_was[0] = 0;
@@ -2134,15 +2121,3 @@ index 19874f7..fe871b4 100644
      return NULL;
  }
  void front_ios_boot(void) {   // front_ios.m, once the game view exists
-diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-index f29e8b8..e4b4cbb 100644
---- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-+++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-@@ -94,7 +94,6 @@ void dm_motion_clear(int player) {
- }
- 
- uint32_t dm_player_npad(int player) { return player == 0 ? 0x20 : (uint32_t)player; }
--int dm_players_reported(void) { return __builtin_popcount(duo_harness_state().connected_players | 1u); }
- 
- static int g_opmode;   // handheld, until a test or the in-game menu docks it
- int dm_opmode(void) { return g_opmode; }

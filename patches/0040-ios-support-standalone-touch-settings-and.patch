@@ -26,7 +26,7 @@ Issue: LNPANDY/NX2Apple#1110
  create mode 100644 dm/ios/tests/duo/Tests/DuoHarnessTests-Bridging-Header.h
 
 diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
-index e1a3954..5ef85e7 100644
+index 4d9f6e0..2c4559f 100644
 --- a/dm/games/settings.tsv
 +++ b/dm/games/settings.tsv
 @@ -29,6 +29,8 @@ DM_PICTURE_FIT	choice	fit=Fit,fill=Fill	fit	always	Game	Picture	Fill crops the g
@@ -98,7 +98,7 @@ index 82c284a..7e93bae 100644
  }
  #endif
 diff --git a/dm/ios/Sources/GameMenu.swift b/dm/ios/Sources/GameMenu.swift
-index 7047522..6a88f9c 100644
+index 16d81d1..30230f3 100644
 --- a/dm/ios/Sources/GameMenu.swift
 +++ b/dm/ios/Sources/GameMenu.swift
 @@ -7,8 +7,9 @@ import UIKit
@@ -168,7 +168,7 @@ index 7047522..6a88f9c 100644
      let menu = UIMenu(title: title, children: [UIDeferredMenuElement.uncached { done in done(gameMenuItems()) }])   // built each time it opens, so it shows the current choices
      return Unmanaged.passRetained(menu).toOpaque()
  }
-@@ -51,8 +88,17 @@ private func gameMenuItems() -> [UIMenuElement] {
+@@ -51,6 +88,14 @@ private func gameMenuItems() -> [UIMenuElement] {
              for s in m.rows(in: section) where (s.kind == "choice" || s.kind == "toggle") && dm_setting_live(s.env, nil) { rows.append(gameMenuRow(m, s)) }
              if !rows.isEmpty { items.append(UIMenu(options: .displayInline, children: rows)) }
          }
@@ -182,11 +182,16 @@ index 7047522..6a88f9c 100644
 +        if !rows.isEmpty { items.append(UIMenu(options: .displayInline, children: rows)) }
      }
      if !placed { items.insert(UIMenu(options: .displayInline, children: [layout]), at: 0) }
+     if PrewarmUpload.available {
+@@ -60,6 +105,7 @@ private func gameMenuItems() -> [UIMenuElement] {
+         upload.subtitle = PrewarmUpload.detail
+         items.append(UIMenu(options: .displayInline, children: [upload]))
+     }
 +    items.append(UIMenu(options: .displayInline, children: [cheatsSubmenu()]))
      items.append(Unmanaged<UIMenu>.fromOpaque(dm_quit_menu()).takeRetainedValue())   // Quit <game>, last and on its own: it opens the quit prompt (front_ios.m)
      return items
  }
-@@ -69,5 +115,33 @@ private func gameMenuRow(_ m: LauncherModel, _ s: Setting) -> UIMenuElement {
+@@ -76,5 +122,33 @@ private func gameMenuRow(_ m: LauncherModel, _ s: Setting) -> UIMenuElement {
      let options = offeredOptions(s, current: now)
      let current = options.first { $0[0] == now }?[1] ?? now
      let actions = options.map { o in UIAction(title: o[1], attributes: attributes, state: o[0] == now ? .on : .off) { _ in pick(o[0]) } }
@@ -1393,10 +1398,10 @@ index 0000000..2589022
 +    }
 +}
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index e5538dd..9e9c3c1 100644
+index a020fad..e32f410 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
-@@ -286,6 +286,13 @@ - (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
+@@ -289,6 +289,13 @@ - (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
  - (UIRectEdge)preferredScreenEdgesDeferringSystemGestures { return UIRectEdgeAll; }   // Edge gestures need two swipes, to avoid accidental exits
  - (BOOL)prefersStatusBarHidden { return YES; }
  - (UIInterfaceOrientationMask)supportedInterfaceOrientations { return dm_rotation_vc_mask(); }
@@ -1410,7 +1415,7 @@ index e5538dd..9e9c3c1 100644
  @end
  UIViewController *front_ios_root(void) { return [DmRootVC new]; }
  
-@@ -874,6 +881,7 @@ static void quit_changed(hq_phase was, hq_phase now, GCController *holder) {
+@@ -879,6 +886,7 @@ static void quit_changed(hq_phase was, hq_phase now, GCController *holder) {
          if (was == HQ_SETTLE) dm_gamepad_pads_read();   // the game reads the controllers again, as they are now
          break;
      case HQ_QUIT:
@@ -1418,7 +1423,7 @@ index e5538dd..9e9c3c1 100644
          quit_now();
          break;
      }
-@@ -943,3 +951,90 @@ void front_ios_quit_controllers(void) {
+@@ -948,3 +956,90 @@ void front_ios_quit_controllers(void) {
  #endif
      static int said; if (!said++) LOG("front end: the Home button setting is read on iOS 27, the Home hold works where the system lets the press through");
  }
@@ -1510,13 +1515,13 @@ index e5538dd..9e9c3c1 100644
 +    [host presentViewController:panel animated:YES completion:nil];
 +}
 diff --git a/dm/ios/project-framework.yml b/dm/ios/project-framework.yml
-index 4a14327..6e6452d 100644
+index 7adedfb..4bbd385 100644
 --- a/dm/ios/project-framework.yml
 +++ b/dm/ios/project-framework.yml
-@@ -150,6 +150,7 @@ targets:
-       - path: Sources/front_ios.m
+@@ -151,6 +151,7 @@ targets:
        - path: Sources/DmGamepad.m
        - path: Sources/GameMenu.swift
+       - path: Sources/PrewarmUpload.swift
 +      - path: Sources/GameMenuCheats.swift
        - path: Sources/LauncherSettings.swift
        - path: Sources/CloudSaves.m
@@ -1549,10 +1554,10 @@ index 9d0d779..cd1b942 100644
 +
  FOUNDATION_EXPORT NSString * const DuoHarnessInputDidChangeNotification;
 diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-index 6b9ab99..65ae605 100644
+index dc06315..bc63699 100644
 --- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 +++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-@@ -25,10 +25,13 @@ DuoHarnessState duo_harness_state(void) {
+@@ -26,10 +26,13 @@ DuoHarnessState duo_harness_state(void) {
      return value;
  }
  
@@ -1566,7 +1571,7 @@ index 6b9ab99..65ae605 100644
  }
  
  void dm_input_set(uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t ry) {
-@@ -121,6 +124,122 @@ void front_ios_boot(void) {}
+@@ -120,6 +123,122 @@ void front_ios_boot(void) {}
  uint64_t mtl_present_count(void) { return 0; }
  __thread _Atomic int dm_host_work;
  void dm_gfx_suspend(int on) { (void)on; }
@@ -1968,18 +1973,18 @@ index 0000000..dfa426e
 +#import "DuoHarnessRuntime.h"
 +#import "DmGameMenu.h"
 diff --git a/dm/ios/tests/duo/project.yml b/dm/ios/tests/duo/project.yml
-index de17721..efe70a5 100644
+index beca33b..ff3fb6e 100644
 --- a/dm/ios/tests/duo/project.yml
 +++ b/dm/ios/tests/duo/project.yml
-@@ -10,6 +10,7 @@ targets:
-       - path: Sources
+@@ -11,6 +11,7 @@ targets:
        - path: ../../Sources/DmHostingController.swift
        - path: ../../Sources/GameMenu.swift
+       - path: ../../Sources/PrewarmUpload.swift
 +      - path: ../../Sources/GameMenuCheats.swift
        - path: ../../Sources/LauncherSettings.swift
        - path: ../../Sources/DmGamepad.m
        - path: ../../Sources/front_ios.m
-@@ -86,6 +87,7 @@ targets:
+@@ -87,6 +88,7 @@ targets:
            - $(SRCROOT)/Sources
          TEST_HOST: $(BUILT_PRODUCTS_DIR)/DuoHarness.app/DuoHarness
          BUNDLE_LOADER: $(TEST_HOST)
@@ -1988,7 +1993,7 @@ index de17721..efe70a5 100644
          CODE_SIGN_STYLE: Automatic
          DEVELOPMENT_TEAM: ""
 diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
-index 901ed3b..e3d8ee4 100644
+index 59d15d6..9f55007 100644
 --- a/dm/tools/tests/test_launcher_settings.py
 +++ b/dm/tools/tests/test_launcher_settings.py
 @@ -92,6 +92,13 @@ class LauncherSettingsTests(unittest.TestCase):
@@ -2012,10 +2017,10 @@ index 901ed3b..e3d8ee4 100644
 -        self.assertEqual(set(ios) - set(mac), {'DM_SHOW_FPS', 'DM_TOUCH_HAPTICS', 'DM_ROTATION'})
 +        self.assertEqual(set(ios) - set(mac), {'DM_SHOW_FPS', 'DM_TOUCH_HAPTICS', 'DM_ROTATION', 'DM_TOUCH_SIZE', 'DM_TOUCH_STICK'})
          self.assertIn('DM_RUMBLE', mac); self.assertIn('DM_METAL_HUD', mac)
-         self.assertEqual(set(mac) - set(ios), {'DM_FULLSCREEN', 'DM_SW2', 'DM_NVN_ANISO'})   # Mac-only Display mode, Switch 2 controllers, and NVN texture filtering
+         self.assertEqual(set(mac) - set(ios), {'DM_FULLSCREEN', 'DM_NVN_ANISO'})   # Mac-only Display mode and NVN texture filtering
          self.assertNotIn('DM_NVN_ANISO', build('0100535012974000', 'vulkan', 'mac'))
 diff --git a/docs/settings.md b/docs/settings.md
-index 5d65442..bfaf7ff 100644
+index 6c84a82..c1f6948 100644
 --- a/docs/settings.md
 +++ b/docs/settings.md
 @@ -4,7 +4,7 @@ The screen before the game starts shows the settings the game supports. A settin
@@ -2038,7 +2043,7 @@ index 5d65442..bfaf7ff 100644
  ### Game rumble
  
  The game's vibration, on the phone or on a connected controller.
-@@ -305,6 +309,8 @@ A line like `DM_PRESENT_SNAP=0` in `Documents/env.txt` (in the Files app, under
+@@ -314,6 +318,8 @@ A line like `DM_PRESENT_SNAP=0` in `Documents/env.txt` (in the Files app, under
  | Rotation (iPhone and iPad) | `DM_ROTATION` | `auto` as the device turns, `landscape`, `portrait` |
  | Frame-rate counter | `DM_SHOW_FPS` | `1`, `0` |
  | Touch feedback | `DM_TOUCH_HAPTICS` | `1`, `0` |

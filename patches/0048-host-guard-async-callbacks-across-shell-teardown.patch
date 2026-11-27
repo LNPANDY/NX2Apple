@@ -8,21 +8,21 @@ Upstream-Status: pending
 Reason: Guard async callbacks across iOS shell teardown and join host background threads
 Issue: LNPANDY/NX2Apple (v1.5.0 local)
 ---
- dm/gfx/nvn/nvn_mtl.m              | 14 ++++++--
- dm/host/haptics_apple.m           | 42 +++++++++++++++++------
- dm/host/hle_cheats.c              | 27 ++++++++++++---
- dm/host/hle_codec_video.c         | 53 ++++++++++++++++++++++++++++
- dm/host/hle_lifecycle.c           | 12 ++++++-
+ dm/gfx/nvn/nvn_mtl.m              | 14 ++++--
+ dm/host/haptics_apple.m           | 42 ++++++++++++----
+ dm/host/hle_cheats.c              | 26 ++++++++--
+ dm/host/hle_codec_video.c         | 53 +++++++++++++++++++++
+ dm/host/hle_lifecycle.c           | 12 ++++-
  dm/host/pad_switch2_apple.h       |  1 +
- dm/host/pad_switch2_apple.m       | 57 ++++++++++++++++++++++++++++---
- dm/host/tests/t_cheats.c          |  6 ++++
+ dm/host/pad_switch2_apple.m       | 79 ++++++++++++++++++++++++++++---
+ dm/host/tests/t_cheats.c          |  6 +++
  dm/host/tests/t_controllers_mac.m |  1 +
- dm/host/tests/t_haptics_apple.m   | 48 ++++++++++++++++++++++++++
- dm/ios/Sources/DmGamepad.m        |  2 ++
- 11 files changed, 240 insertions(+), 23 deletions(-)
+ dm/host/tests/t_haptics_apple.m   | 48 +++++++++++++++++++
+ dm/ios/Sources/DmGamepad.m        | 45 ++++++++++++++++--
+ 11 files changed, 297 insertions(+), 30 deletions(-)
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index d9db5f0..66f77a5 100644
+index f33f729..8b4f42c 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
 @@ -126,6 +126,7 @@ static inline uint64_t tex_slot_h(const uint64_t *tex, const uint64_t *img, unsi
@@ -55,7 +55,7 @@ index d9db5f0..66f77a5 100644
      } });
  }
  // What a drain takes out of the residency set leaves it, and is released, at the set's next commit, which the next submission makes. With none open none may come: the drain is
-@@ -23712,6 +23718,7 @@ static void cpu_pool_free_cb(void *v) {
+@@ -24470,6 +24476,7 @@ static void cpu_pool_free_cb(void *v) {
  
  void dm_gfx_teardown(void) { @autoreleasepool {
      atomic_store(&g_gfx_teardown, 1);
@@ -63,14 +63,14 @@ index d9db5f0..66f77a5 100644
      mtl_present_discard(1);
      nvn_hle_wait_suspend();
      if (g_mp_src) {
-@@ -24189,6 +24196,7 @@ void dm_gfx_teardown(void) { @autoreleasepool {
-     g_pre_out = nil;
+@@ -24971,6 +24978,7 @@ void dm_gfx_teardown(void) { @autoreleasepool {
      g_q4 = nil; g_q = nil; g_dev = nil;
      g_feedback_q = nil;
-+    atomic_fetch_add(&g_defer_gen, 1);
  }
++    atomic_fetch_add(&g_defer_gen, 1);
      atomic_store(&g_image_heap_n, 0);
      atomic_store(&g_image_heap_comp_n, 0);
+     atomic_store(&g_big_n, 0);
 diff --git a/dm/host/haptics_apple.m b/dm/host/haptics_apple.m
 index dab22c5..fc750c3 100644
 --- a/dm/host/haptics_apple.m
@@ -209,7 +209,7 @@ index dab22c5..fc750c3 100644
      gain = 1;
      rumble_min = 0;
 diff --git a/dm/host/hle_cheats.c b/dm/host/hle_cheats.c
-index bd33c4a..7c9653e 100644
+index f1ff923..2d0d56d 100644
 --- a/dm/host/hle_cheats.c
 +++ b/dm/host/hle_cheats.c
 @@ -1005,10 +1005,14 @@ void dm_cheats_present(void) {
@@ -247,13 +247,7 @@ index bd33c4a..7c9653e 100644
  }
  
  // ---------- the cheat states: <build>.enabled, DM_CHEATS_ON, the folder's flag files ----------
-@@ -1835,11 +1844,21 @@ void dm_cheats_init(void) {
- // A clean exit: no cheat runs any more, so the safe-mode flag goes (atexit, and dm_host_exit before its _exit)
- void dm_cheats_exit(void) {
-     atomic_store(&g_exiting, 1);   // a pass still running on another thread must not write the flag back
-+    atomic_store(&g_tick_stop, 1);
-     if (!g_dir[0]) return;
-     files_drain();                 // a queued <build>.enabled lands before the process ends; a queued flag sees g_exiting
+@@ -1840,6 +1849,15 @@ void dm_cheats_exit(void) {
      char p[1100]; flag_file(p, sizeof p, "running");
      unlink(p);
  }
@@ -383,18 +377,21 @@ index cf7b96d..56f3d6d 100644
  s2_pad *dm_switch2_pads(void);                          // the pads, a list through next
  // Rumble: the sink for a player whose pad is a Switch 2 controller (dm_haptics_apple_set_sink(player, dm_switch2_rumble)). The game's two full-key motors, left and right, reach the
 diff --git a/dm/host/pad_switch2_apple.m b/dm/host/pad_switch2_apple.m
-index 2e2cac0..3e9520a 100644
+index 2e2cac0..16da5e0 100644
 --- a/dm/host/pad_switch2_apple.m
 +++ b/dm/host/pad_switch2_apple.m
-@@ -58,6 +58,7 @@ @interface S2Session : NSObject <CBPeripheralDelegate>
+@@ -58,6 +58,10 @@ @interface S2Session : NSObject <CBPeripheralDelegate>
  
  static NSMutableDictionary<NSUUID *, S2Session *> *g_sessions;
  static CBCentralManager *g_central;
 +static _Atomic uint64_t g_s2_gen __attribute__((section("__DATA,__dm_keep")));
++#if TARGET_OS_OSX
++static BOOL g_s2_host_asked;
++#endif
  static void s2_session_closed(S2Session *s);
  static void s2_rumble_timer(void);
  
-@@ -103,7 +104,11 @@ - (instancetype)initWith:(CBPeripheral *)p pid:(uint16_t)pid use:(int)use {
+@@ -103,7 +107,11 @@ - (instancetype)initWith:(CBPeripheral *)p pid:(uint16_t)pid use:(int)use {
  - (void)begin {
      [_peripheral discoverServices:nil];
      __weak S2Session *w = self;   // a controller that connects but never finishes the handshake is dropped
@@ -407,7 +404,7 @@ index 2e2cac0..3e9520a 100644
  }
  - (void)fail:(NSString *)why {
      LOG("[sw2] %s: %s", s2_kind(_pid), why.UTF8String);
-@@ -137,8 +142,9 @@ - (void)pump {
+@@ -137,8 +145,9 @@ - (void)pump {
      uint8_t f[8 + 255]; size_t n = s2_command(f, sizeof f, c.cmd, c.sub, c.payload.bytes, c.payload.length);
      if (!n) { if (c.done) c.done(nil); [self pump]; return; }
      _pending = YES; _pendingCmd = c.cmd; _cb = c.done; NSUInteger mine = ++_seq; uint8_t id = c.cmd;
@@ -418,12 +415,15 @@ index 2e2cac0..3e9520a 100644
          S2Session *s = w; if (!s || !s->_pending || s->_seq != mine) return;
          s->_pending = NO; void (^d)(NSData *) = s->_cb; s->_cb = nil;
          LOG("[sw2] %s: command 0x%02x timed out", s2_kind(s->_pid), id);
-@@ -457,16 +463,17 @@ - (void)centralManagerDidUpdateState:(CBCentralManager *)c {
+@@ -455,18 +464,18 @@ - (void)scan:(CBCentralManager *)c {
+ - (void)centralManagerDidUpdateState:(CBCentralManager *)c {
+     if (c.state == CBManagerStatePoweredOn) {
  #if TARGET_OS_OSX
-         static BOOL asked;
-         if (!g_host_known && !asked) {   // this Mac's address, from the Bluetooth host controller once the app may use Bluetooth (off the main queue: the first call can take seconds); the scan starts after it
+-        static BOOL asked;
+-        if (!g_host_known && !asked) {   // this Mac's address, from the Bluetooth host controller once the app may use Bluetooth (off the main queue: the first call can take seconds); the scan starts after it
 -            asked = YES; __weak CBCentralManager *wc = c;
-+            asked = YES; __weak CBCentralManager *wc = c; uint64_t sgen = atomic_load(&g_s2_gen);
++        if (!g_host_known && !g_s2_host_asked) {   // this Mac's address, from the Bluetooth host controller once the app may use Bluetooth (off the main queue: the first call can take seconds); the scan starts after it
++            g_s2_host_asked = YES; __weak CBCentralManager *wc = c; uint64_t sgen = atomic_load(&g_s2_gen);
              dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
                  const char *addr = IOBluetoothHostController.defaultController.addressAsString.UTF8String;   // "aa-bb-cc-dd-ee-ff"
                  unsigned a[6]; BOOL ok = addr && sscanf(addr, "%x%*c%x%*c%x%*c%x%*c%x%*c%x", &a[0], &a[1], &a[2], &a[3], &a[4], &a[5]) == 6 && (a[0] | a[1] | a[2] | a[3] | a[4] | a[5]);
@@ -438,7 +438,7 @@ index 2e2cac0..3e9520a 100644
                  });
              });
              return;
-@@ -496,8 +503,9 @@ - (void)centralManager:(CBCentralManager *)c didDiscoverPeripheral:(CBPeripheral
+@@ -496,8 +505,9 @@ - (void)centralManager:(CBCentralManager *)c didDiscoverPeripheral:(CBPeripheral
      g_sessions[p.identifier] = s;
      LOG("[sw2] %s %s (rssi %d), connecting", use == S2_ADV_WAKE ? "woke:" : "pairing:", s2_kind(a.pid), rssi.intValue);
      [c connectPeripheral:p options:nil];
@@ -449,10 +449,24 @@ index 2e2cac0..3e9520a 100644
          S2Session *t = g_sessions[id];
          if (t && t.peripheral.state != CBPeripheralStateConnected) { LOG("[sw2] connecting timed out"); [wc cancelPeripheralConnection:t.peripheral]; s2_session_closed(t); }
      });
-@@ -540,12 +548,51 @@ static void s2_rumble_timer(void) {
+@@ -540,12 +550,67 @@ static void s2_rumble_timer(void) {
      }];
  }
  
++static void s2_reset_state(void) {
++    memset(&g_front, 0, sizeof g_front);
++    g_verbose = 0; g_motion_right = 1; g_motion = 1; g_active = 1; g_joy = 1;
++    g_gyro = S2_GYRO_RAD;
++    memset(g_map, 0, sizeof g_map); g_map_set = 0;
++    memset(g_host, 0, sizeof g_host); g_host_known = 0;
++#if TARGET_OS_OSX
++    g_s2_host_asked = NO;
++#endif
++    memset(&g_rstat, 0, sizeof g_rstat);
++    os_unfair_lock_lock(&g_rlog_lock);
++    memset(g_rlog, 0, sizeof g_rlog);
++    os_unfair_lock_unlock(&g_rlog_lock);
++}
 +static void s2_teardown_on_main(void) {
 +    [g_rumble_timer invalidate];
 +    g_rumble_timer = nil;
@@ -478,7 +492,7 @@ index 2e2cac0..3e9520a 100644
 +    }
 +    g_central = nil;
 +    g_delegate = nil;
-+    memset(&g_front, 0, sizeof g_front);
++    s2_reset_state();
 +}
 +void dm_switch2_teardown(void) {
 +    atomic_fetch_add(&g_s2_gen, 1);
@@ -488,6 +502,8 @@ index 2e2cac0..3e9520a 100644
 +    }
 +    if (g_central || g_sessions || g_pads || g_rumble_timer || g_delegate) {
 +        dispatch_sync(dispatch_get_main_queue(), ^{ s2_teardown_on_main(); });
++    } else {
++        s2_reset_state();
 +    }
 +}
 +
@@ -502,12 +518,12 @@ index 2e2cac0..3e9520a 100644
      e = getenv("DM_SW2_VERBOSE"); g_verbose = e && atoi(e);
      e = getenv("DM_PAD_MERGE"); g_joy = !(e && atoi(e));   // merged, every pad is player 1: no pad holds a game's Joy-Cons apart
 diff --git a/dm/host/tests/t_cheats.c b/dm/host/tests/t_cheats.c
-index f7eb193..e52c024 100644
+index 57b7e42..4be180d 100644
 --- a/dm/host/tests/t_cheats.c
 +++ b/dm/host/tests/t_cheats.c
-@@ -652,6 +652,12 @@ int main(void) {
-     load_all();
-     CHECK(strstr(dm_cheats_report(), "1 cheats over 0x100 words") != NULL, "the report names a cheat over Atmosphère's 0x100 words");
+@@ -707,6 +707,12 @@ int main(int argc, char **argv) {
+     dm_cheat_toggle(at("TickFree", 0));
+     atomic_store(&g_clock_auto, 1);
  
 +    // ---- Shell game switch: tick thread joins cleanly and files queue drains ----
 +    tick_start();
@@ -515,8 +531,8 @@ index f7eb193..e52c024 100644
 +    dm_cheats_teardown();
 +    CHECK(g_tick_started == 0 && atomic_load(&g_tick_stop) == 1 && atomic_load(&g_exiting) == 1, "dm_cheats_teardown stops and joins the tick thread");
 +
-     char rmcmd[1100]; snprintf(rmcmd, sizeof rmcmd, "rm -rf '%s'", root);   // the test's cheats folders
-     if (system(rmcmd)) fprintf(stderr, "cannot remove %s\n", root);   // NOLINT(bugprone-command-processor): a fixed rm of the folder mkdtemp made above, no outside input
+     files_drain();
+     if (removefile(root, NULL, REMOVEFILE_RECURSIVE)) perror(root);
      printf("%d / %d checks passed\n", checks - fails, checks);
 diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
 index b460907..f4de3cf 100644
@@ -589,16 +605,105 @@ index 47a660b..a6a365d 100644
      puts("Apple haptics: channels, pulses, idle release, startup handlers, engine replacement, backoff, stale callbacks, plain players, Joy-Con recovery and lifetime, the DualSense's handles, level cutoff, DualShock 4, Pro Controller and 8BitDo report routes passed");
  } }
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 70426ff..78f4666 100644
+index 27ddfcf..6d967a6 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
-@@ -962,7 +962,9 @@ void dm_gamepad_reset(void) {   // On resign active: release everything (a key h
-     if (g_merge) dm_pad_set(0, 0, 0, 0, 0);
-     else for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p]) dm_pad_set_player(p, 0, 0, 0, 0, 0);
+@@ -167,6 +167,7 @@ - (void)contextMenuInteraction:(UIContextMenuInteraction *)i willEndForConfigura
+ }
+ @end
+ static __weak DmGamepad *g_view;
++static _Atomic uint64_t g_gamepad_gen __attribute__((section("__DATA,__dm_keep")));
+ static void pads_start(void);   // Physical controllers, below
+ 
+ @implementation DmGamepad {
+@@ -817,7 +818,8 @@ static BOOL pads_slotted(GCController *gone) {
+     }
+     for (s2_pad *d = dm_switch2_pads(); d; d = d->next) if (pad_slot_of(&g_slots, d) < 0) waiting = YES;
+     dm_pad_players(pad_slot_mask(&g_slots));
+-    dispatch_async(dispatch_get_main_queue(), ^{ cp_poll(); });   // a controller came or went while the controller applet's prompt is up
++    uint64_t gen = atomic_load(&g_gamepad_gen);
++    dispatch_async(dispatch_get_main_queue(), ^{ if (atomic_load(&g_gamepad_gen) != gen || !g_view) return; cp_poll(); });   // a controller came or went while the controller applet's prompt is up
+     return waiting || pad_slot_mask(&g_slots) != 0;   // a controller waiting for its first press hides the touch gamepad too
+ }
+ // Nothing the controllers pressed stays pressed (resign active, user picker, controller prompt open); main queue
+@@ -873,7 +875,12 @@ - (void)padsChanged:(NSNotification *)note {
+         if (!usable || g_merge) LOG("controller %s: %s%s", gone ? "disconnected" : "connected", pad_name(c), usable ? "" : " (no supported gamepad profile: not used)");
+     }
+     BOOL any = g_merge ? pads_merged(gone) : pads_slotted(gone);
+-    dispatch_async(dispatch_get_main_queue(), ^{ self->_padOff = any; [self updateControlVisibility]; [self reset]; front_ios_quit_controllers(); });   // the touch gamepad hides while any controller is in use
++    __weak DmGamepad *weak = self; uint64_t gen = atomic_load(&g_gamepad_gen);
++    dispatch_async(dispatch_get_main_queue(), ^{
++        DmGamepad *s = weak;
++        if (!s || atomic_load(&g_gamepad_gen) != gen || s != g_view) return;
++        s->_padOff = any; [s updateControlVisibility]; [s reset]; front_ios_quit_controllers();
++    });   // the touch gamepad hides while any controller is in use
+ }
+ @end
+ 
+@@ -1041,7 +1048,10 @@ static void s2pad_detach(s2_pad *d) {   // d is already off the transport's list
+ }
+ static const dm_switch2_front g_s2front = {s2pad_attach, s2pad_detach, s2pad_read, s2pad_player, s2pad_blocked};
+ 
+-UIView *dm_gamepad_view(CGRect frame) { DmGamepad *v = [[DmGamepad alloc] initWithFrame:frame]; g_view = v; return v; }
++UIView *dm_gamepad_view(CGRect frame) {
++    atomic_fetch_add(&g_gamepad_gen, 1);
++    DmGamepad *v = [[DmGamepad alloc] initWithFrame:frame]; g_view = v; return v;
++}
+ void dm_gamepad_arrange(UIView *view, DmLayout layout) { [(DmGamepad *)view arrange:layout]; }
+ void dm_gamepad_opmode_changed(void) { [g_view opmodeChanged]; }
+ void dm_gamepad_touch_feedback(bool on) { [g_view setTouchFeedback:on]; }
+@@ -1050,21 +1060,34 @@ static void s2pad_detach(s2_pad *d) {   // d is already off the transport's list
+ void dm_pad_layout_set(int layout) { [g_view setPadLayout:layout]; }
+ void dm_gamepad_pads_read(void) { pads_reread(); }   // front_ios.m: the quit prompt closed, the game reads every controller as it is now (a button held through it counts again)
+ void dm_gamepad_active(void) {   // On become active: motion_apple.h, Switch 2 transport
++    uint64_t gen = atomic_load(&g_gamepad_gen);
+     dispatch_async(dispatch_get_main_queue(), ^{
++        if (atomic_load(&g_gamepad_gen) != gen || !g_view) return;
+         for (GCController *c in GCController.controllers) dm_motion_rearm(c);
+         g_s2_off = 0; dm_switch2_active(1);
+         for (s2_pad *d = dm_switch2_pads(); d; d = d->next) s2pad_read(d);
+     });
+ }
+ void dm_gamepad_inactive(void) {   // On resign active: pause Switch 2 input until become active, and release everything held
+-    dispatch_async(dispatch_get_main_queue(), ^{ g_s2_off = 1; dm_switch2_active(0); [g_view reset]; pads_release(); });
++    uint64_t gen = atomic_load(&g_gamepad_gen);
++    dispatch_async(dispatch_get_main_queue(), ^{
++        if (atomic_load(&g_gamepad_gen) != gen || !g_view) return;
++        g_s2_off = 1; dm_switch2_active(0); [g_view reset]; pads_release();
++    });
+     pthread_mutex_lock(&g_mu); g_shake_btn = 0; pthread_mutex_unlock(&g_mu); publish();
+ }
+ void dm_gamepad_reset(void) {   // Release everything held (e.g. an in-app alert such as front_user_select, which does not resign active)
+-    dispatch_async(dispatch_get_main_queue(), ^{ [g_view reset]; pads_release(); });
++    uint64_t gen = atomic_load(&g_gamepad_gen);
++    dispatch_async(dispatch_get_main_queue(), ^{
++        if (atomic_load(&g_gamepad_gen) != gen || !g_view) return;
++        [g_view reset]; pads_release();
++    });
+     pthread_mutex_lock(&g_mu); g_shake_btn = 0; pthread_mutex_unlock(&g_mu); publish();
  }
 +__attribute__((weak)) void dm_switch2_teardown(void);
  void dm_gamepad_teardown(void) {
++    atomic_fetch_add(&g_gamepad_gen, 1);
 +    if (dm_switch2_teardown) dm_switch2_teardown();
      if (g_motion) {
          [g_motion stopAccelerometerUpdates];
          [g_motion stopDeviceMotionUpdates];
+@@ -1087,5 +1110,17 @@ void dm_gamepad_teardown(void) {
+         dm_haptics_apple_controller(p, nil);
+         g_held[p] = nil;
+     }
++    pthread_mutex_lock(&g_mu);
++    g_touch_btn = 0; g_shake_btn = 0;
++    g_touch_lx = 0; g_touch_ly = 0; g_touch_rx = 0; g_touch_ry = 0;
++    pthread_mutex_unlock(&g_mu);
++    atomic_store(&g_iface_orient, 3);
++    g_motion_body = NO;
++    g_hintShown = NO;
++    memset(&g_slots, 0, sizeof g_slots);
++    g_merge = 0; g_press_to_join = 0;
++    memset(&g_padmap, 0, sizeof g_padmap);
++    g_merge_s2_rumble = 0;
++    g_s2_off = 0;
+     k_idle = nil; k_on = nil; k_line = nil; k_ringFill = nil; k_text = nil; k_textOn = nil;
+ }

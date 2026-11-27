@@ -20,10 +20,10 @@ Issue: LNPANDY/NX2Apple#911
  1 file changed, 3 insertions(+), 3 deletions(-)
 
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index 97eb6aa..f2fb595 100644
+index bc25ab7..2b3d87f 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
-@@ -1510,9 +1510,9 @@ void front_run(void (*guest)(void)) {
+@@ -1520,9 +1520,9 @@ void front_run(void (*guest)(void)) {
          [nc addObserverForName:NSWindowWillExitFullScreenNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; dm_fstep_settle(); }];
          [nc addObserverForName:NSWindowDidEnterFullScreenNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; screen_refresh(win.screen); g_layer.contentsScale = win.backingScaleFactor; layer_opaque_sync(win.screen, 1); screen_match_apply(); g_fullscreen = 1; g_fs_starting = 0; dm_fstep_settle(); }];   // the switch first: front_screen_settling holds the link until it settles
          [nc addObserverForName:NSWindowDidExitFullScreenNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; g_fullscreen = 0; screen_refresh(win.screen); g_layer.contentsScale = win.backingScaleFactor; layer_opaque_sync(win.screen, 0); screen_match_apply(); dm_fstep_settle(); }];

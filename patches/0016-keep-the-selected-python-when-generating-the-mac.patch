@@ -50,7 +50,7 @@ index e6a1b31..e2741e4 100644
  # without GAME only clean passes; anything else (a bare make too, whose default goal is the host) stops and lists the profiles
  ifeq ($(strip $(GAME)),)
 diff --git a/dm/tools/tests/test_host_msl.py b/dm/tools/tests/test_host_msl.py
-index 59f4d38..bfdb78d 100644
+index cdcb86c..5b7c70c 100644
 --- a/dm/tools/tests/test_host_msl.py
 +++ b/dm/tools/tests/test_host_msl.py
 @@ -3,6 +3,7 @@ import importlib.util
@@ -84,7 +84,7 @@ index 59f4d38..bfdb78d 100644
      def test_mac_and_ios_use_their_deployment_targets(self):
          self.make()
          minimum = (self.root / 'dm/mac/min_os.mk').read_text().split('MACOS_MIN := ')[1].split()[0]
-@@ -164,18 +181,22 @@ class HostMSL(unittest.TestCase):
+@@ -172,18 +189,22 @@ class HostMSL(unittest.TestCase):
          logs = self.root / 'logs'
          logs.mkdir()
          builds = []
@@ -108,7 +108,7 @@ index 59f4d38..bfdb78d 100644
              return NS(returncode=0, stdout=DRY if cmd[0] == 'make' else 'test toolchain', stderr='')
  
          with patch.object(nsp, 'apple_silicon', return_value=True), patch.object(nsp, 'run', side_effect=run), patch.object(nsp.subprocess, 'run', side_effect=command):
-@@ -190,6 +211,11 @@ class HostMSL(unittest.TestCase):
+@@ -198,6 +219,11 @@ class HostMSL(unittest.TestCase):
              nsp.build_mac_host(self.root, out, self.env, logs, NS(id=GAME))
              self.assertEqual(len(builds), 3)
  
@@ -121,10 +121,10 @@ index 59f4d38..bfdb78d 100644
          nsp = script('build_ipa_from_nsp')
          self.host_dirs(nsp.HOST_DIRS)
 diff --git a/docs/reference/packing.md b/docs/reference/packing.md
-index 27ee811..23595a4 100644
+index b070b88..c6cff43 100644
 --- a/docs/reference/packing.md
 +++ b/docs/reference/packing.md
-@@ -135,6 +135,13 @@
+@@ -143,6 +143,13 @@
  - **Fix:** the translator is rebuilt with Microsoft's .NET SDK. `native_tools.sh` refuses a slice with a weak import before it joins the slices, and `test_native_tools.py` (`test_no_weak_imports`) reads the symbol tables of both committed tools, so a function newer than the minimum macOS cannot be committed again from any Mac. `nx_extract` had none. Measured: over the translator jobs of a full Cuphead shader build, the new arm64 slice wrote the same files as the old one, byte for byte. Not run on macOS 26 here.
  - **Found on:** every game's build on macOS 26 ([GitHub issue #2190](https://github.com/seedds/nxnative/issues/2190), [#2239](https://github.com/seedds/nxnative/issues/2239), [#2227](https://github.com/seedds/nxnative/issues/2227)).
  
@@ -139,10 +139,10 @@ index 27ee811..23595a4 100644
  
  - **Symptom:** the first extraction stops with `nx_extract exit code 131` and `.NET location: Not found`, even though `dotnet` is on `PATH`. The shader translator can fail the same way.
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 8739638..c709953 100755
+index a9c3a38..c6dfba5 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -2113,9 +2113,9 @@ def build_mac_host(repo, out, env, logs, g):
+@@ -2176,9 +2176,9 @@ def build_mac_host(repo, out, env, logs, g):
      and the macOS SDK) are as at the last build into out. The host runs the game's own arm64 code natively, so an Intel Mac stops here (GitHub issue #54)"""
      if not apple_silicon(): raise BuildError('this step boots the game in the Mac host, which runs the game\'s own arm64 code natively: it needs a Mac with Apple silicon, and this Mac has an Intel processor')
      host = repo / 'dm/host'
@@ -154,7 +154,7 @@ index 8739638..c709953 100755
      cmd = [l for l in dry.stdout.splitlines() if l.startswith('clang') and f' -o gen/{g.id}/' in l]   # the host's compiles and its link, not the libraries'
      if not any(f' -o gen/{g.id}/dmhost ' in l for l in cmd): raise BuildError(f'make -n gave no link line for the Mac host: {dry.stderr.strip()[-500:]}')
      kf, tp = out.with_name(out.name + '.key'), repo / 'dm/third_party'
-@@ -2130,7 +2130,7 @@ def build_mac_host(repo, out, env, logs, g):
+@@ -2193,7 +2193,7 @@ def build_mac_host(repo, out, env, logs, g):
      decoder = fingerprint('oodle-host-v1', common, ('files', [p for p in srcs if p != chain]), chain_text)
      if out.is_file() and reused(kf, key) is not None and decoder_host_key(out) == decoder: return out
      rmtree(kf); out.parent.mkdir(parents=True, exist_ok=True)

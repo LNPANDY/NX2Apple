@@ -2040,7 +2040,7 @@
   "launch.set.DM_SCREEN_ASPECT.note": "縦に長い比率ほど描画ピクセルが増え、GPU 負荷と発熱が増える場合があります。",
   "launch.set.DM_SHOW_FPS": "フレームレート表示",
   "launch.set.DM_SW2": "Switch 2 コントローラー",
-  "launch.set.DM_SW2.note": "Joy-Con 2 と Pro Controller 2 を Bluetooth で使えます。ゲーム中にコントローラーの Sync ボタンを長押しするとペアリングされます。macOS は Bluetooth へのアクセスを一度だけ確認します。",
+  "launch.set.DM_SW2.note": "Joy-Con 2 と Pro Controller 2 を Bluetooth で使えます。ゲーム中にコントローラーの Sync ボタンを長押しするとペアリングされます（iPhone と iPad では毎回起動後に操作が必要です）。システムは Bluetooth へのアクセスを一度だけ確認します。",
   "launch.set.DM_TOUCH_HAPTICS": "タッチのフィードバック",
   "launch.set.DM_TOUCH_SIZE": "サイズ",
   "launch.set.DM_TOUCH_SIZE.note": "画面上のコントロールの大きさです。画面に収まらない大きさは、中くらいに近づきます。",

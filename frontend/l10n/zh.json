@@ -2041,7 +2041,7 @@
   "launch.set.DM_SCREEN_ASPECT.note": "更高的画面比例会渲染更多像素，可能增加 GPU 耗时与发热。",
   "launch.set.DM_SHOW_FPS": "帧率显示",
   "launch.set.DM_SW2": "Switch 2 手柄",
-  "launch.set.DM_SW2.note": "通过蓝牙使用 Joy-Con 2 和 Pro Controller 2：游戏中按住手柄上的同步键即可配对。macOS 会请求一次蓝牙访问权限。",
+  "launch.set.DM_SW2.note": "通过蓝牙使用 Joy-Con 2 和 Pro Controller 2：游戏中按住手柄上的同步键即可配对（在 iPhone 和 iPad 上每次启动后需重新按住）。系统会请求一次蓝牙访问权限。",
   "launch.set.DM_TOUCH_HAPTICS": "触控反馈",
   "launch.set.DM_TOUCH_SIZE": "大小",
   "launch.set.DM_TOUCH_SIZE.note": "屏幕控件的大小。尺寸放不下时，控件会向中等尺寸靠拢。",
