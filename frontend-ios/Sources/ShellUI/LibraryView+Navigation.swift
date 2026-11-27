@@ -239,7 +239,12 @@ extension LibraryView {
             gameTitle: detail.game.title,
             buildID: detail.cheatsSummary?.buildID
         )
-        return CheatsSheetView(snapshot: placeholder, actions: guardedActions, onClose: closeCheats)
+        return CheatsSheetView(
+            snapshot: placeholder,
+            actions: guardedActions,
+            onClose: closeCheats,
+            onModalPresentedChange: { childModalPresented = $0 }
+        )
             .id(id)
             .background(ShellPalette.background)
     }

@@ -544,8 +544,12 @@ public struct ShellActions {
     public var onDismissCheatFuseAlert: ((_ gameID: String) -> GameCheatsSnapshot)?
     /// Dismisses the 30-second crash guard fuse alert off the main thread and returns the refreshed snapshot.
     public var onDismissCheatFuseAlertAsync: (@MainActor (_ gameID: String) async -> GameCheatsSnapshot)?
-    /// Fetches online cheats for `gameID` and returns the refreshed snapshot and fetch receipt.
+    /// Fetches online cheats for `gameID` and returns the refreshed snapshot, fetch receipt, or interactive preview.
     public var onFetchCheats: (@MainActor (_ gameID: String) async -> CheatFetchOutcome)?
+    /// Merges non-duplicate online cheats from `preview` into the game's existing cheat file after backup.
+    public var onMergeOnlineCheats: (@MainActor (_ gameID: String, _ preview: GameCheatOnlinePreview) async -> CheatOnlineApplyOutcome)?
+    /// Replaces the game's existing cheat file with `preview.onlineText` after backup.
+    public var onReplaceOnlineCheats: (@MainActor (_ gameID: String, _ preview: GameCheatOnlinePreview) async -> CheatOnlineApplyOutcome)?
     /// Deletes the current cheat file for `gameID` and prevents bundled re-seeding.
     public var onDeleteCheatFile: ((_ gameID: String) -> GameCheatsSnapshot)?
     /// Deletes the current cheat file off the main thread and prevents bundled re-seeding.
@@ -618,6 +622,8 @@ public struct ShellActions {
                 onDismissCheatFuseAlert: ((_ gameID: String) -> GameCheatsSnapshot)? = nil,
                 onDismissCheatFuseAlertAsync: (@MainActor (_ gameID: String) async -> GameCheatsSnapshot)? = nil,
                 onFetchCheats: (@MainActor (_ gameID: String) async -> CheatFetchOutcome)? = nil,
+                onMergeOnlineCheats: (@MainActor (_ gameID: String, _ preview: GameCheatOnlinePreview) async -> CheatOnlineApplyOutcome)? = nil,
+                onReplaceOnlineCheats: (@MainActor (_ gameID: String, _ preview: GameCheatOnlinePreview) async -> CheatOnlineApplyOutcome)? = nil,
                 onDeleteCheatFile: ((_ gameID: String) -> GameCheatsSnapshot)? = nil,
                 onDeleteCheatFileAsync: (@MainActor (_ gameID: String) async -> GameCheatsSnapshot)? = nil,
                 onPickSaveImport: (@MainActor (_ gameID: String) async -> SaveImportPreviewOutcome)? = nil,
@@ -671,6 +677,8 @@ public struct ShellActions {
         self.onDismissCheatFuseAlert = onDismissCheatFuseAlert
         self.onDismissCheatFuseAlertAsync = onDismissCheatFuseAlertAsync
         self.onFetchCheats = onFetchCheats
+        self.onMergeOnlineCheats = onMergeOnlineCheats
+        self.onReplaceOnlineCheats = onReplaceOnlineCheats
         self.onDeleteCheatFile = onDeleteCheatFile
         self.onDeleteCheatFileAsync = onDeleteCheatFileAsync
         self.onPickSaveImport = onPickSaveImport

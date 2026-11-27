@@ -424,7 +424,8 @@ extension ShellHostModel {
         let transport = config.fetchCheatsTransport
 
         let resolvedBuildID = await Task.detached(priority: .userInitiated) {
-            store.resolvedBuildID()
+            store.seedBundledCheatsIfNeeded()
+            return store.resolvedBuildID()
         }.value
         guard cheatsOpGeneration[id] == gen,
               entries.contains(where: { $0.id == id && $0.frameworkURL == expectedFramework }) else {
@@ -435,16 +436,102 @@ extension ShellHostModel {
         }
 
         let fetcher = IOSCheatFetcher(now: nowProvider, transport: transport)
-        let receipt = await fetcher.fetchAndSave(titleID: id, buildID: buildID, to: store.cheatsFolder)
+        let fetchResult = await fetcher.fetchForManualReview(
+            titleID: id,
+            buildID: buildID,
+            to: store.cheatsFolder,
+            frameworkURL: expectedFramework
+        )
         let snapshot = await Task.detached(priority: .userInitiated) {
             store.loadSnapshot(gameTitle: title)
         }.value
 
+        switch fetchResult {
+        case .saved(let receipt):
+            guard cheatsOpGeneration[id] == gen,
+                  entries.contains(where: { $0.id == id && $0.frameworkURL == expectedFramework }) else {
+                return .completed(snapshot: snapshot, receipt: receipt)
+            }
+            updateCheatsSummary(Self.summary(from: snapshot), for: id)
+            return .completed(snapshot: snapshot, receipt: receipt)
+
+        case .preview(let receipt, let preview):
+            guard cheatsOpGeneration[id] == gen,
+                  entries.contains(where: { $0.id == id && $0.frameworkURL == expectedFramework }) else {
+                return .previewRequired(snapshot: snapshot, receipt: receipt, preview: preview)
+            }
+            updateCheatsSummary(Self.summary(from: snapshot), for: id)
+            return .previewRequired(snapshot: snapshot, receipt: receipt, preview: preview)
+        }
+    }
+
+    public func mergeOnlineCheatsAsync(for id: String, preview: GameCheatOnlinePreview) async -> CheatOnlineApplyOutcome {
+        guard let entry = entries.first(where: { $0.id == id }) else {
+            return .failed(hostText("This game could not be found."))
+        }
+        let gen = nextCheatsGeneration(for: id)
+        let store = cheatsStore(for: entry)
+        let title = entry.title
+        let expectedFramework = entry.frameworkURL
+        let nowProvider = config.now
+
+        let result: Result<GameCheatsSnapshot, Error> = await Task.detached(priority: .userInitiated) {
+            do {
+                let snap = try store.mergeOnlineCheats(preview: preview, gameTitle: title, now: nowProvider())
+                return .success(snap)
+            } catch {
+                return .failure(error)
+            }
+        }.value
+
         guard cheatsOpGeneration[id] == gen,
               entries.contains(where: { $0.id == id && $0.frameworkURL == expectedFramework }) else {
-            return .completed(snapshot: snapshot, receipt: receipt)
+            return .failed("")
         }
-        updateCheatsSummary(Self.summary(from: snapshot), for: id)
-        return .completed(snapshot: snapshot, receipt: receipt)
+
+        switch result {
+        case .success(let snapshot):
+            updateCheatsSummary(Self.summary(from: snapshot), for: id)
+            return .applied(snapshot: snapshot)
+        case .failure(GameCheatsStore.StoreError.fileTooLarge):
+            return .failed(hostText("The selected cheat file is too large."))
+        case .failure:
+            return .failed(hostText("Could not save the cheat file."))
+        }
+    }
+
+    public func replaceWithOnlineCheatsAsync(for id: String, preview: GameCheatOnlinePreview) async -> CheatOnlineApplyOutcome {
+        guard let entry = entries.first(where: { $0.id == id }) else {
+            return .failed(hostText("This game could not be found."))
+        }
+        let gen = nextCheatsGeneration(for: id)
+        let store = cheatsStore(for: entry)
+        let title = entry.title
+        let expectedFramework = entry.frameworkURL
+        let nowProvider = config.now
+
+        let result: Result<GameCheatsSnapshot, Error> = await Task.detached(priority: .userInitiated) {
+            do {
+                let snap = try store.replaceWithOnlineCheats(preview: preview, gameTitle: title, now: nowProvider())
+                return .success(snap)
+            } catch {
+                return .failure(error)
+            }
+        }.value
+
+        guard cheatsOpGeneration[id] == gen,
+              entries.contains(where: { $0.id == id && $0.frameworkURL == expectedFramework }) else {
+            return .failed("")
+        }
+
+        switch result {
+        case .success(let snapshot):
+            updateCheatsSummary(Self.summary(from: snapshot), for: id)
+            return .applied(snapshot: snapshot)
+        case .failure(GameCheatsStore.StoreError.fileTooLarge):
+            return .failed(hostText("The selected cheat file is too large."))
+        case .failure:
+            return .failed(hostText("Could not save the cheat file."))
+        }
     }
 }

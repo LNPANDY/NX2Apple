@@ -1125,6 +1125,14 @@ public struct ShellHostConfig: Sendable {
                 guard let self else { return .failed("") }
                 return await self.fetchCheatsAsync(for: id)
             },
+            onMergeOnlineCheats: { [weak self] id, preview in
+                guard let self else { return .failed("") }
+                return await self.mergeOnlineCheatsAsync(for: id, preview: preview)
+            },
+            onReplaceOnlineCheats: { [weak self] id, preview in
+                guard let self else { return .failed("") }
+                return await self.replaceWithOnlineCheatsAsync(for: id, preview: preview)
+            },
             onDeleteCheatFile: { [weak self] id in
                 self?.deleteCheatFile(for: id) ?? GameCheatsSnapshot(gameID: id, gameTitle: "")
             },

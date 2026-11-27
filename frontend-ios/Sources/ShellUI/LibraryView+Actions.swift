@@ -146,6 +146,18 @@ extension LibraryView {
                 return await fetchCheats(id)
             }
         }
+        if let mergeCheats = o.onMergeOnlineCheats {
+            a.onMergeOnlineCheats = { @MainActor id, preview in
+                guard !gate.isSystemEcho else { return .failed("") }
+                return await mergeCheats(id, preview)
+            }
+        }
+        if let replaceCheats = o.onReplaceOnlineCheats {
+            a.onReplaceOnlineCheats = { @MainActor id, preview in
+                guard !gate.isSystemEcho else { return .failed("") }
+                return await replaceCheats(id, preview)
+            }
+        }
         a.onDeleteCheatFile = o.onDeleteCheatFile.map { remove in
             { id in echo() ? (o.onLoadCheats?(id) ?? GameCheatsSnapshot(gameID: id, gameTitle: "")) : remove(id) }
         }

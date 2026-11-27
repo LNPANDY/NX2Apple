@@ -199,12 +199,16 @@ struct HostDemoScreen: View {
         }
         let fetchTransport: IOSCheatFetcher.Transport?
         if args.contains("--mock-cheat-fetch") {
+            var onlineEntries: [String: String] = [
+                "[Infinite Health]": "[Infinite Health]\n04000000 00180020 000003E7",
+                "[Max Rupees]": "[Max Rupees]\n04100000 00004200 000F423F",
+                "[Unsafe Bypass]": "[Unsafe Bypass]\n04000000 00000400 D503201F",
+            ]
+            if args.contains("--mock-cheat-preloaded") {
+                onlineEntries["[Auto Refill Stamina]"] = "[Auto Refill Stamina]\n04000000 00180088 00000064"
+            }
             let dbPayload = try? JSONSerialization.data(withJSONObject: [
-                "CD57B23FA4BBAD65": [
-                    "[Infinite Health]": "[Infinite Health]\n04000000 00180020 000003E7",
-                    "[Max Rupees]": "[Max Rupees]\n04100000 00004200 000F423F",
-                    "[Unsafe Bypass]": "[Unsafe Bypass]\n04000000 00000400 D503201F",
-                ],
+                "CD57B23FA4BBAD65": onlineEntries,
             ])
             fetchTransport = { request in
                 if request.url?.absoluteString.contains("/cheats/") == true, let dbPayload {

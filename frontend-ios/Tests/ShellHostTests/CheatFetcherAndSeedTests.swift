@@ -520,4 +520,212 @@ private actor MockHTTPTransport {
         #expect(!stillBlocked.enabled)
         #expect(store.readEnabled(for: buildID).isEmpty)
     }
+
+    // MARK: - 4. Manual Fetch Preview, Diff, Merge/Replace Backup & Cross-Platform Receipt
+
+    @Test func manualFetchOverUserFileReturnsPreviewWithoutOverwritingAndSupportsMergeAndReplace() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let gamesRoot = root.appendingPathComponent("Games", isDirectory: true)
+        let trampolines = """
+        # BUILD_ID\t\(buildID)
+        # MAIN_RX_END\t0x100000
+        row_type\tname\tcheat_key\tkind\tslot_id\tvariant_mask\ttarget_off\tpatched_word\tkey_mask\tdetail
+        entry\tBaked Jump\tBaked Jump\tbaked_static\t0\t0x1\t0x400\t0xd503201f\t0x0\t
+        """
+        let gameDir = try makePlayableGameDir(
+            at: gamesRoot,
+            titleID: titleID,
+            buildID: buildID,
+            trampolines: trampolines
+        )
+        let appData = root.appendingPathComponent("appData", isDirectory: true)
+        let cheatsDir = appData.appendingPathComponent("\(titleID)/cheats", isDirectory: true)
+        try FileManager.default.createDirectory(at: cheatsDir, withIntermediateDirectories: true)
+
+        let localText = """
+        [Infinite Health]
+        04000000 00180020 000003E7
+
+        [Local Only Bonus]
+        04000000 00180030 00000064
+        """
+        let localURL = cheatsDir.appendingPathComponent("\(buildID).txt")
+        let localData = Data(localText.utf8)
+        try localData.write(to: localURL)
+        try Data("Infinite Health\nLocal Only Bonus\n".utf8).write(to: cheatsDir.appendingPathComponent("\(buildID).enabled"))
+
+        // Mark deleted previously to verify merge/replace also clears .deleted.json.
+        let store = GameCheatsStore(
+            titleID: titleID,
+            cheatsFolder: cheatsDir,
+            frameworkURL: gameDir.appendingPathComponent("DmGame.framework")
+        )
+        try Data("[\"\(buildID).txt\"]".utf8).write(to: store.deletedURL)
+
+        let dbPayload = try JSONSerialization.data(withJSONObject: [
+            buildID: [
+                "{Master Code}": "{Master Code}\n580F0000 00200000",
+                "[Infinite Health]": "[Infinite Health]\n04000000 00180020 00000999",
+                "[Max Rupees]": "[Max Rupees]\n04100000 00004200 000F423F",
+                "[Baked Jump]": "[Baked Jump]\n04000000 00000400 D503201F",
+                "[Code Needs Bake]": "[Code Needs Bake]\n04000000 00000800 1E202800",
+            ],
+        ])
+
+        let fixedDate = Date(timeIntervalSince1970: 1_795_770_555)
+        let model = ShellHostModel(
+            config: ShellHostConfig(
+                gamesRoot: gamesRoot,
+                appDataRoot: appData,
+                environment: HostEnvironment(chain: "b-3f9a2c"),
+                defaults: TestDefaults.keyed("cheat-preview-test"),
+                fetchCheatsTransport: { request in
+                    if request.url?.absoluteString.contains("/cheats/\(self.titleID).json") == true {
+                        let ok = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                        return (dbPayload, ok)
+                    }
+                    let nf = HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!
+                    return (Data(), nf)
+                },
+                now: { fixedDate },
+                sideloadCertBacking: InMemoryCertBacking()
+            ),
+            shellSettings: ShellSettingsStore(defaults: TestDefaults.make("cheat-preview-shell"))
+        )
+
+        let outcome = await model.fetchCheatsAsync(for: titleID)
+        guard case .previewRequired(let snapBeforeDecision, let receipt, let preview) = outcome else {
+            Issue.record("Expected previewRequired outcome, got \(outcome)")
+            return
+        }
+
+        // Local file must NOT be overwritten yet.
+        #expect(try Data(contentsOf: localURL) == localData)
+        #expect(receipt.status == "preserved_user")
+        #expect(receipt.origin == "user")
+        #expect(snapBeforeDecision.entries.map(\.name) == ["Infinite Health", "Local Only Bonus"])
+
+        // Verify diff summary and entry classifications.
+        #expect(preview.titleID == titleID)
+        #expect(preview.buildID == buildID)
+        #expect(preview.fileName == "\(buildID).txt")
+        #expect(preview.sources == ["HamletDuFromage/switch-cheats-db"])
+        #expect(preview.localCount == 2)
+        #expect(preview.onlineCount == 5)
+        #expect(preview.addedCount == 4)
+        #expect(preview.sameNameCount == 1)
+        #expect(preview.localOnlyCount == 1)
+
+        let byName = Dictionary(uniqueKeysWithValues: preview.entries.map { ($0.name, $0) })
+        #expect(byName["Master Code"]?.isMaster == true)
+        #expect(byName["Master Code"]?.isAdded == true)
+        #expect(byName["Infinite Health"]?.isAdded == false)
+        #expect(byName["Infinite Health"]?.capability == .dataReady)
+        #expect(byName["Infinite Health"]?.rawLines == ["04000000 00180020 00000999"])
+        #expect(byName["Max Rupees"]?.isAdded == true)
+        #expect(byName["Max Rupees"]?.hasFixedAddress == true)
+        #expect(byName["Max Rupees"]?.capability == .fixedHeapWarning)
+        #expect(byName["Baked Jump"]?.capability == .codeBaked)
+        #expect(byName["Code Needs Bake"]?.capability == .codeNeedsBake)
+
+        // 1. Merge online cheats -> creates .bak, keeps local entries & .enabled switches, adds only new entries (default OFF).
+        let mergeOutcome = await model.mergeOnlineCheatsAsync(for: titleID, preview: preview)
+        guard case .applied(let mergedSnap) = mergeOutcome else {
+            Issue.record("Expected applied merge outcome, got \(mergeOutcome)")
+            return
+        }
+        let backupURL = cheatsDir.appendingPathComponent("\(buildID).txt.bak")
+        #expect(FileManager.default.fileExists(atPath: backupURL.path))
+        #expect(try Data(contentsOf: backupURL) == localData)
+        #expect(!store.readDeletedCheatFiles().contains("\(buildID).txt"))
+        #expect(mergedSnap.fetchReceipt?.origin == "user")
+        #expect(mergedSnap.fetchReceipt?.status == "preserved_user")
+
+        let mergedText = try String(contentsOf: localURL, encoding: .utf8)
+        #expect(mergedText.contains("000003E7")) // local Infinite Health preserved
+        #expect(!mergedText.contains("00000999")) // online Infinite Health not duplicated
+        #expect(mergedText.contains("[Local Only Bonus]"))
+        #expect(mergedText.contains("[Max Rupees]"))
+
+        let mergedByName = Dictionary(uniqueKeysWithValues: mergedSnap.entries.map { ($0.name, $0) })
+        #expect(mergedByName["Infinite Health"]?.enabled == true)
+        #expect(mergedByName["Local Only Bonus"]?.enabled == true)
+        #expect(mergedByName["Max Rupees"]?.enabled == false)
+        #expect(mergedByName["Baked Jump"]?.enabled == false)
+
+        // 2. Replace with online cheats -> backs up merged file to .bak, writes onlineText, updates receipt to found/fetched, prunes stale .enabled.
+        let beforeReplaceData = try Data(contentsOf: localURL)
+        let replaceOutcome = await model.replaceWithOnlineCheatsAsync(for: titleID, preview: preview)
+        guard case .applied(let replacedSnap) = replaceOutcome else {
+            Issue.record("Expected applied replace outcome, got \(replaceOutcome)")
+            return
+        }
+        #expect(try Data(contentsOf: backupURL) == beforeReplaceData)
+        #expect(try String(contentsOf: localURL, encoding: .utf8) == preview.onlineText)
+        #expect(replacedSnap.fetchReceipt?.status == "found")
+        #expect(replacedSnap.fetchReceipt?.origin == "fetched")
+        #expect(!store.readDeletedCheatFiles().contains("\(buildID).txt"))
+
+        let enabledAfterReplace = store.readEnabled(for: buildID)
+        #expect(enabledAfterReplace == Set(["Infinite Health"]))
+        #expect(!enabledAfterReplace.contains("Local Only Bonus"))
+    }
+
+    @Test func fetchReceiptDecodesCrossPlatformStatusesAndTimestampFormats() throws {
+        // Mac writes status = "fetched" and ISO-8601 fetchedAt string.
+        let macJSON = Data("""
+        {
+          "schemaVersion": 1,
+          "titleID": "\(titleID)",
+          "buildID": "\(buildID)",
+          "status": "fetched",
+          "sources": ["switch-cheats-db"],
+          "entryCount": 12,
+          "fetchedAt": "2026-11-27T12:12:29Z",
+          "fileName": "\(buildID).txt",
+          "fileSHA256": "deadbeef",
+          "origin": "fetched",
+          "detail": ""
+        }
+        """.utf8)
+        let macReceipt = try JSONDecoder().decode(GameCheatFetchReceipt.self, from: macJSON)
+        #expect(macReceipt.status == "fetched")
+        #expect(macReceipt.isFoundStatus)
+        #expect(macReceipt.fetchedAt > 1_795_000_000)
+
+        // Fractional seconds ISO-8601 string.
+        let fractionalJSON = Data("""
+        {
+          "titleID": "\(titleID)",
+          "buildID": "\(buildID)",
+          "status": "found",
+          "fetchedAt": "2026-11-27T12:12:29.500Z"
+        }
+        """.utf8)
+        let fractionalReceipt = try JSONDecoder().decode(GameCheatFetchReceipt.self, from: fractionalJSON)
+        #expect(fractionalReceipt.isFoundStatus)
+        #expect(abs(fractionalReceipt.fetchedAt - macReceipt.fetchedAt - 0.5) < 0.01)
+
+        // Python / iOS writes numeric timestamp and status = "found".
+        let pyJSON = Data("""
+        {
+          "schemaVersion": 1,
+          "titleID": "\(titleID)",
+          "buildID": "\(buildID)",
+          "status": "found",
+          "sources": ["HamletDuFromage/switch-cheats-db"],
+          "entryCount": 4,
+          "fetchedAt": 1795770000,
+          "fileName": "\(buildID).txt",
+          "fileSHA256": "cafebabe",
+          "origin": "fetched",
+          "detail": ""
+        }
+        """.utf8)
+        let pyReceipt = try JSONDecoder().decode(GameCheatFetchReceipt.self, from: pyJSON)
+        #expect(pyReceipt.isFoundStatus)
+        #expect(pyReceipt.fetchedAt == 1_795_770_000)
+    }
 }

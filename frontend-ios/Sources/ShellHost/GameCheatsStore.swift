@@ -428,7 +428,7 @@ public struct GameCheatsStore: Sendable {
         }
     }
 
-    private static func sha256Hex(_ data: Data) -> String {
+    public static func sha256Hex(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
@@ -583,6 +583,335 @@ public struct GameCheatsStore: Sendable {
     public func readEnabled(for buildID: String) -> Set<String> {
         guard let text = try? String(contentsOf: enabledURL(for: buildID), encoding: .utf8) else { return [] }
         return Set(text.split(whereSeparator: \.isNewline).map(String.init).filter { !$0.isEmpty })
+    }
+
+    // MARK: - Online Fetch Preview, Merge & Replace
+
+    public struct RawCheatBlock: Equatable, Sendable {
+        public var header: String
+        public var name: String
+        public var isMaster: Bool
+        public var codeLines: [String]
+    }
+
+    public func existingCheatURL(for buildID: String, fileManager fm: FileManager = .default) -> URL? {
+        let bid = buildID.uppercased()
+        guard !bid.isEmpty else { return nil }
+        let direct = flatCheatURL(for: bid)
+        if fm.fileExists(atPath: direct.path) {
+            return direct
+        }
+        let expectedLower = "\(bid.lowercased()).txt"
+        let folderNames = ((try? fm.contentsOfDirectory(atPath: cheatsFolder.path)) ?? []).sorted()
+        if let ci = folderNames.first(where: { $0.lowercased() == expectedLower }) {
+            return cheatsFolder.appendingPathComponent(ci)
+        }
+        return matchedFile(for: bid, in: foundFiles())?.url
+    }
+
+    public static func comparisonKey(name: String, isMaster: Bool) -> String {
+        let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return "\(isMaster ? "M" : "C"):\(normalized)"
+    }
+
+    public static func extractRawBlocks(from text: String) -> [RawCheatBlock] {
+        let normalized = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        var blocks: [RawCheatBlock] = []
+        var current: RawCheatBlock?
+
+        func flushCurrent() {
+            guard var block = current else { return }
+            while let last = block.codeLines.last, last.isEmpty {
+                block.codeLines.removeLast()
+            }
+            blocks.append(block)
+            current = nil
+        }
+
+        for rawLine in normalized.split(omittingEmptySubsequences: false, whereSeparator: { $0 == "\n" }) {
+            let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("[") || trimmed.hasPrefix("{") {
+                let isMaster = trimmed.hasPrefix("{")
+                let closeChar: Character = isMaster ? "}" : "]"
+                let bodyStart = trimmed.index(after: trimmed.startIndex)
+                if let closeIdx = trimmed[bodyStart...].firstIndex(of: closeChar) {
+                    let innerName = String(trimmed[bodyStart..<closeIdx]).trimmingCharacters(in: .whitespaces)
+                    if !innerName.isEmpty {
+                        flushCurrent()
+                        let header = isMaster ? "{\(innerName)}" : "[\(innerName)]"
+                        var lines: [String] = []
+                        let after = trimmed[trimmed.index(after: closeIdx)...].trimmingCharacters(in: .whitespaces)
+                        if !after.isEmpty {
+                            lines.append(after)
+                        }
+                        current = RawCheatBlock(header: header, name: innerName, isMaster: isMaster, codeLines: lines)
+                        continue
+                    }
+                }
+            }
+            guard current != nil else { continue }
+            if !trimmed.isEmpty {
+                current?.codeLines.append(trimmed)
+            }
+        }
+        flushCurrent()
+        return blocks
+    }
+
+    public func buildOnlinePreview(
+        titleID: String,
+        buildID: String,
+        sources: [String],
+        onlineText: String,
+        onlineSHA256: String? = nil
+    ) -> GameCheatOnlinePreview {
+        let tid = titleID.uppercased()
+        let bid = buildID.uppercased()
+        let fixups = readFixupsMetadata()
+        let trampolines = readTrampolineMetadata()
+
+        var localActive: [GameCheatEntry] = []
+        if let localURL = existingCheatURL(for: bid),
+           Self.isWithinSizeLimit(localURL),
+           let localData = try? Data(contentsOf: localURL) {
+            localActive = Self.parse(
+                localData,
+                meta: nil,
+                enabled: [],
+                rxEnd: fixups.mainRxEnd,
+                trampolines: trampolines,
+                buildID: bid
+            ).filter { !$0.isLabel && !$0.isBroken }
+        }
+
+        let onlineData = Data(onlineText.utf8)
+        let onlineActive = Self.parse(
+            onlineData,
+            meta: nil,
+            enabled: [],
+            rxEnd: fixups.mainRxEnd,
+            trampolines: trampolines,
+            buildID: bid
+        ).filter { !$0.isLabel && !$0.isBroken }
+
+        let rawBlocks = Self.extractRawBlocks(from: onlineText)
+        var consumedBlocks = Set<Int>()
+
+        let localIdentities = Set(localActive.map { Self.comparisonKey(name: $0.name, isMaster: $0.isMaster) })
+        let onlineIdentities = Set(onlineActive.map { Self.comparisonKey(name: $0.name, isMaster: $0.isMaster) })
+
+        let previewEntries: [GameCheatOnlineEntry] = onlineActive.map { entry in
+            var matchedLines: [String] = []
+            if let idx = rawBlocks.indices.first(where: {
+                !consumedBlocks.contains($0)
+                    && rawBlocks[$0].isMaster == entry.isMaster
+                    && rawBlocks[$0].name == entry.name
+            }) ?? rawBlocks.indices.first(where: {
+                !consumedBlocks.contains($0)
+                    && rawBlocks[$0].isMaster == entry.isMaster
+                    && rawBlocks[$0].name.caseInsensitiveCompare(entry.name) == .orderedSame
+            }) {
+                consumedBlocks.insert(idx)
+                matchedLines = rawBlocks[idx].codeLines
+            }
+
+            let isAdded = !localIdentities.contains(Self.comparisonKey(name: entry.name, isMaster: entry.isMaster))
+            return GameCheatOnlineEntry(
+                id: entry.key,
+                name: entry.name,
+                key: entry.key,
+                isMaster: entry.isMaster,
+                isAdded: isAdded,
+                rawLines: matchedLines,
+                capability: entry.capability,
+                hasFixedAddress: entry.hasFixedAddress,
+                isBroken: entry.isBroken,
+                triggerKeys: entry.triggerKeys,
+                unsafeCodeReason: entry.unsafeCodeReason
+            )
+        }
+
+        let addedCount = previewEntries.filter(\.isAdded).count
+        let sameNameCount = previewEntries.count - addedCount
+        let localOnlyCount = localActive.filter {
+            !onlineIdentities.contains(Self.comparisonKey(name: $0.name, isMaster: $0.isMaster))
+        }.count
+
+        return GameCheatOnlinePreview(
+            titleID: tid,
+            buildID: bid,
+            fileName: "\(bid).txt",
+            sources: sources,
+            onlineText: onlineText,
+            onlineSHA256: onlineSHA256 ?? Self.sha256Hex(onlineData),
+            localCount: localActive.count,
+            onlineCount: previewEntries.count,
+            addedCount: addedCount,
+            sameNameCount: sameNameCount,
+            localOnlyCount: localOnlyCount,
+            entries: previewEntries
+        )
+    }
+
+    public func mergeOnlineCheats(
+        preview: GameCheatOnlinePreview,
+        gameTitle: String,
+        now: Date = Date(),
+        fileManager fm: FileManager = .default
+    ) throws -> GameCheatsSnapshot {
+        let bid = preview.buildID.uppercased()
+        let fileName = "\(bid).txt"
+        let destURL = flatCheatURL(for: bid)
+        let existingURL = existingCheatURL(for: bid, fileManager: fm) ?? destURL
+        let fixups = readFixupsMetadata()
+        let trampolines = readTrampolineMetadata()
+
+        var localText = ""
+        var existingIdentities = Set<String>()
+        if fm.fileExists(atPath: existingURL.path), let existingData = try? Data(contentsOf: existingURL) {
+            let backupURL = cheatsFolder.appendingPathComponent("\(fileName).bak")
+            try fm.createDirectory(at: cheatsFolder, withIntermediateDirectories: true)
+            try existingData.write(to: backupURL, options: .atomic)
+            localText = String(decoding: existingData, as: UTF8.self)
+                .replacingOccurrences(of: "\r\n", with: "\n")
+                .replacingOccurrences(of: "\r", with: "\n")
+            let parsedLocal = Self.parse(
+                existingData,
+                meta: nil,
+                enabled: [],
+                rxEnd: fixups.mainRxEnd,
+                trampolines: trampolines,
+                buildID: bid
+            ).filter { !$0.isLabel && !$0.isBroken }
+            existingIdentities = Set(parsedLocal.map { Self.comparisonKey(name: $0.name, isMaster: $0.isMaster) })
+        }
+
+        let addedBlocks: [String] = preview.entries.compactMap { entry in
+            let identity = Self.comparisonKey(name: entry.name, isMaster: entry.isMaster)
+            guard !existingIdentities.contains(identity), !entry.rawLines.isEmpty else { return nil }
+            let header = entry.isMaster ? "{\(entry.name)}" : "[\(entry.name)]"
+            return "\(header)\n\(entry.rawLines.joined(separator: "\n"))"
+        }
+
+        let trimmedLocal = localText.replacingOccurrences(of: "\n+$", with: "", options: .regularExpression)
+        let mergedText: String
+        if addedBlocks.isEmpty {
+            mergedText = trimmedLocal.isEmpty ? "" : "\(trimmedLocal)\n"
+        } else if trimmedLocal.isEmpty {
+            mergedText = addedBlocks.joined(separator: "\n\n") + "\n"
+        } else {
+            mergedText = "\(trimmedLocal)\n\n\(addedBlocks.joined(separator: "\n\n"))\n"
+        }
+
+        let mergedData = Data(mergedText.utf8)
+        guard mergedData.count <= Self.maxFileBytes else {
+            throw StoreError.fileTooLarge
+        }
+
+        try fm.createDirectory(at: cheatsFolder, withIntermediateDirectories: true)
+        try mergedData.write(to: destURL, options: .atomic)
+        if existingURL.deletingLastPathComponent() == cheatsFolder && existingURL.lastPathComponent != fileName {
+            try? fm.removeItem(at: existingURL)
+        }
+        try? unmarkDeletedCheatFile(named: fileName, fileManager: fm)
+        try? unmarkSeededCheatFile(named: fileName, fileManager: fm)
+
+        let activeCount = Self.parse(
+            mergedData,
+            meta: nil,
+            enabled: [],
+            rxEnd: fixups.mainRxEnd,
+            trampolines: trampolines,
+            buildID: bid
+        ).filter { !$0.isLabel && !$0.isBroken }.count
+
+        let receipt = GameCheatFetchReceipt(
+            titleID: titleID,
+            buildID: bid,
+            status: "preserved_user",
+            sources: preview.sources,
+            entryCount: activeCount,
+            fetchedAt: TimeInterval(Int64(now.timeIntervalSince1970)),
+            fileName: fileName,
+            fileSHA256: Self.sha256Hex(mergedData),
+            origin: "user",
+            detail: ""
+        )
+        try writeFetchReceipt(receipt, fileManager: fm)
+        return loadSnapshot(gameTitle: gameTitle)
+    }
+
+    public func replaceWithOnlineCheats(
+        preview: GameCheatOnlinePreview,
+        gameTitle: String,
+        now: Date = Date(),
+        fileManager fm: FileManager = .default
+    ) throws -> GameCheatsSnapshot {
+        let bid = preview.buildID.uppercased()
+        let fileName = "\(bid).txt"
+        let destURL = flatCheatURL(for: bid)
+        let existingURL = existingCheatURL(for: bid, fileManager: fm) ?? destURL
+
+        let onlineData = Data(preview.onlineText.utf8)
+        guard onlineData.count <= Self.maxFileBytes else {
+            throw StoreError.fileTooLarge
+        }
+
+        if fm.fileExists(atPath: existingURL.path), let existingData = try? Data(contentsOf: existingURL) {
+            let backupURL = cheatsFolder.appendingPathComponent("\(fileName).bak")
+            try fm.createDirectory(at: cheatsFolder, withIntermediateDirectories: true)
+            try existingData.write(to: backupURL, options: .atomic)
+        }
+
+        try fm.createDirectory(at: cheatsFolder, withIntermediateDirectories: true)
+        try onlineData.write(to: destURL, options: .atomic)
+        if existingURL.deletingLastPathComponent() == cheatsFolder && existingURL.lastPathComponent != fileName {
+            try? fm.removeItem(at: existingURL)
+        }
+        try? unmarkDeletedCheatFile(named: fileName, fileManager: fm)
+        try? unmarkSeededCheatFile(named: fileName, fileManager: fm)
+
+        let fixups = readFixupsMetadata()
+        let trampolines = readTrampolineMetadata()
+        let parsedOnline = Self.parse(
+            onlineData,
+            meta: nil,
+            enabled: [],
+            rxEnd: fixups.mainRxEnd,
+            trampolines: trampolines,
+            buildID: bid
+        )
+        let enabledFile = enabledURL(for: bid)
+        let currentEnabled = readEnabled(for: bid)
+        if !currentEnabled.isEmpty || fm.fileExists(atPath: enabledFile.path) {
+            let retainedOrdered = parsedOnline
+                .filter { $0.switchableOnIOS && currentEnabled.contains($0.key) }
+                .map(\.key)
+            if retainedOrdered.isEmpty {
+                try? fm.removeItem(at: enabledFile)
+            } else {
+                let body = retainedOrdered.map { $0 + "\n" }.joined()
+                try Data(body.utf8).write(to: enabledFile, options: .atomic)
+            }
+        }
+
+        let activeCount = parsedOnline.filter { !$0.isLabel && !$0.isBroken }.count
+        let receipt = GameCheatFetchReceipt(
+            titleID: titleID,
+            buildID: bid,
+            status: "found",
+            sources: preview.sources,
+            entryCount: activeCount,
+            fetchedAt: TimeInterval(Int64(now.timeIntervalSince1970)),
+            fileName: fileName,
+            fileSHA256: Self.sha256Hex(onlineData),
+            origin: "fetched",
+            detail: ""
+        )
+        try writeFetchReceipt(receipt, fileManager: fm)
+        return loadSnapshot(gameTitle: gameTitle)
     }
 
     // MARK: - Parser & Static Analyzer (aligned with dm/tools/cheat_bake.py)

@@ -86,6 +86,20 @@ public struct GameCheatFetchReceipt: Codable, Equatable, Sendable {
     public var origin: String
     public var detail: String
 
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case titleID
+        case buildID
+        case status
+        case sources
+        case entryCount
+        case fetchedAt
+        case fileName
+        case fileSHA256
+        case origin
+        case detail
+    }
+
     public init(
         schemaVersion: Int = 1,
         titleID: String,
@@ -110,6 +124,141 @@ public struct GameCheatFetchReceipt: Codable, Equatable, Sendable {
         self.fileSHA256 = fileSHA256
         self.origin = origin
         self.detail = detail
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        titleID = try container.decodeIfPresent(String.self, forKey: .titleID) ?? ""
+        buildID = try container.decodeIfPresent(String.self, forKey: .buildID) ?? ""
+        status = try container.decodeIfPresent(String.self, forKey: .status) ?? ""
+        sources = try container.decodeIfPresent([String].self, forKey: .sources) ?? []
+        entryCount = try container.decodeIfPresent(Int.self, forKey: .entryCount) ?? 0
+        if let numeric = try? container.decode(Double.self, forKey: .fetchedAt) {
+            fetchedAt = numeric
+        } else if let rawString = try? container.decode(String.self, forKey: .fetchedAt) {
+            fetchedAt = Self.parseTimestamp(rawString) ?? 0
+        } else {
+            fetchedAt = 0
+        }
+        fileName = try container.decodeIfPresent(String.self, forKey: .fileName) ?? ""
+        fileSHA256 = try container.decodeIfPresent(String.self, forKey: .fileSHA256) ?? ""
+        origin = try container.decodeIfPresent(String.self, forKey: .origin) ?? ""
+        detail = try container.decodeIfPresent(String.self, forKey: .detail) ?? ""
+    }
+
+    public var isFoundStatus: Bool {
+        status == "found" || status == "fetched"
+    }
+
+    private static func parseTimestamp(_ raw: String) -> TimeInterval? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractional.date(from: trimmed) {
+            return date.timeIntervalSince1970
+        }
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        if let date = plain.date(from: trimmed) {
+            return date.timeIntervalSince1970
+        }
+        return Double(trimmed)
+    }
+}
+
+/// One entry in an online cheat fetch candidate compared against the player's local `<BID>.txt`.
+public struct GameCheatOnlineEntry: Identifiable, Equatable, Sendable {
+    public var id: String
+    public var name: String
+    public var key: String
+    public var isMaster: Bool
+    public var isAdded: Bool
+    public var rawLines: [String]
+    public var capability: CheatCapability
+    public var hasFixedAddress: Bool
+    public var isBroken: Bool
+    public var triggerKeys: [String]
+    public var unsafeCodeReason: String?
+
+    public init(
+        id: String,
+        name: String,
+        key: String? = nil,
+        isMaster: Bool = false,
+        isAdded: Bool,
+        rawLines: [String] = [],
+        capability: CheatCapability = .dataReady,
+        hasFixedAddress: Bool = false,
+        isBroken: Bool = false,
+        triggerKeys: [String] = [],
+        unsafeCodeReason: String? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.key = key ?? name
+        self.isMaster = isMaster
+        self.isAdded = isAdded
+        self.rawLines = rawLines
+        self.capability = capability
+        self.hasFixedAddress = hasFixedAddress
+        self.isBroken = isBroken
+        self.triggerKeys = triggerKeys
+        self.unsafeCodeReason = unsafeCodeReason
+    }
+
+    public var isUnsafeCode: Bool {
+        unsafeCodeReason != nil
+    }
+
+    public var rawText: String {
+        rawLines.joined(separator: "\n")
+    }
+}
+
+/// Structured diff and raw payload presented when online cheats are fetched while a user cheat file already exists.
+public struct GameCheatOnlinePreview: Identifiable, Equatable, Sendable {
+    public var id: String { "\(titleID):\(buildID):\(onlineSHA256)" }
+    public var titleID: String
+    public var buildID: String
+    public var fileName: String
+    public var sources: [String]
+    public var onlineText: String
+    public var onlineSHA256: String
+    public var localCount: Int
+    public var onlineCount: Int
+    public var addedCount: Int
+    public var sameNameCount: Int
+    public var localOnlyCount: Int
+    public var entries: [GameCheatOnlineEntry]
+
+    public init(
+        titleID: String,
+        buildID: String,
+        fileName: String? = nil,
+        sources: [String],
+        onlineText: String,
+        onlineSHA256: String = "",
+        localCount: Int,
+        onlineCount: Int,
+        addedCount: Int,
+        sameNameCount: Int,
+        localOnlyCount: Int,
+        entries: [GameCheatOnlineEntry]
+    ) {
+        self.titleID = titleID
+        self.buildID = buildID
+        self.fileName = fileName ?? "\(buildID).txt"
+        self.sources = sources
+        self.onlineText = onlineText
+        self.onlineSHA256 = onlineSHA256
+        self.localCount = localCount
+        self.onlineCount = onlineCount
+        self.addedCount = addedCount
+        self.sameNameCount = sameNameCount
+        self.localOnlyCount = localOnlyCount
+        self.entries = entries
     }
 }
 
@@ -235,5 +384,12 @@ public enum CheatImportOutcome: Equatable, Sendable {
 /// Outcome of fetching cheats online for a game on iOS.
 public enum CheatFetchOutcome: Equatable, Sendable {
     case completed(snapshot: GameCheatsSnapshot, receipt: GameCheatFetchReceipt)
+    case previewRequired(snapshot: GameCheatsSnapshot, receipt: GameCheatFetchReceipt, preview: GameCheatOnlinePreview)
+    case failed(String)
+}
+
+/// Outcome of applying an online cheat preview candidate (merge or replace) onto disk.
+public enum CheatOnlineApplyOutcome: Equatable, Sendable {
+    case applied(snapshot: GameCheatsSnapshot)
     case failed(String)
 }
