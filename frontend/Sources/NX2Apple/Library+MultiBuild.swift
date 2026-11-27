@@ -340,9 +340,22 @@ extension GameLibrary {
         game.syncActiveBuilds(defaults: preferenceDefaults)
         upsert(game)
     }
+
+    @discardableResult
+    func recordBuildID(_ buildID: String?, for id: UUID) -> Bool {
+        guard let normalized = CheatFiles.normalizedBuildID(buildID),
+              var game = games.first(where: { $0.id == id }),
+              game.lastBuildID != normalized else { return false }
+        game.lastBuildID = normalized
+        return upsert(game)
+    }
 }
 
 extension LibraryGame {
+    static func normalizedBuildID(_ raw: String?) -> String {
+        CheatFiles.normalizedBuildID(raw) ?? ""
+    }
+
     /// Carries metadata, launch customizations, and existing engine builds from an older entry sharing the resolved title ID.
     mutating func mergeCarriedState(from old: LibraryGame) {
         artworkPath = old.artworkPath
@@ -358,5 +371,6 @@ extension LibraryGame {
         if preferredMacUpstream == nil { preferredMacUpstream = old.preferredMacUpstream }
         if customName.isEmpty { customName = old.customName }
         if titleNames.isEmpty { titleNames = old.titleNames }
+        if lastBuildID.isEmpty { lastBuildID = Self.normalizedBuildID(old.lastBuildID) }
     }
 }

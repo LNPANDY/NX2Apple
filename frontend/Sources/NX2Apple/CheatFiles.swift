@@ -102,12 +102,61 @@ struct CheatFiles: Sendable {
         return nil
     }
 
+    /// Normalizes a build ID string: accepts >= 16 characters whose first 16 are hex digits, returning 16 uppercase hex digits or nil.
+    static func normalizedBuildID(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= 16 else { return nil }
+        let prefix16 = trimmed.prefix(16)
+        guard prefix16.allSatisfy({ $0.isASCII && $0.isHexDigit }) else { return nil }
+        return String(prefix16).uppercased()
+    }
+
+    /// Reads the 8-byte build ID at offset 0x40 of an NSO0 executable header (reads only the first 72 bytes).
+    static func nsoBuildID(atPath path: String) -> String? {
+        guard !path.isEmpty, let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: 0x48), data.count >= 0x48 else { return nil }
+        guard data[0] == 0x4E, data[1] == 0x53, data[2] == 0x4F, data[3] == 0x30 else { return nil }
+        return data[0x40..<0x48].map { String(format: "%02X", $0) }.joined()
+    }
+
+    /// Reads the build ID from `<seedRoot>/<TID>/ExeFS/main` after verifying `<seedRoot>/<TID>/seed.json` if present.
+    static func seedBuildID(titleID: String, seedRoot: String) -> String? {
+        let tid = titleID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !tid.isEmpty, !seedRoot.isEmpty else { return nil }
+        let seedDir = BuildSeedCache.seedDirectory(for: tid, seedRoot: seedRoot)
+        let seedJSONPath = seedDir + "/seed.json"
+        if FileManager.default.fileExists(atPath: seedJSONPath) {
+            guard let data = try? Data(contentsOf: URL(fileURLWithPath: seedJSONPath)),
+                  let record = try? JSONDecoder().decode(BuildSeedRecord.self, from: data),
+                  record.titleID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() == tid else {
+                return nil
+            }
+        }
+        return nsoBuildID(atPath: seedDir + "/ExeFS/main")
+    }
+
     /// The build ID the cheat files are named by: the first 16 hex digits of the main NSO's build ID, upper case.
-    static func buildID(appPath: String, iosAppPath: String, titleID: String = "", shellRoot: String = "") -> String? {
+    /// Priority: main.fixups.tsv -> cheat_trampolines.tsv -> build-seeds/<TID>/ExeFS/main -> persistedBuildID.
+    static func buildID(
+        appPath: String,
+        iosAppPath: String,
+        titleID: String = "",
+        shellRoot: String = "",
+        seedRoot: String = "",
+        persistedBuildID: String = ""
+    ) -> String? {
         if let id = mainFixupsMetadata(appPath: appPath, iosAppPath: iosAppPath, titleID: titleID, shellRoot: shellRoot).buildID {
             return id
         }
-        return trampolinesMetadata(appPath: appPath, iosAppPath: iosAppPath, titleID: titleID, shellRoot: shellRoot)?.buildID
+        if let id = trampolinesMetadata(appPath: appPath, iosAppPath: iosAppPath, titleID: titleID, shellRoot: shellRoot)?.buildID {
+            return id
+        }
+        if let id = seedBuildID(titleID: titleID, seedRoot: seedRoot) {
+            return id
+        }
+        return normalizedBuildID(persistedBuildID)
     }
 
     static func buildID(fixups text: String) -> String? {
