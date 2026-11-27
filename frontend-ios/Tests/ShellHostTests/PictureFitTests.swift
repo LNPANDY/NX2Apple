@@ -70,7 +70,7 @@ import ShellUI
         #expect(store.values()["DM_PICTURE_FIT"] == "fit")
     }
 
-    @Test func portraitFillLaunchResolvesAutoScreenAspectTo43AndPreservesPerGameTouchSize() async throws {
+    @Test func portraitLaunchResolvesAutoScreenAspectTo43RegardlessOfFitAndPreservesPerGameTouchSize() async throws {
         let box = try box()
         let url = box.games.appendingPathComponent(Fixtures.orbit).appendingPathComponent("launcher.json")
         var json = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
@@ -109,21 +109,38 @@ import ShellUI
         let model = ShellHostModel(config: box.config(), launcher: launcher)
         model.shellSettings.storeTouchSize("small", for: .landscape)
         model.shellSettings.storeTouchSize("large", for: .portrait)
-        model.change(Fixtures.orbit, setting: "DM_PICTURE_FIT", value: "fill")
         model.change(Fixtures.orbit, setting: "DM_ROTATION", value: "portrait")
         model.change(Fixtures.orbit, setting: "DM_TOUCH_SIZE", value: "large")
 
-        await model.playNow(Fixtures.orbit)
-        let game = try #require(launcher.launched.last)
-        let plan = EngineLaunchPlan.make(game: game, appResources: box.root, documents: box.root, envFileText: nil)
-        #expect(plan.environment["DM_SCREEN_ASPECT"] == "1.333")
-        #expect(plan.environment["DM_TOUCH_SIZE"] == "large")
-        #expect(plan.environment["DM_TOUCH_SIZE_PORTRAIT"] == nil)
-
-        // When explicit fit is chosen, DM_SCREEN_ASPECT stays untouched.
-        model.change(Fixtures.orbit, setting: "DM_PICTURE_FIT", value: "fit")
+        // Default Fit in locked portrait resolves DM_SCREEN_ASPECT=auto to 4:3 (1.333).
         await model.playNow(Fixtures.orbit)
         let fitGame = try #require(launcher.launched.last)
-        #expect(EngineLaunchPlan.make(game: fitGame, appResources: box.root, documents: box.root, envFileText: nil).environment["DM_SCREEN_ASPECT"] == "auto")
+        let fitPlan = EngineLaunchPlan.make(game: fitGame, appResources: box.root, documents: box.root, envFileText: nil)
+        #expect(fitPlan.environment["DM_PICTURE_FIT"] == "fit")
+        #expect(fitPlan.environment["DM_SCREEN_ASPECT"] == "1.333")
+        #expect(fitPlan.environment["DM_TOUCH_SIZE"] == "large")
+        #expect(fitPlan.environment["DM_TOUCH_SIZE_PORTRAIT"] == nil)
+
+        // Fill in locked portrait also resolves DM_SCREEN_ASPECT=auto to 4:3 (1.333).
+        model.change(Fixtures.orbit, setting: "DM_PICTURE_FIT", value: "fill")
+        await model.playNow(Fixtures.orbit)
+        let fillGame = try #require(launcher.launched.last)
+        let fillPlan = EngineLaunchPlan.make(game: fillGame, appResources: box.root, documents: box.root, envFileText: nil)
+        #expect(fillPlan.environment["DM_SCREEN_ASPECT"] == "1.333")
+
+        // Explicit 16:9 (0) stays 0 in portrait.
+        model.change(Fixtures.orbit, setting: "DM_SCREEN_ASPECT", value: "0")
+        await model.playNow(Fixtures.orbit)
+        let forced169Game = try #require(launcher.launched.last)
+        #expect(EngineLaunchPlan.make(game: forced169Game, appResources: box.root, documents: box.root, envFileText: nil).environment["DM_SCREEN_ASPECT"] == "0")
+
+        // Landscape and Automatic rotation leave DM_SCREEN_ASPECT=auto untouched for front_ios.m.
+        model.change(Fixtures.orbit, setting: "DM_SCREEN_ASPECT", value: "auto")
+        for rotation in ["landscape", "auto"] {
+            model.change(Fixtures.orbit, setting: "DM_ROTATION", value: rotation)
+            await model.playNow(Fixtures.orbit)
+            let game = try #require(launcher.launched.last)
+            #expect(EngineLaunchPlan.make(game: game, appResources: box.root, documents: box.root, envFileText: nil).environment["DM_SCREEN_ASPECT"] == "auto")
+        }
     }
 }

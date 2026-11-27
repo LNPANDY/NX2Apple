@@ -191,9 +191,11 @@ public struct EngineLaunchPlan: Equatable, Sendable {
         if env["DM_PSO_BUNDLE"] == nil {
             if isDirectory(ownPSO) { env["DM_PSO_BUNDLE"] = ownPSO.path } else if isDirectory(fwPSO) { env["DM_PSO_BUNDLE"] = fwPSO.path }
         }
-        // In locked portrait + Fill launch, resolve DM_SCREEN_ASPECT=auto to 4:3 (1.333) so games with
-        // SCREEN_ASPECT support expand vertically without cropping.
-        if env["DM_PICTURE_FIT"] == "fill", env["DM_ROTATION"] == "portrait", env["DM_SCREEN_ASPECT"] == "auto" {
+        // In locked portrait launch, resolve DM_SCREEN_ASPECT=auto to 4:3 (1.333) so games with
+        // SCREEN_ASPECT support render true 4:3 into the portrait slot in both Fit and Fill.
+        // DM_SCREEN_ASPECT is read once at engine startup (dm_fps_state_apply), while auto/landscape
+        // keeps "auto" for front_ios.m to resolve from the active window orientation.
+        if env["DM_ROTATION"] == "portrait", env["DM_SCREEN_ASPECT"] == "auto" {
             env["DM_SCREEN_ASPECT"] = "1.333"
         }
 

@@ -16,12 +16,12 @@ Issue: LNPANDY/NX2Apple#1110
  dm/ios/project-framework.yml                  |    1 +
  dm/ios/tests/duo/Sources/DuoHarnessRuntime.h  |   18 +
  dm/ios/tests/duo/Sources/DuoRuntimeStubs.m    |  119 ++
- dm/ios/tests/duo/Tests/DuoGameMenuTests.swift |  233 +++-
+ dm/ios/tests/duo/Tests/DuoGameMenuTests.swift |  246 +++-
  .../Tests/DuoHarnessTests-Bridging-Header.h   |    2 +
  dm/ios/tests/duo/project.yml                  |    2 +
  dm/tools/tests/test_launcher_settings.py      |    9 +-
  docs/settings.md                              |    8 +-
- 13 files changed, 1764 insertions(+), 9 deletions(-)
+ 13 files changed, 1777 insertions(+), 9 deletions(-)
  create mode 100644 dm/ios/Sources/GameMenuCheats.swift
  create mode 100644 dm/ios/tests/duo/Tests/DuoHarnessTests-Bridging-Header.h
 
@@ -223,7 +223,7 @@ index 7047522..6a88f9c 100644
  }
 diff --git a/dm/ios/Sources/GameMenuCheats.swift b/dm/ios/Sources/GameMenuCheats.swift
 new file mode 100644
-index 0000000..0fa846b
+index 0000000..2589022
 --- /dev/null
 +++ b/dm/ios/Sources/GameMenuCheats.swift
 @@ -0,0 +1,1165 @@
@@ -541,7 +541,7 @@ index 0000000..0fa846b
 +    let text = CheatsMenuTextPayload.current()
 +    return UIMenu(
 +        title: text.tCheatsTitle,
-+        image: UIImage(systemName: "wand.and.stars"),
++        image: nil,
 +        children: [UIDeferredMenuElement.uncached { done in
 +            done(buildCheatsMenuElements())
 +        }]
@@ -1393,10 +1393,10 @@ index 0000000..0fa846b
 +    }
 +}
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index e862fb2..d278f60 100644
+index e5538dd..9e9c3c1 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
-@@ -262,6 +262,13 @@ - (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
+@@ -286,6 +286,13 @@ - (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
  - (UIRectEdge)preferredScreenEdgesDeferringSystemGestures { return UIRectEdgeAll; }   // Edge gestures need two swipes, to avoid accidental exits
  - (BOOL)prefersStatusBarHidden { return YES; }
  - (UIInterfaceOrientationMask)supportedInterfaceOrientations { return dm_rotation_vc_mask(); }
@@ -1410,7 +1410,7 @@ index e862fb2..d278f60 100644
  @end
  UIViewController *front_ios_root(void) { return [DmRootVC new]; }
  
-@@ -845,6 +852,7 @@ static void quit_changed(hq_phase was, hq_phase now, GCController *holder) {
+@@ -874,6 +881,7 @@ static void quit_changed(hq_phase was, hq_phase now, GCController *holder) {
          if (was == HQ_SETTLE) dm_gamepad_pads_read();   // the game reads the controllers again, as they are now
          break;
      case HQ_QUIT:
@@ -1418,7 +1418,7 @@ index e862fb2..d278f60 100644
          quit_now();
          break;
      }
-@@ -914,3 +922,90 @@ void front_ios_quit_controllers(void) {
+@@ -943,3 +951,90 @@ void front_ios_quit_controllers(void) {
  #endif
      static int said; if (!said++) LOG("front end: the Home button setting is read on iOS 27, the Home hold works where the system lets the press through");
  }
@@ -1690,7 +1690,7 @@ index 6b9ab99..65ae605 100644
  void dm_audio_suspend(int on) { (void)on; }
  void dm_audio_reset(void) {}
 diff --git a/dm/ios/tests/duo/Tests/DuoGameMenuTests.swift b/dm/ios/tests/duo/Tests/DuoGameMenuTests.swift
-index 1b5a3c4..89b0fe1 100644
+index 1b5a3c4..ca5edd6 100644
 --- a/dm/ios/tests/duo/Tests/DuoGameMenuTests.swift
 +++ b/dm/ios/tests/duo/Tests/DuoGameMenuTests.swift
 @@ -1,9 +1,63 @@
@@ -1758,7 +1758,7 @@ index 1b5a3c4..89b0fe1 100644
          for separator in ["\n", "\\n"] {
              let payload = words.joined(separator: separator)
              XCTAssertEqual(GameMenuText.allCases.map { GameMenuText.line($0, in: payload) }, words)
-@@ -11,13 +65,184 @@ final class DuoGameMenuTests: XCTestCase {
+@@ -11,13 +65,197 @@ final class DuoGameMenuTests: XCTestCase {
      }
  
      func testMissingMenuLabelsKeepTheirEnglishFallbacks() {
@@ -1773,6 +1773,19 @@ index 1b5a3c4..89b0fe1 100644
          XCTAssertEqual(GameMenuText.allCases.map { GameMenuText.line($0, in: legacy) },
 -                       ["Plus de réglages", "Disposition de la manette", "Tap", "Set in env.txt"])
 +                       ["Plus de réglages", "Disposition de la manette", "Tap", "Set in env.txt", "%@, set in env.txt"])
++    }
++
++    func testCheatsSubmenuHasNoLeadingIcon() {
++        let defaultMenu = cheatsSubmenu() as? UIMenu
++        XCTAssertNotNil(defaultMenu)
++        XCTAssertEqual(defaultMenu?.title, "Cheats")
++        XCTAssertNil(defaultMenu?.image)
++
++        let payload = "{\"cheatsTitle\":\"金手指\"}"
++        setenv("DM_CHEATS_MENU_TEXT", payload, 1)
++        let localizedMenu = cheatsSubmenu() as? UIMenu
++        XCTAssertEqual(localizedMenu?.title, "金手指")
++        XCTAssertNil(localizedMenu?.image)
 +    }
 +
 +    func testCheatsSubmenuClassificationAndDeferredState() {
@@ -2034,6 +2047,3 @@ index 5d65442..bfaf7ff 100644
  | Game rumble | `DM_RUMBLE` | `1`, `0` |
  | Rumble strength | `DM_RUMBLE_GAIN` | `0` to `3` |
  | Rumble cutoff | `DM_RUMBLE_MIN` | `0` to `0.9` |
--- 
-2.54.0 (Apple Git-157)
-
