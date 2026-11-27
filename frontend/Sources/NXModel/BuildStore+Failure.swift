@@ -197,6 +197,9 @@ extension BuildStore {
         var classified = BuildFailureClassifier.classifyInstall(step, error: error, teamListed: listed)
         if classified?.kind != .appIDLimit, !logTail.isEmpty, BuildFailureClassifier.appIDLimitReached(logTail) {
             classified = BuildFailureClassifier.classifyInstall(step, error: logTail, teamListed: listed)
+        } else if step == .sign, classified?.kind != .noSigningAccount, !logTail.isEmpty,
+                  BuildFailureClassifier.noSigningAccount(in: logTail) {
+            classified = BuildFailureClassifier.classifyInstall(step, error: logTail, teamListed: listed)
         }
         guard let f = classified else { failure = nil; return }
         failure = f
