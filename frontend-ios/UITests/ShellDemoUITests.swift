@@ -1727,4 +1727,144 @@ import XCTest
         XCTAssertTrue(app.buttons["shellSettings.close"].waitForExistence(timeout: 5))
         XCUIDevice.shared.orientation = .portrait
     }
+
+    private func scrollIntoView(_ element: XCUIElement, searchUpward: Bool = false) {
+        let windowHeight = app.windows.firstMatch.frame.height
+        let minTop = max(app.navigationBars.firstMatch.frame.maxY + 12, 140)
+        let maxBottom = max((windowHeight > 0 ? windowHeight : 874) - 40, minTop + 80)
+        let container = app.collectionViews.firstMatch.exists
+            ? app.collectionViews.firstMatch
+            : app.scrollViews.element(boundBy: app.scrollViews.count - 1)
+        for _ in 0..<12 {
+            if element.exists && element.isHittable && element.frame.minY >= minTop && element.frame.maxY <= maxBottom {
+                return
+            }
+            if element.exists {
+                if element.frame.minY < minTop {
+                    container.swipeDown()
+                } else {
+                    container.swipeUp()
+                }
+            } else if searchUpward {
+                container.swipeDown()
+            } else {
+                container.swipeUp()
+            }
+        }
+        XCTAssertTrue(element.exists && element.isHittable, element.identifier)
+    }
+
+    func testControllersTouchControlsOpensEditorSavesAndSyncsWithSettings() {
+        extraArguments = ["-AppleLanguages", "(en)"]
+        XCUIDevice.shared.orientation = .portrait
+        launch("library")
+
+        app.buttons["controllers.open"].tap()
+        XCTAssertTrue(app.buttons["controllers.close"].waitForExistence(timeout: 5))
+
+        let touchLayout = app.buttons["controllers.touchLayout"]
+        scrollIntoView(touchLayout)
+        let landCard = app.buttons["controllers.touchCard.landscape"]
+        let portCard = app.buttons["controllers.touchCard.portrait"]
+        XCTAssertTrue(landCard.exists)
+        XCTAssertTrue(portCard.exists)
+
+        touchLayout.tap()
+        let done = app.buttons["touchLayout.done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.otherElements["touchLayout.editor"].firstMatch.exists)
+
+        let portSeg = app.buttons["touchLayout.orientation.portrait"]
+        let landSeg = app.buttons["touchLayout.orientation.landscape"]
+        let reset = app.buttons["touchLayout.resetAll"]
+        let confirm = app.buttons["touchLayout.resetAll.confirm"].firstMatch
+        func resetIfDirty() {
+            if reset.isEnabled {
+                reset.tap()
+                XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+                confirm.tap()
+            }
+        }
+        resetIfDirty()
+        landSeg.tap()
+        resetIfDirty()
+        portSeg.tap()
+
+        app.buttons["touchLayout.size.small"].tap()
+        app.buttons["touchLayout.stick.higher"].tap()
+        done.tap()
+
+        XCTAssertTrue(done.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["controllers.close"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["controllers.close"].isHittable)
+
+        scrollIntoView(touchLayout)
+        XCTAssertTrue(portCard.label.contains("Small"))
+        XCTAssertTrue(portCard.label.contains("Higher"))
+        XCTAssertTrue(touchLayout.label.contains("Your own"))
+
+        app.buttons["controllers.close"].tap()
+        XCTAssertTrue(app.buttons["shellSettings.open"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["shellSettings.open"].isHittable)
+
+        // Original Shell Settings entry remains intact and reflects the saved changes.
+        app.buttons["shellSettings.open"].tap()
+        XCTAssertTrue(app.buttons["shellSettings.close"].waitForExistence(timeout: 5))
+        let settingsArrange = app.buttons["shellSettings.arrange"]
+        scrollIntoView(settingsArrange)
+        let settingsPortCard = app.buttons["shellSettings.touchCard.portrait"]
+        XCTAssertTrue(app.buttons["shellSettings.touchCard.landscape"].exists)
+        XCTAssertTrue(settingsPortCard.exists)
+        XCTAssertTrue(settingsPortCard.label.contains("Small"))
+        XCTAssertTrue(settingsPortCard.label.contains("Higher"))
+        XCTAssertTrue(settingsArrange.label.contains("Your own"))
+
+        // Clean up simulator defaults before exiting.
+        settingsArrange.tap()
+        XCTAssertTrue(done.waitForExistence(timeout: 5))
+        resetIfDirty()
+        done.tap()
+        XCTAssertTrue(app.buttons["shellSettings.close"].waitForExistence(timeout: 5))
+        app.buttons["shellSettings.close"].tap()
+        XCTAssertTrue(app.buttons["shellSettings.open"].waitForExistence(timeout: 5))
+    }
+
+    func testControllersTouchControlsDiscardAndNavigationStayLive() {
+        extraArguments = ["-AppleLanguages", "(en)"]
+        XCUIDevice.shared.orientation = .portrait
+        launch("controllers")
+
+        let landCard = app.buttons["controllers.touchCard.landscape"]
+        scrollIntoView(landCard)
+        landCard.tap()
+
+        let back = app.buttons["touchLayout.back"]
+        XCTAssertTrue(back.waitForExistence(timeout: 5))
+        let large = app.buttons["touchLayout.size.large"]
+        let small = app.buttons["touchLayout.size.small"]
+        (large.isSelected ? small : large).tap()
+        back.tap()
+
+        let discard = app.buttons["touchLayout.discard"].firstMatch
+        XCTAssertTrue(discard.waitForExistence(timeout: 5))
+        discard.tap()
+
+        XCTAssertTrue(back.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["controllers.close"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["controllers.close"].isHittable)
+
+        // Secondary navigation and controller shortcuts remain interactive after returning to Controllers.
+        let padMapping = app.buttons["padMapping.open"]
+        scrollIntoView(padMapping, searchUpward: true)
+        padMapping.tap()
+        XCTAssertTrue(app.buttons["padMapping.close"].waitForExistence(timeout: 5))
+        app.buttons["padMapping.close"].tap()
+        XCTAssertTrue(app.buttons["controllers.close"].waitForExistence(timeout: 5))
+
+        // Hardware arrow navigation moves through Controllers targets cleanly.
+        app.typeKey(.downArrow, modifierFlags: [])
+        app.buttons["controllers.close"].tap()
+        XCTAssertTrue(app.buttons["controllers.open"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["controllers.open"].isHittable)
+    }
 }

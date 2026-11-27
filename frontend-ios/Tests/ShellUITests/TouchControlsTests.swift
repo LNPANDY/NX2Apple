@@ -344,4 +344,47 @@ import Testing
         #expect(reopened.touchMode(for: .landscape) == "2d")
     }
 
+    @MainActor @Test func touchLayoutReturnTargetPreservesControllersOrShellSettingsOrigin() {
+        #expect(LibraryView.touchLayoutReturnTarget(controllersOpen: true, currentFocus: "ctl.touchCard.landscape") == "ctl.touchCard.landscape")
+        #expect(LibraryView.touchLayoutReturnTarget(controllersOpen: true, currentFocus: "ctl.touchCard.portrait") == "ctl.touchCard.portrait")
+        #expect(LibraryView.touchLayoutReturnTarget(controllersOpen: true, currentFocus: "ctl.touchLayout") == "ctl.touchLayout")
+        #expect(LibraryView.touchLayoutReturnTarget(controllersOpen: true, currentFocus: "ctl.close") == "ctl.touchLayout")
+        #expect(LibraryView.touchLayoutReturnTarget(controllersOpen: true, currentFocus: nil) == "ctl.touchLayout")
+
+        #expect(LibraryView.touchLayoutReturnTarget(controllersOpen: false, currentFocus: "shs.touchCard.landscape") == "shs.touchCard.landscape")
+        #expect(LibraryView.touchLayoutReturnTarget(controllersOpen: false, currentFocus: "shs.touchCard.portrait") == "shs.touchCard.portrait")
+        #expect(LibraryView.touchLayoutReturnTarget(controllersOpen: false, currentFocus: "shs.arrange") == "shs.arrange")
+        #expect(LibraryView.touchLayoutReturnTarget(controllersOpen: false, currentFocus: "shs.close") == "shs.arrange")
+        #expect(LibraryView.touchLayoutReturnTarget(controllersOpen: false, currentFocus: nil) == "shs.arrange")
+    }
+
+    @MainActor @Test func controllersTouchTargetsAreLiveOnlyInControllersLayer() {
+        for id in ["ctl.touchLayout", "ctl.touchCard.landscape", "ctl.touchCard.portrait"] {
+            #expect(FocusLayer.isLive(id, under: .controllers))
+            #expect(!FocusLayer.isLive(id, under: .shellSettings))
+            #expect(!FocusLayer.isLive(id, under: .touchLayout))
+            #expect(!FocusLayer.isLive(id, under: nil))
+        }
+        #expect(!FocusLayer.isLive("shs.arrange", under: .controllers))
+        #expect(!FocusLayer.isLive("shs.touchCard.landscape", under: .controllers))
+    }
+
+    @MainActor @Test func controllersAndShellSettingsShareTouchControlsStore() {
+        let shared = store()
+        let controllers = ControllersView(controllers: [], store: shared)
+        let settings = ShellSettingsView(store: shared, actions: ShellActions(), onClose: {})
+        #expect(controllers.store === settings.store)
+        #expect(!shared.isTouchCustomized(for: .landscape))
+
+        let editor = TouchLayoutEditorModel(store: shared)
+        editor.setSize("small")
+        editor.setStick("higher")
+        editor.commit()
+
+        #expect(controllers.store.touchConfiguration(for: .landscape) == settings.store.touchConfiguration(for: .landscape))
+        #expect(controllers.store.touchSize(for: .landscape) == "small")
+        #expect(settings.store.touchStick(for: .landscape) == "higher")
+        #expect(controllers.store.isTouchCustomized(for: .landscape))
+    }
+
 }

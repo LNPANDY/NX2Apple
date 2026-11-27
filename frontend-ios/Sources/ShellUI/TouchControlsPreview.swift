@@ -172,13 +172,17 @@ enum PadDrawing {
     }
 }
 
-/// Side-by-side Landscape and Portrait overview cards shown in Shell Settings with mini PadGeo previews and custom state badges.
+/// Side-by-side Landscape and Portrait overview cards shown in Shell Settings and Controllers with mini PadGeo previews and custom state badges.
 struct TouchOrientationOverviewCards: View {
     var store: ShellSettingsStore
+    var revision: Int = 0
+    var accessibilityPrefix: String = "shellSettings.touchCard"
+    var targetPrefix: String = "shs.touchCard"
     @Environment(\.shellOpenTouchLayout) private var open
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
+        let _ = revision
         let cards = Group {
             orientationCard(.landscape)
             orientationCard(.portrait)
@@ -238,9 +242,9 @@ struct TouchOrientationOverviewCards: View {
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(ShellPalette.hairline, lineWidth: 1))
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier("shellSettings.touchCard.\(orientation.rawValue)")
+        .accessibilityIdentifier("\(accessibilityPrefix).\(orientation.rawValue)")
         .accessibilityLabel("\(title), \(summaryText(for: cfg))")
-        .shellTarget("shs.touchCard.\(orientation.rawValue)") { open?() }
+        .shellTarget("\(targetPrefix).\(orientation.rawValue)") { open?() }
     }
 
     private func miniCanvas(preview: TouchPadPreviewGeometry, screen: PadScreen, portrait: Bool) -> some View {
@@ -269,6 +273,42 @@ struct TouchOrientationOverviewCards: View {
         let sizeText = ShellStrings.text(cfg.size == "small" ? "Small" : cfg.size == "large" ? "Large" : "Medium")
         let stickText = ShellStrings.text(cfg.stick == "higher" ? "Higher" : cfg.stick == "inward" ? "Inward" : "Corner")
         return "\(modeText) · \(sizeText) · \(stickText)"
+    }
+}
+
+/// Shared Touch controls section reused by both Shell Settings and Controllers so previews, status and editor entry stay identical.
+struct TouchControlsSection: View {
+    var store: ShellSettingsStore
+    var cardAccessibilityPrefix: String
+    var cardTargetPrefix: String
+    var arrangeAccessibilityID: String
+    var arrangeTargetID: String
+    /// Tracks defaults updates inside the section itself so SwiftUI never skips updating child rows behind `store`'s reference identity.
+    @State private var revision = 0
+
+    var body: some View {
+        let _ = revision
+        Section {
+            TouchOrientationOverviewCards(
+                store: store,
+                revision: revision,
+                accessibilityPrefix: cardAccessibilityPrefix,
+                targetPrefix: cardTargetPrefix
+            )
+            .listRowInsets(EdgeInsets(top: 10, leading: 12, bottom: 6, trailing: 12))
+            TouchArrangeRow(
+                arranged: store.isTouchCustomized(for: .landscape) || store.isTouchCustomized(for: .portrait),
+                accessibilityID: arrangeAccessibilityID,
+                targetID: arrangeTargetID
+            )
+        } header: {
+            Text(ShellStrings.text("Touch controls"))
+        } footer: {
+            Text(ShellStrings.text("Landscape and portrait layouts are configured and saved independently."))
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+            revision += 1
+        }
     }
 }
 

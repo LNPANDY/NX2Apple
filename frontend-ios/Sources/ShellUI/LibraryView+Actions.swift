@@ -258,12 +258,29 @@ extension LibraryView {
     }
     /// Where the Options button opens the shell's settings: over the library and over a game's settings, never over another panel or dialog.
     static func optionsOpensShellSettings(under top: FocusLayer?) -> Bool { top == nil || top == .settings }
+    static func touchLayoutReturnTarget(controllersOpen: Bool, currentFocus: String?) -> String {
+        if controllersOpen {
+            if let currentFocus, currentFocus.hasPrefix("ctl.touch") { return currentFocus }
+            return "ctl.touchLayout"
+        }
+        if let currentFocus, currentFocus == "shs.arrange" || currentFocus.hasPrefix("shs.touchCard.") {
+            return currentFocus
+        }
+        return "shs.arrange"
+    }
     func openTouchLayout(_ window: CGSize, _ insets: EdgeInsets) {
         guard noteTouch() else { return }
+        touchLayoutReturnFocus = Self.touchLayoutReturnTarget(controllersOpen: controllersOpen, currentFocus: focus.id)
         touchLayout = TouchLayoutEditorModel.forDevice(window: window, insets: insets)
         focus.id = "lay.done"
     }
-    func closeTouchLayout() { guard !fromSystemEcho else { return }; touchLayout = nil; focus.id = "shs.arrange"; focusRefresh &+= 1 }
+    func closeTouchLayout() {
+        guard !fromSystemEcho else { return }
+        touchLayout = nil
+        focus.id = touchLayoutReturnFocus ?? Self.touchLayoutReturnTarget(controllersOpen: controllersOpen, currentFocus: nil)
+        touchLayoutReturnFocus = nil
+        focusRefresh &+= 1
+    }
     func confirmTouchLayout() {
         guard !fromSystemEcho, let touchLayout, !touchLayout.invalidPlacement else { return }
         touchLayout.commit()
