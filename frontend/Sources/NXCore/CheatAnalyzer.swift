@@ -1,6 +1,6 @@
 import Foundation
 
-/// Four-tier compatibility classification for an Atmosphere cheat entry on iOS and Mac.
+/// Five-tier compatibility classification for an Atmosphere cheat entry on iOS and Mac.
 package enum CheatCapability: String, Equatable, Sendable {
     /// Writes only to writable game memory (main .data/.bss or pointer-resolved heap): works directly on iOS without re-baking.
     case dataReady
@@ -8,8 +8,10 @@ package enum CheatCapability: String, Equatable, Sendable {
     case codeBaked
     /// Modifies executable game code (off < main_rx_end or dynamic main write) and has not yet been baked into the current framework.
     case codeNeedsBake
-    /// Writes to a hardcoded non-zero heap offset that may shift across saves or scenes (still switchable directly on iOS).
+    /// Accesses a fixed non-main address (heap, alias, ASLR, or non-relative) that may shift across saves or launches.
     case fixedHeapWarning
+    /// Modifies executable code but was blocked by the trampoline baker's static safety check (`unsafe_code`).
+    case unsafeCode
 }
 
 /// Metadata parsed from `dm/main.fixups.tsv`.
@@ -258,6 +260,8 @@ package enum CheatStaticAnalyzer {
         package var keyMask: UInt64
         package var hasCodeWrite: Bool
         package var hasFixedHeapOffset: Bool
+        package var hasFixedAddress: Bool
+        package var safetyDetail: String
         package var isBroken: Bool
 
         package init(
@@ -265,12 +269,16 @@ package enum CheatStaticAnalyzer {
             keyMask: UInt64 = 0,
             hasCodeWrite: Bool = false,
             hasFixedHeapOffset: Bool = false,
+            hasFixedAddress: Bool = false,
+            safetyDetail: String = "",
             isBroken: Bool = false
         ) {
             self.capability = capability
             self.keyMask = keyMask
             self.hasCodeWrite = hasCodeWrite
             self.hasFixedHeapOffset = hasFixedHeapOffset
+            self.hasFixedAddress = hasFixedAddress
+            self.safetyDetail = safetyDetail
             self.isBroken = isBroken
         }
     }
@@ -327,6 +335,7 @@ package enum CheatStaticAnalyzer {
                 var keyMask: UInt64 = 0
                 var hasCodeWrite = false
                 var hasFixedHeapOffset = false
+                var hasFixedAddress = false
                 var failedDecode = false
 
                 var pc = 0
@@ -350,9 +359,21 @@ package enum CheatStaticAnalyzer {
                         } else if isHeap, !dirty.contains(decoded.reg), decoded.rel > 0 {
                             hasFixedHeapOffset = true
                         }
+                        if decoded.mem != 0, !dirty.contains(decoded.reg) {
+                            hasFixedAddress = true
+                        }
+                    case 1:
+                        if decoded.mem != 0, !(decoded.inc && dirty.contains(decoded.operand)) {
+                            hasFixedAddress = true
+                        }
                     case 8, 0xC4:
                         keyMask |= decoded.keyMask
-                    case 3, 4, 5, 7, 9:
+                    case 3, 4, 7, 9:
+                        dirty.insert(decoded.reg)
+                    case 5:
+                        if decoded.operand == 0 && decoded.mem != 0 {
+                            hasFixedAddress = true
+                        }
                         dirty.insert(decoded.reg)
                     case 6:
                         if decoded.inc { dirty.insert(decoded.reg) }
@@ -391,21 +412,31 @@ package enum CheatStaticAnalyzer {
                 }
 
                 let capability: CheatCapability
-                if let activeTrampolines, activeTrampolines.isBaked(key: entry.key) {
+                let safetyDetail: String
+                if tRecord?.kind == "unsafe_code" {
+                    capability = .unsafeCode
+                    safetyDetail = tRecord?.detail ?? ""
+                } else if let activeTrampolines, activeTrampolines.isBaked(key: entry.key) {
                     capability = .codeBaked
+                    safetyDetail = ""
                 } else if tRecord?.kind == "unbaked_code" || hasCodeWrite {
                     capability = .codeNeedsBake
-                } else if hasFixedHeapOffset {
+                    safetyDetail = ""
+                } else if hasFixedHeapOffset || hasFixedAddress {
                     capability = .fixedHeapWarning
+                    safetyDetail = ""
                 } else {
                     capability = .dataReady
+                    safetyDetail = ""
                 }
 
                 results[idx] = Analysis(
                     capability: capability,
                     keyMask: keyMask,
-                    hasCodeWrite: hasCodeWrite || (tRecord?.kind == "unbaked_code") || (activeTrampolines?.isBaked(key: entry.key) ?? false),
-                    hasFixedHeapOffset: hasFixedHeapOffset
+                    hasCodeWrite: hasCodeWrite || (tRecord?.kind == "unbaked_code") || (tRecord?.kind == "unsafe_code") || (activeTrampolines?.isBaked(key: entry.key) ?? false),
+                    hasFixedHeapOffset: hasFixedHeapOffset,
+                    hasFixedAddress: hasFixedAddress,
+                    safetyDetail: safetyDetail
                 )
             }
         }
@@ -454,7 +485,13 @@ package enum CheatStaticAnalyzer {
             let c = Int((w >> 16) & 0xF)
             let len = t == 8 ? 4 : 3
             guard widthOK(t), c >= 1, c <= 6, remaining >= len else { return nil }
-            return DecodedOp(op: op, length: len)
+            return DecodedOp(
+                op: op,
+                length: len,
+                mem: Int((w >> 20) & 0xF),
+                inc: ((w >> 12) & 0xF) != 0,
+                operand: Int((w >> 8) & 0xF)
+            )
         case 2:
             return DecodedOp(op: op, length: 1)
         case 3:
@@ -469,7 +506,13 @@ package enum CheatStaticAnalyzer {
             let t = Int((w >> 24) & 0xF)
             let flags = Int((w >> 12) & 0xF)
             guard widthOK(t), flags <= 3, remaining >= 2 else { return nil }
-            return DecodedOp(op: op, length: 2, reg: Int((w >> 16) & 0xF))
+            return DecodedOp(
+                op: op,
+                length: 2,
+                mem: Int((w >> 20) & 0xF),
+                reg: Int((w >> 16) & 0xF),
+                operand: flags
+            )
         case 6:
             let t = Int((w >> 24) & 0xF)
             guard widthOK(t), remaining >= 3 else { return nil }

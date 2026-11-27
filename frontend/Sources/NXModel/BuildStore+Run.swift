@@ -18,6 +18,7 @@ extension BuildStore {
         queuedExportFramework = nil
         activeQueueEntryUpstream = nil
         queuedIOSSeenShaders = nil
+        queuedAutoFetchCheats = nil
         clearInstallRecovery(includeFastRefresh: true)
         runBuild()
     }
@@ -373,8 +374,18 @@ extension BuildStore {
             // Only the game's framework: the one shared app is made and signed after the script (installShell)
             args += ShellInstall.buildArguments(workDir: workDir, team: exportsShell ? "" : devices.signingTeam)
         }
-        if !macApp, RepoLayout.supportsCheatDir(capabilityDir),
-           let activeCheatsDir = RepoLayout.existingCheatsDir(titleID: gameTitleID ?? tidHex, home: self.home) {
+        let fetchCheatsEnabled = (queuedAutoFetchCheats ?? autoFetchCheats) && RepoLayout.supportsFetchCheats(capabilityDir)
+        if fetchCheatsEnabled {
+            args += ["--fetch-cheats"]
+            say(t("msg.fetchCheatsOn"))
+        }
+        if (fetchCheatsEnabled || !macApp),
+           RepoLayout.supportsCheatDir(capabilityDir),
+           let activeCheatsDir = RepoLayout.cheatsDirForBuild(
+               titleID: gameTitleID ?? tidHex,
+               autoFetchCheats: fetchCheatsEnabled,
+               home: self.home
+           ) {
             args += ["--cheat-dir", activeCheatsDir]
         }
         if !macApp, shouldPassIOSSeenShaders(forTitleID: gameTitleID ?? tidHex, requested: queuedIOSSeenShaders) {

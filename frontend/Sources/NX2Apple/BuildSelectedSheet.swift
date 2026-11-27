@@ -26,6 +26,7 @@ struct BuildSelectedSheet: View {
     var mngSupportsSharedSave: Bool = false
     /// Active build engine selected on the Builds page (when nil, falls back to `macNativeGamesSelected`).
     var activeUpstream: EngineUpstreamKind? = nil
+    var autoFetchCheats: Binding<Bool> = .constant(true)
     var revealSaveTarget: (MacNativeGamesSaveEngine.SaveTarget) -> Void = MacNativeGamesSaveFinder.reveal
     var added: (String) -> Void = { _ in }
     let close: () -> Void
@@ -90,6 +91,26 @@ struct BuildSelectedSheet: View {
             }
             if effectiveUpstream == .macNativeGames {
                 mngSaveBanner
+            }
+            if effectiveUpstream == .nxnative || effectiveUpstream.isNxnativeVariant {
+                DSCard {
+                    HStack(alignment: .center, spacing: DS.Space.s) {
+                        VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                            Text(loc.t("opt.autoFetchCheats"))
+                                .font(DS.Font.bodyStrong)
+                                .foregroundStyle(DS.Color.textPrimary)
+                            Text(loc.t("opt.autoFetchCheats.note"))
+                                .font(DS.Font.callout)
+                                .foregroundStyle(DS.Color.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: DS.Space.s)
+                        Toggle(loc.t("opt.autoFetchCheats"), isOn: autoFetchCheats)
+                            .toggleStyle(LauncherSwitchStyle())
+                            .labelsHidden()
+                            .padTarget("batch.autoFetchCheats", scope: "batch", activate: { autoFetchCheats.wrappedValue.toggle() }, adjust: { _ in autoFetchCheats.wrappedValue.toggle() })
+                    }
+                }
             }
             if tunedCandidatesCount > 0 {
                 LauncherSegmented(
@@ -375,7 +396,8 @@ struct BuildSelectedSheet: View {
                     batch: batch,
                     packageAfter: !standaloneIOS && packagesSharedApp && isIOS,
                     exportIPA: standaloneIOS ? true : (isIOS && exportsFramework ? true : nil),
-                    exportFramework: standaloneIOS ? false : (isIOS && exportsFramework ? true : nil)
+                    exportFramework: standaloneIOS ? false : (isIOS && exportsFramework ? true : nil),
+                    autoFetchCheats: autoFetchCheats.wrappedValue
                 )
             }
         })
@@ -388,9 +410,9 @@ extension QueueEntry {
     /// The snapshot of a library game for the build queue: the inputs and output folder the library holds for it now, and the target.
     /// The hero's "Rebuild" is `stores.queue.enqueue([QueueEntry(game: game, engineID: engine.selection.engineID)])`, "Rebuild all" the
     /// same for `library.games.filter { toolsAge.older.contains($0.id) }`.
-    init(game: LibraryGame, engineID: String, target: String? = nil, batch: UUID = UUID(), packageAfter: Bool = false, exportIPA: Bool? = nil, exportFramework: Bool? = nil) {
+    init(game: LibraryGame, engineID: String, target: String? = nil, batch: UUID = UUID(), packageAfter: Bool = false, exportIPA: Bool? = nil, exportFramework: Bool? = nil, autoFetchCheats: Bool? = nil) {
         self.init(gameID: game.id, titleID: game.titleID, name: game.name, target: target ?? game.lastTarget,
                   inputs: game.inputs.filter { $0.key != GameLibrary.folderInput }, gameFolder: game.inputs[GameLibrary.folderInput]?.first,
-                  outputDirectory: game.outputDirectory, engineID: engineID, batch: batch, packageAfter: packageAfter, exportIPA: exportIPA, exportFramework: exportFramework)
+                  outputDirectory: game.outputDirectory, engineID: engineID, batch: batch, packageAfter: packageAfter, exportIPA: exportIPA, exportFramework: exportFramework, autoFetchCheats: autoFetchCheats)
     }
 }

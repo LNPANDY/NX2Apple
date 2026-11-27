@@ -63,6 +63,8 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
     package var upstream: EngineUpstreamKind? = nil
     /// Snapshotted opt-in iOS `--seen-shaders` preference; nil follows the Build form switch.
     package var iosSeenShaders: Bool? = nil
+    /// Snapshotted `--fetch-cheats` preference; nil follows `BuildStore.autoFetchCheats`.
+    package var autoFetchCheats: Bool? = nil
     /// Snapshotted archive directory from the library so fast refresh finds the existing `.img` even when `outputDirectory` differs.
     package var archivePath: String? = nil
     /// Per-entry `.img` update and transfer disposition after completion.
@@ -93,6 +95,7 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
         case externalImgPath
         case upstream
         case iosSeenShaders
+        case autoFetchCheats
         case archivePath
         case imgStatus
     }
@@ -121,6 +124,7 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
         externalImgPath: String? = nil,
         upstream: EngineUpstreamKind? = nil,
         iosSeenShaders: Bool? = nil,
+        autoFetchCheats: Bool? = nil,
         archivePath: String? = nil,
         imgStatus: QueueEntryImgStatus? = nil
     ) {
@@ -147,6 +151,7 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
         self.externalImgPath = externalImgPath
         self.upstream = upstream
         self.iosSeenShaders = iosSeenShaders
+        self.autoFetchCheats = autoFetchCheats
         self.archivePath = archivePath
         self.imgStatus = imgStatus
     }
@@ -177,6 +182,7 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
         self.externalImgPath = try c.decodeIfPresent(String.self, forKey: .externalImgPath)
         self.upstream = try c.decodeIfPresent(EngineUpstreamKind.self, forKey: .upstream)
         self.iosSeenShaders = try c.decodeIfPresent(Bool.self, forKey: .iosSeenShaders)
+        self.autoFetchCheats = try c.decodeIfPresent(Bool.self, forKey: .autoFetchCheats)
         self.archivePath = try c.decodeIfPresent(String.self, forKey: .archivePath)
         self.imgStatus = try c.decodeIfPresent(QueueEntryImgStatus.self, forKey: .imgStatus)
     }

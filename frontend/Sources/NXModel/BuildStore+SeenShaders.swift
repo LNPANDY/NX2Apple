@@ -7,6 +7,7 @@ struct SeenShadersProbeState {
     var queueGeneration: UInt64 = 0
     var queueLoadedKey = ""
     var queuedIOS: Bool?
+    var queuedAutoFetchCheats: Bool?
 }
 
 extension BuildStore {
@@ -16,6 +17,16 @@ extension BuildStore {
     package var queuedIOSSeenShaders: Bool? {
         get { seenShadersProbe.queuedIOS }
         set { seenShadersProbe.queuedIOS = newValue }
+    }
+
+    package var queuedAutoFetchCheats: Bool? {
+        get { seenShadersProbe.queuedAutoFetchCheats }
+        set { seenShadersProbe.queuedAutoFetchCheats = newValue }
+    }
+
+    /// True when the active build engine drives `scripts/build_ipa_from_nsp.py` and supports `--fetch-cheats`.
+    package var supportsAutoFetchCheatsOption: Bool {
+        buildUpstream == .nxnative || buildUpstream.isNxnativeVariant
     }
 
     /// True when the Builds page is configured for a Mac `nxnative` build whose engine supports `--seen-shaders`.

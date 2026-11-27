@@ -138,4 +138,67 @@ final class CheatAnalyzerTests: XCTestCase {
         try Data("[A]\n04000000 00100000 00000001\n".utf8).write(to: cheatsDir.appendingPathComponent("CD57B23FA4BBAD65.txt"))
         XCTAssertEqual(RepoLayout.existingCheatsDir(titleID: "010015100B514000", explicit: cheatsDir.path, home: tmp.path), cheatsDir.path)
     }
+
+    func testFixedAddressRulesCoverRegions0And1AndStatic5WithoutPointerFalsePositives() {
+        let inputs: [CheatStaticAnalyzer.InputEntry] = [
+            // 0: Opcode 0 M=0 (main) -> false
+            .init(key: "Main Write", isMaster: false, isLabel: false, isBroken: false, words: [0x0400_0000, 0x0018_0020, 0x0000_0001]),
+            // 1: Opcode 0 M=1 (heap, clean reg) -> true
+            .init(key: "Fixed Heap", isMaster: false, isLabel: false, isBroken: false, words: [0x0410_0000, 0x0000_0000, 0x0000_0001]),
+            // 2: Opcode 0 M=2 (alias, clean reg) -> true
+            .init(key: "Fixed Alias", isMaster: false, isLabel: false, isBroken: false, words: [0x0420_0000, 0x0000_0100, 0x0000_0001]),
+            // 3: Opcode 1 M=1 X=0 (fixed heap comparison) -> true
+            .init(key: "Cmp Heap", isMaster: false, isLabel: false, isBroken: false, words: [0x1411_0000, 0x0000_2000, 0x0000_0005, 0x2000_0000]),
+            // 4: Opcode 5 I=0 M=1 (static load from heap) -> true
+            .init(key: "Load Heap", isMaster: false, isLabel: false, isBroken: false, words: [0x5810_0000, 0x0000_4000]),
+            // 5: Pointer chain: Opcode 5 static load from main (M=0, I=0, R=1) -> Opcode 5 deref (I=1, R=1) -> Opcode 0 M=1 R=1 -> false
+            .init(key: "Pointer Chain", isMaster: false, isLabel: false, isBroken: false, words: [0x5801_0000, 0x0020_0000, 0x5801_1000, 0x0000_0010, 0x0411_0000, 0x0000_0020, 0x0000_0063]),
+            // 6: Opcode 1 M=0 -> false
+            .init(key: "Cmp Main", isMaster: false, isLabel: false, isBroken: false, words: [0x1401_0000, 0x0020_0000, 0x0000_0001, 0x2000_0000]),
+        ]
+        let analyzed = CheatStaticAnalyzer.analyze(
+            entries: inputs,
+            rxEnd: 0x100000,
+            trampolines: nil,
+            buildID: "CD57B23FA4BBAD65"
+        )
+        XCTAssertEqual(analyzed.map(\.hasFixedAddress), [false, true, true, true, true, false, false])
+        XCTAssertEqual(analyzed.map(\.capability), [.dataReady, .fixedHeapWarning, .fixedHeapWarning, .fixedHeapWarning, .fixedHeapWarning, .dataReady, .dataReady])
+    }
+
+    func testTrampolinesMetadataParsesUnsafeCodeAndDetail() {
+        let tsv = """
+        # BUILD_ID\tCD57B23FA4BBAD65
+        # MAIN_RX_END\t0x100000
+        row_type\tname\tcheat_key\tkind\tslot_id\tvariant_mask\ttarget_off\tpatched_word\tkey_mask\tdetail
+        entry\tRisky Hook\tRisky Hook\tunsafe_code\t-1\t0x0\t0x400\t0x14000001\t0x0\tpc-relative branch target outside safe range
+        """
+        let meta = CheatTrampolineMetadata.parse(tsv)
+        let inputs: [CheatStaticAnalyzer.InputEntry] = [
+            .init(key: "Risky Hook", isMaster: false, isLabel: false, isBroken: false, words: [0x0400_0000, 0x0000_0400, 0x1400_0001]),
+        ]
+        let analyzed = CheatStaticAnalyzer.analyze(entries: inputs, rxEnd: 0x100000, trampolines: meta, buildID: "CD57B23FA4BBAD65")
+        XCTAssertEqual(analyzed[0].capability, .unsafeCode)
+        XCTAssertEqual(analyzed[0].safetyDetail, "pc-relative branch target outside safe range")
+    }
+
+    func testRepoLayoutSupportsFetchCheatsAndBuildsDirWithoutExistingFiles() throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("nx-fetch-cheats-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp.appendingPathComponent("scripts"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let script = tmp.appendingPathComponent("scripts/build_ipa_from_nsp.py")
+        try Data("ap.add_argument('--cheat-dir')\n".utf8).write(to: script)
+        XCTAssertFalse(RepoLayout.supportsFetchCheats(tmp.path))
+
+        try Data("ap.add_argument('--cheat-dir')\nap.add_argument('--fetch-cheats')\n".utf8).write(to: script)
+        XCTAssertTrue(RepoLayout.supportsFetchCheats(tmp.path))
+
+        let tid = "010015100B514000"
+        XCTAssertNil(RepoLayout.cheatsDirForBuild(titleID: tid, autoFetchCheats: false, home: tmp.path))
+        XCTAssertEqual(
+            RepoLayout.cheatsDirForBuild(titleID: tid, autoFetchCheats: true, home: tmp.path),
+            tmp.appendingPathComponent("Library/Application Support/nxnative/\(tid)/cheats").path
+        )
+    }
 }
