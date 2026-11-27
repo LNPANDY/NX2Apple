@@ -380,7 +380,8 @@ extension LauncherView {
                 batch: batch,
                 packageAfter: !standaloneIOS && packagesSharedApp && isIOS,
                 exportIPA: standaloneIOS ? true : (isIOS && exportsFramework ? true : nil),
-                exportFramework: standaloneIOS ? false : (isIOS && exportsFramework ? true : nil)
+                exportFramework: standaloneIOS ? false : (isIOS && exportsFramework ? true : nil),
+                autoFetchCheats: m.autoFetchCheats
             )
         }
         buildQueue.enqueue(entries)

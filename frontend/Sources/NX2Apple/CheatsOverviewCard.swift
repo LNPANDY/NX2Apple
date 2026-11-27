@@ -9,6 +9,7 @@ struct CheatsCapabilitySummary: Equatable {
     var codeBaked = 0
     var codeNeedsBake = 0
     var fixedHeapWarning = 0
+    var unsafeCode = 0
 
     init(cheats: [CheatFiles.Cheat]) {
         for cheat in cheats where cheat.kind != .label && !cheat.broken && !cheat.pairOff {
@@ -17,13 +18,14 @@ struct CheatsCapabilitySummary: Equatable {
             case .codeBaked: codeBaked += 1
             case .codeNeedsBake: codeNeedsBake += 1
             case .fixedHeapWarning: fixedHeapWarning += 1
+            case .unsafeCode: unsafeCode += 1
             }
         }
     }
 
-    var totalActive: Int { dataReady + codeBaked + codeNeedsBake + fixedHeapWarning }
+    var totalActive: Int { dataReady + codeBaked + codeNeedsBake + fixedHeapWarning + unsafeCode }
     var directReadyTotal: Int { dataReady + fixedHeapWarning }
-    var allIOSReady: Bool { totalActive > 0 && codeNeedsBake == 0 }
+    var allIOSReady: Bool { totalActive > 0 && codeNeedsBake == 0 && unsafeCode == 0 }
 }
 
 /// Top overview card in Mac CheatsView showing four-tier iOS capability counts, 30s crash guard badge, and one-click fast bake CTA.
@@ -89,6 +91,13 @@ struct CheatsOverviewCard: View {
                         text: String(format: loc.t("cheats.stat.fixedHeap"), summary.fixedHeapWarning)
                     )
                 }
+                if summary.unsafeCode > 0 {
+                    CheatsCountPill(
+                        symbol: "shield.slash.fill",
+                        symbolColor: DS.Color.statusError,
+                        text: String(format: loc.t("cheats.stat.unsafeCode"), summary.unsafeCode)
+                    )
+                }
             }
 
             HStack(alignment: .center, spacing: DS.Space.s) {
@@ -138,6 +147,9 @@ struct CheatsOverviewCard: View {
     private var guidanceText: String {
         if summary.codeNeedsBake > 0 {
             return String(format: loc.t("cheats.overview.needsBakeHint"), summary.codeNeedsBake)
+        }
+        if summary.unsafeCode > 0 {
+            return String(format: loc.t("cheats.overview.unsafeCodeHint"), summary.unsafeCode)
         }
         if summary.codeBaked > 0 {
             return loc.t("cheats.overview.allBakedHint")
@@ -193,7 +205,7 @@ struct CheatTriggerKeyPill: View {
     }
 }
 
-/// Compact per-row capability tag (data ready, code baked, needs bake, or fixed heap warning).
+/// Compact per-row capability tag (data ready, code baked, needs bake, fixed address warning, or safety blocked).
 struct CheatCapabilityTag: View {
     @EnvironmentObject var loc: Localizer
     let capability: CheatCapability
@@ -217,6 +229,7 @@ struct CheatCapabilityTag: View {
         case .codeBaked: "cpu.fill"
         case .codeNeedsBake: "bolt.circle.fill"
         case .fixedHeapWarning: "exclamationmark.triangle.fill"
+        case .unsafeCode: "shield.slash.fill"
         }
     }
 
@@ -226,6 +239,7 @@ struct CheatCapabilityTag: View {
         case .codeBaked: DS.Color.symbolAccent
         case .codeNeedsBake: DS.Color.statusWarning
         case .fixedHeapWarning: DS.Color.statusWarning
+        case .unsafeCode: DS.Color.statusError
         }
     }
 
@@ -235,6 +249,7 @@ struct CheatCapabilityTag: View {
         case .codeBaked: DS.Color.textPrimary
         case .codeNeedsBake: DS.Color.statusWarning
         case .fixedHeapWarning: DS.Color.statusWarning
+        case .unsafeCode: DS.Color.statusError
         }
     }
 
@@ -244,6 +259,57 @@ struct CheatCapabilityTag: View {
         case .codeBaked: "cheats.cap.codeBaked"
         case .codeNeedsBake: "cheats.cap.codeNeedsBake"
         case .fixedHeapWarning: "cheats.cap.fixedHeap"
+        case .unsafeCode: "cheats.cap.unsafeCode"
+        }
+    }
+}
+
+/// Amber warning capsule indicating a cheat reads or writes a fixed non-main address that may shift across saves or launches.
+struct CheatFixedAddressPill: View {
+    @EnvironmentObject var loc: Localizer
+
+    var body: some View {
+        HStack(spacing: DS.Space.xxs) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(DS.Color.statusWarning)
+                .accessibilityHidden(true)
+            Text(loc.t("cheats.fixedAddressBadge"))
+                .font(DS.Font.footnote)
+                .foregroundStyle(DS.Color.statusWarning)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, DS.Space.xs)
+        .padding(.vertical, 2)
+        .background(DS.Color.statusWarning.opacity(0.12), in: RoundedRectangle(cornerRadius: DS.Radius.chip))
+        .overlay(RoundedRectangle(cornerRadius: DS.Radius.chip).strokeBorder(DS.Color.statusWarning.opacity(0.4), lineWidth: 1))
+        .help(loc.t("cheats.fixedAddressHint"))
+    }
+}
+
+/// Safety-check interception badge with the baker's specific `detail` reason for `unsafe_code` entries.
+struct CheatSafetyBlockedBadge: View {
+    @EnvironmentObject var loc: Localizer
+    let detail: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: DS.Space.xxs) {
+                Image(systemName: "shield.slash.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(DS.Color.statusError)
+                    .accessibilityHidden(true)
+                Text(loc.t("cheats.cap.unsafeCode"))
+                    .font(DS.Font.footnote.weight(.semibold))
+                    .foregroundStyle(DS.Color.statusError)
+                    .lineLimit(1)
+            }
+            if !detail.isEmpty {
+                Text(String(format: loc.t("cheats.unsafeDetail"), detail))
+                    .font(DS.Font.footnote)
+                    .foregroundStyle(DS.Color.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }

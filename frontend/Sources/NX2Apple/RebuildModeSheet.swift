@@ -104,6 +104,7 @@ struct RebuildModeSheet: View {
                     }
                     seedAndImgCard
                     originalPackageCard
+                    autoFetchCheatsCard
                 }
                 .padding(.horizontal, DSSheetInsets.horizontal)
                 .padding(.top, DS.Space.xxs)
@@ -278,6 +279,31 @@ struct RebuildModeSheet: View {
                 .buttonStyle(DSSecondaryButtonStyle())
                 .keyboardShortcut(.cancelAction)
                 .padTarget("rebuildMode.cancel", scope: "rebuildMode", activate: close)
+        }
+    }
+
+    private var autoFetchCheatsCard: some View {
+        let binding = Binding<Bool>(
+            get: { stores.build.autoFetchCheats },
+            set: { stores.build.autoFetchCheats = $0 }
+        )
+        return DSCard {
+            HStack(alignment: .center, spacing: DS.Space.s) {
+                VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                    Text(loc.t("opt.autoFetchCheats"))
+                        .font(DS.Font.bodyStrong)
+                        .foregroundStyle(DS.Color.textPrimary)
+                    Text(loc.t("opt.autoFetchCheats.note"))
+                        .font(DS.Font.callout)
+                        .foregroundStyle(DS.Color.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: DS.Space.s)
+                Toggle(loc.t("opt.autoFetchCheats"), isOn: binding)
+                    .toggleStyle(LauncherSwitchStyle())
+                    .labelsHidden()
+                    .padTarget("rebuildMode.autoFetchCheats", scope: "rebuildMode", activate: { binding.wrappedValue.toggle() }, adjust: { _ in binding.wrappedValue.toggle() })
+            }
         }
     }
 

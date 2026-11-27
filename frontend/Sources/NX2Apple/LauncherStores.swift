@@ -207,6 +207,7 @@ import NXModel
                     build.activeQueuedRebuildsShaders = false
                     build.activeQueueEntryUpstream = nil
                     build.queuedIOSSeenShaders = nil
+                    build.queuedAutoFetchCheats = nil
                     queue.buildEnded(succeeded: outcome.succeeded, reason: outcome.reason, stopped: outcome.stopped)
                     if queue.running == nil && !queue.hasWaiting && queue.packaging.isEmpty {
                         build.deferShellPackaging = false

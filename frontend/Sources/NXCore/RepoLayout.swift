@@ -122,6 +122,40 @@ package enum RepoLayout {
         return text.contains("'--cheat-dir'") || text.contains("\"--cheat-dir\"")
     }
 
+    /// Whether the checkout's build script accepts `--fetch-cheats` for automatic online cheat fetching during builds.
+    package static func supportsFetchCheats(_ dir: String) -> Bool {
+        guard let text = try? String(contentsOfFile: EngineLayout.root(dir) + "/" + buildScript, encoding: .utf8) else { return false }
+        return text.contains("'--fetch-cheats'") || text.contains("\"--fetch-cheats\"")
+    }
+
+    /// Standard Mac cheats directory (`~/Library/Application Support/nxnative/<TID>/cheats`) even before any cheat files exist.
+    package static func defaultCheatsDir(titleID: String, home: String = NSHomeDirectory()) -> String? {
+        let tid = titleID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !tid.isEmpty else { return nil }
+        return (home as NSString)
+            .appendingPathComponent("Library/Application Support/nxnative")
+            .appending("/\(tid)/cheats")
+    }
+
+    /// Resolves the `--cheat-dir` path for a build: returns an existing/explicit directory when `autoFetchCheats` is false,
+    /// or returns the explicit/default directory even when absent yet so `--fetch-cheats` can populate and bake it in one pass.
+    package static func cheatsDirForBuild(
+        titleID: String,
+        explicit: String? = nil,
+        autoFetchCheats: Bool,
+        home: String = NSHomeDirectory(),
+        fm: FileManager = .default
+    ) -> String? {
+        if autoFetchCheats {
+            if let explicit {
+                let trimmed = explicit.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { return trimmed }
+            }
+            return defaultCheatsDir(titleID: titleID, home: home)
+        }
+        return existingCheatsDir(titleID: titleID, explicit: explicit, home: home, fm: fm)
+    }
+
     /// Default Mac cheats directory (`~/Library/Application Support/nxnative/<TID>/cheats`) when it holds at least one `.txt` cheat file.
     package static func existingCheatsDir(
         titleID: String,

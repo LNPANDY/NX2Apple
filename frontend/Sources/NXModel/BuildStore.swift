@@ -52,6 +52,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     nonisolated package static let outputKey = "buildOutputDirectory"
     nonisolated package static let targetKey = "buildTarget"
     nonisolated package static let bcOnCPUKey = "bcOnCPU"
+    nonisolated package static let autoFetchCheatsKey = "autoFetchCheats"
     nonisolated package static let savedKeysKey = "savedKeysPath"
     nonisolated package static let buildUpstreamKey = "buildUpstream"
     nonisolated package static let macNativeGamesPathKey = "macNativeGamesPath"
@@ -194,6 +195,10 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     /// which the host reads at start-up — no rebuild of the host needed.
     @Published package var bcOnCPU: Bool {
         didSet { defaults.set(bcOnCPU, forKey: Self.bcOnCPUKey) }
+    }
+    /// Automatically fetch Atmosphere cheats (`--fetch-cheats`) during Mac and iOS builds. Defaults to `true`.
+    @Published package var autoFetchCheats: Bool {
+        didSet { defaults.set(autoFetchCheats, forKey: Self.autoFetchCheatsKey) }
     }
     @Published package var seenShadersOnly: Bool { didSet { defaults.set(seenShadersOnly, forKey: Self.seenShadersOnlyKey) } }
     @Published package var iosSeenShadersOnly: Bool { didSet { defaults.set(iosSeenShadersOnly, forKey: Self.iosSeenShadersKey) } }
@@ -515,6 +520,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         target = savedTarget
         runningTarget = savedTarget
         bcOnCPU = defaults.bool(forKey: Self.bcOnCPUKey)
+        autoFetchCheats = defaults.object(forKey: Self.autoFetchCheatsKey) as? Bool ?? true
         seenShadersOnly = defaults.bool(forKey: Self.seenShadersOnlyKey)
         iosSeenShadersOnly = defaults.bool(forKey: Self.iosSeenShadersKey)
         savedKeys = defaults.string(forKey: Self.savedKeysKey) ?? ""

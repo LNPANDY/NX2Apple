@@ -77,6 +77,7 @@ extension BuildStore {
         existingMacAppPath: String? = nil,
         externalImgPath: String? = nil,
         cheatsDir: String? = nil,
+        autoFetchCheats: Bool? = nil,
         knownArchivePath: String? = nil,
         forceShaderRebuildTrailer: Bool = false
     ) {
@@ -158,6 +159,7 @@ extension BuildStore {
                     existingMacAppPath: existingMacAppPath,
                     externalImgPath: externalImgPath,
                     cheatsDir: cheatsDir,
+                    autoFetchCheats: autoFetchCheats,
                     knownArchivePath: knownArchivePath,
                     forceShaderRebuildTrailer: forceShaderRebuildTrailer
                 )
@@ -210,6 +212,7 @@ extension BuildStore {
         }
         send = .idle
         lastRunWasFastRefresh = true
+        let effectiveAutoFetchCheats = autoFetchCheats ?? queuedAutoFetchCheats ?? self.autoFetchCheats
         installRecovery.lastFastRefresh = FastRefreshRequest(
             titleID: tid,
             targetName: targetName,
@@ -218,6 +221,7 @@ extension BuildStore {
             existingMacAppPath: existingMacAppPath,
             externalImgPath: externalImgPath,
             cheatsDir: cheatsDir,
+            autoFetchCheats: effectiveAutoFetchCheats,
             knownArchivePath: knownArchivePath,
             forceShaderRebuildTrailer: forceShaderRebuildTrailer
         )
@@ -305,8 +309,19 @@ extension BuildStore {
             if bcOnCPU { say(t("msg.bcOn")) }
             args += ShellInstall.buildArguments(workDir: workDir, team: exportsShell ? "" : devices.signingTeam)
         }
-        if !isMac, RepoLayout.supportsCheatDir(repo.path),
-           let activeCheatsDir = RepoLayout.existingCheatsDir(titleID: tid, explicit: cheatsDir, home: self.home) {
+        let fetchCheatsEnabled = effectiveAutoFetchCheats && RepoLayout.supportsFetchCheats(repo.path)
+        if fetchCheatsEnabled {
+            args += ["--fetch-cheats"]
+            say(t("msg.fetchCheatsOn"))
+        }
+        if (fetchCheatsEnabled || !isMac),
+           RepoLayout.supportsCheatDir(repo.path),
+           let activeCheatsDir = RepoLayout.cheatsDirForBuild(
+               titleID: tid,
+               explicit: cheatsDir,
+               autoFetchCheats: fetchCheatsEnabled,
+               home: self.home
+           ) {
             args += ["--cheat-dir", activeCheatsDir]
         }
         if !isMac, shouldPassIOSSeenShaders(forTitleID: tid, requested: queuedIOSSeenShaders) {

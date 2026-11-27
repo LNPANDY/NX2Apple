@@ -34,6 +34,8 @@ struct CheatFiles: Sendable {
         var pairOff = false      // the off half of an on / off pair: the on half carries the switch
         var capability: CheatCapability = .dataReady
         var keyMask: UInt64 = 0
+        var hasFixedAddress = false
+        var safetyDetail = ""
         var id: String { key }
         /// Does it get a switch here: a plain cheat that the host would save as on.
         var switchable: Bool { kind == .cheat && !broken && !once && !pairOff }
@@ -132,6 +134,9 @@ struct CheatFiles: Sendable {
     var armedFile: URL { folder.appendingPathComponent(".cheats-armed.json") }
     var stableFile: URL { folder.appendingPathComponent(".cheats-stable.json") }
     var trippedFile: URL { folder.appendingPathComponent(".cheats-tripped.json") }
+    var fetchReceiptFile: URL { CheatFetcher.receiptURL(in: folder) }
+
+    func readFetchReceipt() -> CheatFetchReceipt? { CheatFetcher.readReceipt(in: folder) }
 
     struct ArmedReceipt: Codable, Equatable {
         let titleID: String
@@ -545,6 +550,8 @@ struct CheatFiles: Sendable {
             if analyzed[i].isBroken { entries[i].cheat.broken = true }
             entries[i].cheat.capability = analyzed[i].capability
             entries[i].cheat.keyMask = analyzed[i].keyMask
+            entries[i].cheat.hasFixedAddress = analyzed[i].hasFixedAddress
+            entries[i].cheat.safetyDetail = analyzed[i].safetyDetail
         }
         return entries.map(\.cheat)
     }

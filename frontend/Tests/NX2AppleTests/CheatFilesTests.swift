@@ -236,9 +236,36 @@ import NXModel
         """
         let cheats = CheatFiles.parse(Data(raw.utf8), rxEnd: 0x100000, trampolines: trampolines, buildID: build)
         XCTAssertEqual(cheats.map(\.capability), [.dataReady, .codeBaked, .codeNeedsBake, .fixedHeapWarning])
+        XCTAssertEqual(cheats.map(\.hasFixedAddress), [false, false, false, true])
         XCTAssertEqual(cheats[1].triggerCombo, "B + ZR")
         XCTAssertEqual(cheats[2].triggerCombo, "L")
         XCTAssertNil(cheats[0].triggerCombo)
+    }
+
+    func testFixedAddressAndUnsafeCodeDetailPropagateThroughCheatFilesParse() {
+        let trampolines = CheatTrampolineMetadata.parse("""
+        # BUILD_ID\t\(build)
+        # MAIN_RX_END\t0x100000
+        row_type\tname\tcheat_key\tkind\tslot_id\tvariant_mask\ttarget_off\tpatched_word\tkey_mask\tdetail
+        entry\tUnsafe Hook\tUnsafe Hook\tunsafe_code\t-1\t0x0\t0x400\t0x14000001\t0x0\tindirect branch cannot be relocated
+        """)
+        let raw = """
+        [Unsafe Hook]
+        04000000 00000400 14000001
+        [Heap Load]
+        58100000 00002000
+        [Ptr Chain]
+        58010000 00180000
+        04110000 00000010 00000063
+        """
+        let cheats = CheatFiles.parse(Data(raw.utf8), rxEnd: 0x100000, trampolines: trampolines, buildID: build)
+        XCTAssertEqual(cheats[0].capability, .unsafeCode)
+        XCTAssertEqual(cheats[0].safetyDetail, "indirect branch cannot be relocated")
+        XCTAssertEqual(cheats[1].capability, .fixedHeapWarning)
+        XCTAssertTrue(cheats[1].hasFixedAddress)
+        XCTAssertEqual(cheats[2].capability, .dataReady)
+        XCTAssertFalse(cheats[2].hasFixedAddress)
+        XCTAssertEqual(CheatsCapabilitySummary(cheats: cheats).unsafeCode, 1)
     }
 
     func testTheMetaFileMakesOnePassCheatsAndPairsOutOfTheirSwitches() {
@@ -530,6 +557,7 @@ import NXModel
     func testTheFolderGoesToTheDevicesGameFolderWithoutTheSafeModeFlag() throws {
         try write("[A]\n00000000\n", "\(build).txt")
         try write("A\n", "\(build).enabled")
+        try write("{\"schemaVersion\":1}\n", ".cheats-fetch.json")
         try write("x", ".cheats-off-\(titleID)")
         try write("x", ".cheats-running-\(titleID)")
         try write("{}", ".cheats-armed.json")
@@ -545,7 +573,7 @@ import NXModel
             return (true, "")
         }
         try t.toDevice()
-        XCTAssertEqual(seen, [".cheats-off-\(titleID)", "\(build).enabled", "\(build).txt"])
+        XCTAssertEqual(seen, [".cheats-fetch.json", ".cheats-off-\(titleID)", "\(build).enabled", "\(build).txt"])
         XCTAssertEqual(args.first, "device")
         XCTAssertEqual(args[args.firstIndex(of: "--destination")! + 1], "Documents/games/\(titleID)/cheats")
         XCTAssertEqual(args[args.firstIndex(of: "--domain-identifier")! + 1], "com.example.game")
@@ -575,6 +603,8 @@ import NXModel
     }
 
     func testAFailedCopyNamesDevicectlsLastLineAndAnEmptyFolderIsRefused() throws {
+        XCTAssertThrowsError(try transfer { _ in (true, "") }.toDevice()) { XCTAssertEqual($0 as? CheatTransfer.Failure, .noFiles) }
+        try write("{\"schemaVersion\":1}\n", ".cheats-fetch.json")
         XCTAssertThrowsError(try transfer { _ in (true, "") }.toDevice()) { XCTAssertEqual($0 as? CheatTransfer.Failure, .noFiles) }
         try write("[A]\n00000000\n", "\(build).txt")
         let t = transfer { _ in (false, "Starting\nERROR: The device is not connected. (error 4)\n") }

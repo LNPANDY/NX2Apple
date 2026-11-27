@@ -12,6 +12,7 @@ struct FastRefreshRequest {
     var existingMacAppPath: String?
     var externalImgPath: String?
     var cheatsDir: String?
+    var autoFetchCheats: Bool?
     var knownArchivePath: String?
     var forceShaderRebuildTrailer: Bool
 }
@@ -148,6 +149,7 @@ extension BuildStore {
                 existingMacAppPath: fastRefresh.existingMacAppPath,
                 externalImgPath: fastRefresh.externalImgPath,
                 cheatsDir: fastRefresh.cheatsDir,
+                autoFetchCheats: fastRefresh.autoFetchCheats,
                 knownArchivePath: fastRefresh.knownArchivePath,
                 forceShaderRebuildTrailer: fastRefresh.forceShaderRebuildTrailer
             )

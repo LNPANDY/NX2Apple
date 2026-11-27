@@ -15,6 +15,7 @@ struct CheatsView: View {
     let gameID: UUID
     var devicectl: DeviceControl? = nil   // tests and the visual QA hand in a stand-in
     var support: URL? = nil               // the Application Support folder; tests use a temporary one
+    var cheatFetchTransport: CheatFetchTransport = URLSessionCheatFetchTransport()
     var dropped = false                   // the drop highlight drawn from the start (visual QA)
     var onStartedFastBake: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
@@ -26,7 +27,9 @@ struct CheatsView: View {
     @State private var master = true
     @State private var safeMode = false
     @State private var tripped: CheatFiles.TrippedReceipt?
+    @State private var fetchReceipt: CheatFetchReceipt?
     @State private var busy = false
+    @State private var fetchingOnline = false
     @State private var result: (text: String, ok: Bool)?
     @State private var fixupsMetadata = CheatMainFixupsMetadata()
     @State private var trampolinesMetadata: CheatTrampolineMetadata?
@@ -41,6 +44,7 @@ struct CheatsView: View {
         var master: Bool
         var safeMode: Bool
         var tripped: CheatFiles.TrippedReceipt?
+        var fetchReceipt: CheatFetchReceipt?
         var fixups: CheatMainFixupsMetadata
         var trampolines: CheatTrampolineMetadata?
         var cheats: [CheatFiles.Cheat]
@@ -61,6 +65,11 @@ struct CheatsView: View {
     private var buildID: String? { fixupsMetadata.buildID ?? trampolinesMetadata?.buildID }
     private var current: CheatFiles.Found? { buildID.flatMap { id in files.first { $0.buildID == id } } }
     private var canCopy: Bool { !busy && (game?.onDevice ?? false) && !bundle.isEmpty && !files.isEmpty }
+    private var canFetchOnline: Bool {
+        guard !busy, !fetchingOnline, let game else { return false }
+        return CheatFetcher.normalizedHex16(game.titleID) != nil
+            && buildID.flatMap({ CheatFetcher.normalizedHex16($0, allow32: true) }) != nil
+    }
     private var capabilitySummary: CheatsCapabilitySummary { CheatsCapabilitySummary(cheats: cheats) }
     private var showsIOSGuidance: Bool { game?.cheatsNeedIOSNote ?? false }
     private var canFastBake: Bool {
@@ -87,6 +96,11 @@ struct CheatsView: View {
             VStack(alignment: .leading, spacing: DSSheetInsets.gap) {
                 if let tripped { fuseTrippedBanner(tripped) }
                 buildCard
+                CheatsFetchCard(
+                    receipt: fetchReceipt,
+                    hasBuildID: buildID != nil,
+                    fetching: fetchingOnline
+                )
                 if current != nil, capabilitySummary.totalActive > 0 {
                     CheatsOverviewCard(
                         summary: capabilitySummary,
@@ -284,8 +298,20 @@ struct CheatsView: View {
                     }
                     if cheat.broken {
                         brokenCheatLabel
+                    } else if cheat.capability == .unsafeCode {
+                        CheatSafetyBlockedBadge(detail: cheat.safetyDetail)
                     } else {
-                        CheatCapabilityTag(capability: cheat.capability)
+                        HStack(spacing: DS.Space.xs) {
+                            if cheat.hasFixedAddress || cheat.capability == .fixedHeapWarning {
+                                CheatFixedAddressPill()
+                            }
+                            if cheat.capability != .fixedHeapWarning {
+                                CheatCapabilityTag(capability: cheat.capability)
+                            }
+                        }
+                        if cheat.hasFixedAddress || cheat.capability == .fixedHeapWarning {
+                            fixedAddressHintLabel
+                        }
                     }
                 }
                 Spacer(minLength: 8)
@@ -307,8 +333,20 @@ struct CheatsView: View {
                         brokenCheatLabel
                     } else if cheat.once {
                         Text(loc.t("cheats.once")).font(DS.Font.callout).foregroundStyle(DS.Color.textSecondary)
+                    } else if cheat.capability == .unsafeCode {
+                        CheatSafetyBlockedBadge(detail: cheat.safetyDetail)
                     } else {
-                        CheatCapabilityTag(capability: cheat.capability)
+                        HStack(spacing: DS.Space.xs) {
+                            if cheat.hasFixedAddress || cheat.capability == .fixedHeapWarning {
+                                CheatFixedAddressPill()
+                            }
+                            if cheat.capability != .fixedHeapWarning {
+                                CheatCapabilityTag(capability: cheat.capability)
+                            }
+                        }
+                        if cheat.hasFixedAddress || cheat.capability == .fixedHeapWarning {
+                            fixedAddressHintLabel
+                        }
                     }
                 }
                 Spacer(minLength: 8)
@@ -329,20 +367,65 @@ struct CheatsView: View {
             .labelStyle(CheatWarningLabel())
     }
 
-    /// Import, the folder, and the copy to the device.
+    private var fixedAddressHintLabel: some View {
+        Text(loc.t("cheats.fixedAddressHint"))
+            .font(DS.Font.footnote)
+            .foregroundStyle(DS.Color.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// Fetch online, import, the folder, and the copy to the device.
     private var actions: some View {
-        HStack(spacing: 10) {
-            Button(loc.t("cheats.import")) { pick() }.disabled(busy)
-                .padTarget("cheats.import", scope: "cheats", enabled: !busy) { if !busy { pick() } }
-            Button(loc.t("cheats.showFolder")) { showFolder() }
-                .padTarget("cheats.folder", scope: "cheats") { showFolder() }
-            Spacer(minLength: 8)
-            if game?.onDevice ?? false {
-                Button(String(format: loc.t("cheats.toDevice"), deviceName)) { copyToDevice() }.disabled(!canCopy)
-                    .padTarget("cheats.toDevice", scope: "cheats", enabled: canCopy) { if canCopy { copyToDevice() } }
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                fetchButton
+                importButton
+                folderButton
+                Spacer(minLength: 8)
+                copyDeviceButton
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 10) {
+                    fetchButton
+                    importButton
+                    folderButton
+                    Spacer(minLength: 0)
+                }
+                if game?.onDevice ?? false {
+                    HStack(spacing: 10) {
+                        Spacer(minLength: 0)
+                        copyDeviceButton
+                    }
+                }
             }
         }
         .buttonStyle(LauncherSecondaryButtonStyle())
+    }
+
+    private var fetchButton: some View {
+        Button(loc.t("cheats.fetchOnline")) { fetchOnlineCheats() }.disabled(!canFetchOnline)
+            .fixedSize(horizontal: true, vertical: false)
+            .padTarget("cheats.fetch", scope: "cheats", enabled: canFetchOnline) { if canFetchOnline { fetchOnlineCheats() } }
+    }
+
+    private var importButton: some View {
+        Button(loc.t("cheats.import")) { pick() }.disabled(busy || fetchingOnline)
+            .fixedSize(horizontal: true, vertical: false)
+            .padTarget("cheats.import", scope: "cheats", enabled: !busy && !fetchingOnline) { if !busy && !fetchingOnline { pick() } }
+    }
+
+    private var folderButton: some View {
+        Button(loc.t("cheats.showFolder")) { showFolder() }
+            .fixedSize(horizontal: true, vertical: false)
+            .padTarget("cheats.folder", scope: "cheats") { showFolder() }
+    }
+
+    @ViewBuilder private var copyDeviceButton: some View {
+        if game?.onDevice ?? false {
+            Button(String(format: loc.t("cheats.toDevice"), deviceName)) { copyToDevice() }.disabled(!canCopy || fetchingOnline)
+                .fixedSize(horizontal: true, vertical: false)
+                .padTarget("cheats.toDevice", scope: "cheats", enabled: canCopy && !fetchingOnline) { if canCopy && !fetchingOnline { copyToDevice() } }
+        }
     }
 
     // ---- what the controls do ----
@@ -368,6 +451,7 @@ struct CheatsView: View {
             let masterOn = cheatFiles.masterOn
             let isSafeMode = cheatFiles.safeMode
             let trippedReceipt = cheatFiles.readTripped()
+            let savedFetchReceipt = cheatFiles.readFetchReceipt()
             let fixups = CheatFiles.mainFixupsMetadata(
                 appPath: appPath,
                 iosAppPath: iosAppPath,
@@ -401,6 +485,7 @@ struct CheatsView: View {
                 master: masterOn,
                 safeMode: isSafeMode,
                 tripped: trippedReceipt,
+                fetchReceipt: savedFetchReceipt,
                 fixups: fixups,
                 trampolines: trampolines,
                 cheats: parsedCheats,
@@ -415,6 +500,7 @@ struct CheatsView: View {
                 master = payload.master
                 safeMode = payload.safeMode
                 tripped = payload.tripped
+                fetchReceipt = payload.fetchReceipt
                 fixupsMetadata = payload.fixups
                 trampolinesMetadata = payload.trampolines
                 cheats = payload.cheats
@@ -422,6 +508,42 @@ struct CheatsView: View {
                 bundle = payload.bundle
                 hasUsableSeed = payload.hasUsableSeed
                 supportsFastBakeTools = payload.supportsFastBakeTools
+            }
+        }
+    }
+
+    private func fetchOnlineCheats() {
+        guard canFetchOnline, let cheatFiles, let game, let bid = buildID else { return }
+        actionGeneration &+= 1
+        let gen = actionGeneration
+        let targetID = game.id
+        let titleID = game.titleID
+        let folder = cheatFiles.folder
+        let transport = cheatFetchTransport
+        fetchingOnline = true
+        result = nil
+        Task.detached(priority: .userInitiated) {
+            let outcome = await CheatFetcher.fetch(
+                titleID: titleID,
+                buildID: bid,
+                into: folder,
+                transport: transport
+            )
+            await MainActor.run {
+                guard actionGeneration == gen, self.game?.id == targetID else { return }
+                fetchingOnline = false
+                fetchReceipt = outcome.receipt
+                refresh()
+                switch outcome.receipt.statusKind {
+                case .fetched:
+                    result = (String(format: loc.t("cheats.fetch.done"), outcome.receipt.entryCount), true)
+                case .preservedUser:
+                    result = (loc.t("cheats.fetch.statusPreserved"), true)
+                case .notFound:
+                    result = (loc.t("cheats.fetch.statusNotFound"), false)
+                case .offline, .none:
+                    result = (loc.t("cheats.fetch.statusOffline"), false)
+                }
             }
         }
     }

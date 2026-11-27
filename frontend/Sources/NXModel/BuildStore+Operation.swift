@@ -266,6 +266,7 @@ extension BuildStore {
             queuedExportFramework = nil
         }
         queuedIOSSeenShaders = normalizedTarget != BuildTarget.mac ? entry.iosSeenShaders : nil
+        queuedAutoFetchCheats = entry.autoFetchCheats
 
         if entry.fastRefresh {
             deferShellPackaging = entry.packageAfter && normalizedTarget != BuildTarget.mac && !exportsOneGame && !exportsFramework
@@ -297,6 +298,7 @@ extension BuildStore {
                 gameName: entry.name.isEmpty ? nil : entry.name,
                 existingMacAppPath: entry.existingAppPath,
                 externalImgPath: entry.externalImgPath,
+                autoFetchCheats: entry.autoFetchCheats,
                 knownArchivePath: entry.archivePath,
                 forceShaderRebuildTrailer: entry.rebuildsShaders
             )
@@ -306,6 +308,7 @@ extension BuildStore {
             queuedExportOneGame = nil
             queuedExportFramework = nil
             queuedIOSSeenShaders = nil
+            queuedAutoFetchCheats = nil
             deferShellPackaging = false
             activeQueuedGameID = nil
             activeQueuedEntryID = nil
@@ -354,6 +357,7 @@ extension BuildStore {
         queuedExportOneGame = nil
         queuedExportFramework = nil
         queuedIOSSeenShaders = nil
+        queuedAutoFetchCheats = nil
         deferShellPackaging = false
         skipStaleCheckForQueuedEntry = false
         activeQueuedGameID = nil
