@@ -368,4 +368,83 @@ extension ShellHostModel {
             return .failed(hostText("Could not save the cheat file."))
         }
     }
+
+    public func deleteCheatFile(for id: String) -> GameCheatsSnapshot {
+        guard let entry = entries.first(where: { $0.id == id }) else {
+            return GameCheatsSnapshot(gameID: id, gameTitle: "")
+        }
+        let store = cheatsStore(for: entry)
+        do {
+            let updated = try store.deleteCurrentCheatFile(gameTitle: entry.title)
+            updateCheatsSummary(Self.summary(from: updated), for: id)
+            return updated
+        } catch {
+            notice = hostText("Could not delete the cheat file.")
+            let fallback = store.loadSnapshot(gameTitle: entry.title)
+            updateCheatsSummary(Self.summary(from: fallback), for: id)
+            return fallback
+        }
+    }
+
+    public func deleteCheatFileAsync(for id: String) async -> GameCheatsSnapshot {
+        guard let entry = entries.first(where: { $0.id == id }) else {
+            return GameCheatsSnapshot(gameID: id, gameTitle: "")
+        }
+        let gen = nextCheatsGeneration(for: id)
+        let store = cheatsStore(for: entry)
+        let title = entry.title
+        let expectedFramework = entry.frameworkURL
+        let (updated, failed) = await Task.detached(priority: .userInitiated) { () -> (GameCheatsSnapshot, Bool) in
+            do {
+                return (try store.deleteCurrentCheatFile(gameTitle: title), false)
+            } catch {
+                return (store.loadSnapshot(gameTitle: title), true)
+            }
+        }.value
+        guard cheatsOpGeneration[id] == gen,
+              entries.contains(where: { $0.id == id && $0.frameworkURL == expectedFramework }) else {
+            return updated
+        }
+        if failed {
+            notice = hostText("Could not delete the cheat file.")
+        }
+        updateCheatsSummary(Self.summary(from: updated), for: id)
+        return updated
+    }
+
+    public func fetchCheatsAsync(for id: String) async -> CheatFetchOutcome {
+        guard let entry = entries.first(where: { $0.id == id }) else {
+            return .failed(hostText("This game could not be found."))
+        }
+        let gen = nextCheatsGeneration(for: id)
+        let store = cheatsStore(for: entry)
+        let title = entry.title
+        let expectedFramework = entry.frameworkURL
+        let nowProvider = config.now
+        let transport = config.fetchCheatsTransport
+
+        let resolvedBuildID = await Task.detached(priority: .userInitiated) {
+            store.resolvedBuildID()
+        }.value
+        guard cheatsOpGeneration[id] == gen,
+              entries.contains(where: { $0.id == id && $0.frameworkURL == expectedFramework }) else {
+            return .failed("")
+        }
+        guard let buildID = resolvedBuildID else {
+            return .failed(hostText("Build ID could not be determined for this game."))
+        }
+
+        let fetcher = IOSCheatFetcher(now: nowProvider, transport: transport)
+        let receipt = await fetcher.fetchAndSave(titleID: id, buildID: buildID, to: store.cheatsFolder)
+        let snapshot = await Task.detached(priority: .userInitiated) {
+            store.loadSnapshot(gameTitle: title)
+        }.value
+
+        guard cheatsOpGeneration[id] == gen,
+              entries.contains(where: { $0.id == id && $0.frameworkURL == expectedFramework }) else {
+            return .completed(snapshot: snapshot, receipt: receipt)
+        }
+        updateCheatsSummary(Self.summary(from: snapshot), for: id)
+        return .completed(snapshot: snapshot, receipt: receipt)
+    }
 }

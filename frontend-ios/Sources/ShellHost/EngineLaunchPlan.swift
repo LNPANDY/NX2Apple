@@ -23,10 +23,15 @@ public struct EngineLaunchPlan: Equatable, Sendable {
     public var gameDirectory: URL
     /// Display title for generating a readable `env.txt` header when missing.
     public var gameTitle: String
+    /// Game title ID used to seed bundled cheats before launching.
+    public var titleID: String
+    /// Embedded or hot-pushed `DmGame*.framework` URL used for bundled cheat seeding.
+    public var frameworkURL: URL?
 
     public init(environment: [String: String], arguments: [String], frameworkExecutable: URL, imageMarker: String,
                 logURL: URL, workingDirectory: URL, foldersToCreate: [URL],
-                gameDirectory: URL? = nil, gameTitle: String = "") {
+                gameDirectory: URL? = nil, gameTitle: String = "",
+                titleID: String = "", frameworkURL: URL? = nil) {
         self.environment = environment
         self.arguments = arguments
         self.frameworkExecutable = frameworkExecutable
@@ -36,6 +41,8 @@ public struct EngineLaunchPlan: Equatable, Sendable {
         self.foldersToCreate = foldersToCreate
         self.gameDirectory = gameDirectory ?? foldersToCreate.first?.deletingLastPathComponent() ?? workingDirectory
         self.gameTitle = gameTitle
+        self.titleID = titleID
+        self.frameworkURL = frameworkURL
     }
 
     /// `envFileText` is the shared `Documents/env.txt`. `gameEnvFileText` is the game's own `Documents/games/<title ID>/env.txt`
@@ -208,7 +215,9 @@ public struct EngineLaunchPlan: Equatable, Sendable {
             workingDirectory: documents,
             foldersToCreate: [save, temp],
             gameDirectory: gdir,
-            gameTitle: game.name)
+            gameTitle: game.name,
+            titleID: game.titleID,
+            frameworkURL: fw)
     }
 
     /// Readable per-game `env.txt` template with every setting commented out by default so in-app settings remain unlocked.
@@ -273,6 +282,13 @@ public struct EngineLaunchPlan: Equatable, Sendable {
             let template = Self.defaultGameEnvTemplate(title: gameTitle, titleID: gameDirectory.lastPathComponent)
             try Data(template.utf8).write(to: envURL, options: .atomic)
         }
+        let resolvedTitleID = titleID.isEmpty ? gameDirectory.lastPathComponent : titleID
+        let resolvedFramework = frameworkURL ?? frameworkExecutable.deletingLastPathComponent()
+        GameCheatsStore(
+            titleID: resolvedTitleID,
+            appFolder: gameDirectory,
+            frameworkURL: resolvedFramework
+        ).seedBundledCheatsIfNeeded(fileManager: fm)
     }
 
     /// `KEY=VALUE` lines in order: `#` starts a comment line, blank lines and lines without `=` or with an empty key

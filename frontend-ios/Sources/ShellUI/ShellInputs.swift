@@ -544,6 +544,12 @@ public struct ShellActions {
     public var onDismissCheatFuseAlert: ((_ gameID: String) -> GameCheatsSnapshot)?
     /// Dismisses the 30-second crash guard fuse alert off the main thread and returns the refreshed snapshot.
     public var onDismissCheatFuseAlertAsync: (@MainActor (_ gameID: String) async -> GameCheatsSnapshot)?
+    /// Fetches online cheats for `gameID` and returns the refreshed snapshot and fetch receipt.
+    public var onFetchCheats: (@MainActor (_ gameID: String) async -> CheatFetchOutcome)?
+    /// Deletes the current cheat file for `gameID` and prevents bundled re-seeding.
+    public var onDeleteCheatFile: ((_ gameID: String) -> GameCheatsSnapshot)?
+    /// Deletes the current cheat file off the main thread and prevents bundled re-seeding.
+    public var onDeleteCheatFileAsync: (@MainActor (_ gameID: String) async -> GameCheatsSnapshot)?
     /// Opens the Files picker to select and preflight a save folder, `.zip` archive, or individual save file.
     public var onPickSaveImport: (@MainActor (_ gameID: String) async -> SaveImportPreviewOutcome)?
     /// Commits a previously preflighted save import with the player's chosen replace/merge mode.
@@ -611,6 +617,9 @@ public struct ShellActions {
                 onCancelMismatchCheatImport: ((_ gameID: String) -> Void)? = nil,
                 onDismissCheatFuseAlert: ((_ gameID: String) -> GameCheatsSnapshot)? = nil,
                 onDismissCheatFuseAlertAsync: (@MainActor (_ gameID: String) async -> GameCheatsSnapshot)? = nil,
+                onFetchCheats: (@MainActor (_ gameID: String) async -> CheatFetchOutcome)? = nil,
+                onDeleteCheatFile: ((_ gameID: String) -> GameCheatsSnapshot)? = nil,
+                onDeleteCheatFileAsync: (@MainActor (_ gameID: String) async -> GameCheatsSnapshot)? = nil,
                 onPickSaveImport: (@MainActor (_ gameID: String) async -> SaveImportPreviewOutcome)? = nil,
                 onConfirmSaveImport: (@MainActor (_ gameID: String, _ token: String, _ mode: SaveImportMode) async -> SaveImportCommitOutcome)? = nil,
                 onCancelSaveImport: ((_ gameID: String, _ token: String) -> Void)? = nil,
@@ -661,6 +670,9 @@ public struct ShellActions {
         self.onCancelMismatchCheatImport = onCancelMismatchCheatImport
         self.onDismissCheatFuseAlert = onDismissCheatFuseAlert
         self.onDismissCheatFuseAlertAsync = onDismissCheatFuseAlertAsync
+        self.onFetchCheats = onFetchCheats
+        self.onDeleteCheatFile = onDeleteCheatFile
+        self.onDeleteCheatFileAsync = onDeleteCheatFileAsync
         self.onPickSaveImport = onPickSaveImport
         self.onConfirmSaveImport = onConfirmSaveImport
         self.onCancelSaveImport = onCancelSaveImport

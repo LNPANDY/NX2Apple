@@ -26,6 +26,8 @@ public struct GameCheatEntry: Identifiable, Equatable, Sendable {
     public var capability: CheatCapability
     public var triggerKeys: [String]
     public var enabled: Bool
+    public var hasFixedAddress: Bool
+    public var unsafeCodeReason: String?
 
     public init(
         name: String,
@@ -38,7 +40,9 @@ public struct GameCheatEntry: Identifiable, Equatable, Sendable {
         isOnce: Bool = false,
         capability: CheatCapability = .dataReady,
         triggerKeys: [String] = [],
-        enabled: Bool = false
+        enabled: Bool = false,
+        hasFixedAddress: Bool = false,
+        unsafeCodeReason: String? = nil
     ) {
         self.name = name
         self.key = key
@@ -51,14 +55,61 @@ public struct GameCheatEntry: Identifiable, Equatable, Sendable {
         self.capability = capability
         self.triggerKeys = triggerKeys
         self.enabled = enabled
+        self.hasFixedAddress = hasFixedAddress
+        self.unsafeCodeReason = unsafeCodeReason
+    }
+
+    public var isUnsafeCode: Bool {
+        unsafeCodeReason != nil
     }
 
     public var switchableOnIOS: Bool {
-        !isMaster && !isLabel && !isBroken && !isOnce && capability != .codeNeedsBake
+        !isMaster && !isLabel && !isBroken && !isOnce && !isUnsafeCode && capability != .codeNeedsBake
     }
 
     public var triggerCombo: String? {
         triggerKeys.isEmpty ? nil : triggerKeys.joined(separator: " + ")
+    }
+}
+
+/// Persistent receipt written to `.cheats-fetch.json` alongside a game's cheat files.
+public struct GameCheatFetchReceipt: Codable, Equatable, Sendable {
+    public var schemaVersion: Int
+    public var titleID: String
+    public var buildID: String
+    public var status: String
+    public var sources: [String]
+    public var entryCount: Int
+    public var fetchedAt: TimeInterval
+    public var fileName: String
+    public var fileSHA256: String
+    public var origin: String
+    public var detail: String
+
+    public init(
+        schemaVersion: Int = 1,
+        titleID: String,
+        buildID: String,
+        status: String,
+        sources: [String] = [],
+        entryCount: Int = 0,
+        fetchedAt: TimeInterval = 0,
+        fileName: String = "",
+        fileSHA256: String = "",
+        origin: String = "fetched",
+        detail: String = ""
+    ) {
+        self.schemaVersion = schemaVersion
+        self.titleID = titleID
+        self.buildID = buildID
+        self.status = status
+        self.sources = sources
+        self.entryCount = entryCount
+        self.fetchedAt = fetchedAt
+        self.fileName = fileName
+        self.fileSHA256 = fileSHA256
+        self.origin = origin
+        self.detail = detail
     }
 }
 
@@ -110,6 +161,7 @@ public struct GameCheatsSnapshot: Equatable, Sendable {
     public var entries: [GameCheatEntry]
     public var fuseAlert: GameCheatFuseAlert?
     public var exportFileURL: URL?
+    public var fetchReceipt: GameCheatFetchReceipt?
 
     public init(
         gameID: String,
@@ -120,7 +172,8 @@ public struct GameCheatsSnapshot: Equatable, Sendable {
         masterOn: Bool = true,
         entries: [GameCheatEntry] = [],
         fuseAlert: GameCheatFuseAlert? = nil,
-        exportFileURL: URL? = nil
+        exportFileURL: URL? = nil,
+        fetchReceipt: GameCheatFetchReceipt? = nil
     ) {
         self.gameID = gameID
         self.gameTitle = gameTitle
@@ -131,6 +184,7 @@ public struct GameCheatsSnapshot: Equatable, Sendable {
         self.entries = entries
         self.fuseAlert = fuseAlert
         self.exportFileURL = exportFileURL
+        self.fetchReceipt = fetchReceipt
     }
 
     public var visibleEntries: [GameCheatEntry] {
@@ -138,19 +192,27 @@ public struct GameCheatsSnapshot: Equatable, Sendable {
     }
 
     public var dataReadyCount: Int {
-        entries.filter { !$0.isLabel && !$0.isBroken && $0.capability == .dataReady }.count
+        entries.filter { !$0.isLabel && !$0.isBroken && !$0.isUnsafeCode && $0.capability == .dataReady }.count
     }
 
     public var codeBakedCount: Int {
-        entries.filter { !$0.isLabel && !$0.isBroken && $0.capability == .codeBaked }.count
+        entries.filter { !$0.isLabel && !$0.isBroken && !$0.isUnsafeCode && $0.capability == .codeBaked }.count
     }
 
     public var codeNeedsBakeCount: Int {
-        entries.filter { !$0.isLabel && !$0.isBroken && $0.capability == .codeNeedsBake }.count
+        entries.filter { !$0.isLabel && !$0.isBroken && !$0.isUnsafeCode && $0.capability == .codeNeedsBake }.count
+    }
+
+    public var unsafeCodeCount: Int {
+        entries.filter { !$0.isLabel && !$0.isBroken && $0.isUnsafeCode }.count
     }
 
     public var fixedHeapWarningCount: Int {
-        entries.filter { !$0.isLabel && !$0.isBroken && $0.capability == .fixedHeapWarning }.count
+        entries.filter { !$0.isLabel && !$0.isBroken && !$0.isUnsafeCode && $0.capability == .fixedHeapWarning }.count
+    }
+
+    public var fixedAddressCount: Int {
+        entries.filter { !$0.isLabel && !$0.isBroken && ($0.hasFixedAddress || $0.capability == .fixedHeapWarning) }.count
     }
 
     public var readyOnIOSCount: Int {
@@ -158,7 +220,7 @@ public struct GameCheatsSnapshot: Equatable, Sendable {
     }
 
     public var totalActiveCount: Int {
-        readyOnIOSCount + codeNeedsBakeCount
+        readyOnIOSCount + codeNeedsBakeCount + unsafeCodeCount
     }
 }
 
@@ -167,5 +229,11 @@ public enum CheatImportOutcome: Equatable, Sendable {
     case imported(snapshot: GameCheatsSnapshot, buildID: String, entryCount: Int)
     case buildMismatch(fileBuildID: String?, expectedBuildID: String, fileName: String, pendingToken: String)
     case cancelled
+    case failed(String)
+}
+
+/// Outcome of fetching cheats online for a game on iOS.
+public enum CheatFetchOutcome: Equatable, Sendable {
+    case completed(snapshot: GameCheatsSnapshot, receipt: GameCheatFetchReceipt)
     case failed(String)
 }

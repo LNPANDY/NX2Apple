@@ -140,6 +140,24 @@ extension LibraryView {
                 return await dismissAsync(id)
             }
         }
+        if let fetchCheats = o.onFetchCheats {
+            a.onFetchCheats = { @MainActor id in
+                guard !gate.isSystemEcho else { return .failed("") }
+                return await fetchCheats(id)
+            }
+        }
+        a.onDeleteCheatFile = o.onDeleteCheatFile.map { remove in
+            { id in echo() ? (o.onLoadCheats?(id) ?? GameCheatsSnapshot(gameID: id, gameTitle: "")) : remove(id) }
+        }
+        if let deleteAsync = o.onDeleteCheatFileAsync {
+            a.onDeleteCheatFileAsync = { @MainActor id in
+                if gate.isSystemEcho {
+                    if let load = o.onLoadCheatsAsync { return await load(id) }
+                    return GameCheatsSnapshot(gameID: id, gameTitle: "")
+                }
+                return await deleteAsync(id)
+            }
+        }
         if let pickSave = o.onPickSaveImport {
             a.onPickSaveImport = { @MainActor id in
                 guard !gate.isSystemEcho else { return .cancelled }

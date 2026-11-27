@@ -212,6 +212,55 @@ import XCTest
         XCTAssertTrue(lockedCode.waitForExistence(timeout: 5))
         XCTAssertFalse(app.switches["cheats.toggle.--SectionStart:Movement & Combat--"].exists)
         XCTAssertFalse(app.switches["cheats.toggle.Truncated Cheat"].exists)
+
+        let fixedPill = app.descendants(matching: .any)["cheats.fixedAddress.Max Rupees"].firstMatch
+        for _ in 0..<4 where !fixedPill.exists {
+            scroll.swipeDown()
+        }
+        XCTAssertTrue(fixedPill.exists)
+    }
+
+    func testCheatsOnlineFetchAndDeleteWorkflow() {
+        XCUIDevice.shared.orientation = .portrait
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en", "--host", "--select", "0100000000010000", "--screen", "settings", "--mock-cheat-fetch"]
+        app.launch()
+
+        let cheatsEntry = app.buttons["set.cheats"]
+        XCTAssertTrue(cheatsEntry.waitForExistence(timeout: 10))
+        cheatsEntry.tap()
+
+        let fetchButton = app.buttons["cheats.fetch"]
+        XCTAssertTrue(fetchButton.waitForExistence(timeout: 5))
+        fetchButton.tap()
+
+        XCTAssertTrue(app.staticTexts["cheats.fetchTitle"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.switches["cheats.toggle.Infinite Health"].waitForExistence(timeout: 5))
+        let scroll = app.scrollViews.element(boundBy: app.scrollViews.count - 1)
+        let fixedPill = app.descendants(matching: .any)["cheats.fixedAddress.Max Rupees"].firstMatch
+        for _ in 0..<4 where !fixedPill.exists {
+            scroll.swipeUp()
+        }
+        XCTAssertTrue(fixedPill.exists)
+        let unsafeButton = app.buttons["cheats.unsafe.Unsafe Bypass"]
+        for _ in 0..<4 where !unsafeButton.exists {
+            scroll.swipeUp()
+        }
+        XCTAssertTrue(unsafeButton.exists)
+        XCTAssertTrue(app.staticTexts["cheats.unsafeReason.Unsafe Bypass"].exists)
+        XCTAssertFalse(app.switches["cheats.toggle.Unsafe Bypass"].exists)
+
+        for _ in 0..<4 where !app.buttons["cheats.delete"].isHittable {
+            scroll.swipeDown()
+        }
+        let deleteButton = app.buttons["cheats.delete"]
+        XCTAssertTrue(deleteButton.waitForExistence(timeout: 5))
+        deleteButton.tap()
+
+        let alert = app.alerts["Delete cheat file?"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        alert.buttons["Delete"].tap()
+
+        XCTAssertTrue(app.staticTexts["No cheats imported yet"].waitForExistence(timeout: 5))
     }
 
     func testCheatsBuildMismatchShowsConfirmationAlert() {

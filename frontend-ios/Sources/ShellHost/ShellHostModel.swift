@@ -32,6 +32,8 @@ public struct ShellHostConfig: Sendable {
     public var fetchBannerOutcome: (@Sendable (URL) async -> GameBannerStore.DirectImageOutcome)?
     /// Fetches Nintendo store pages/images for `ec.nintendo.com` fallback. Nil uses the built-in bounded transport.
     public var fetchStoreResponse: GameBannerStore.StoreHTTPFetcher?
+    /// Fetches online cheats JSON for `IOSCheatFetcher`. Nil uses `URLSession.shared`.
+    public var fetchCheatsTransport: IOSCheatFetcher.Transport?
     public var prepareFloatingGuide: (@MainActor @Sendable (HomeScreenGuideRequest) -> Void)?
     public var cancelPreparedFloatingGuide: (@MainActor @Sendable () -> Void)?
     public var startFloatingGuide: (@MainActor @Sendable (HomeScreenGuideRequest) async -> Bool)?
@@ -64,6 +66,7 @@ public struct ShellHostConfig: Sendable {
                 fetchBannerData: (@Sendable (URL) async -> Data?)? = nil,
                 fetchBannerOutcome: (@Sendable (URL) async -> GameBannerStore.DirectImageOutcome)? = nil,
                 fetchStoreResponse: GameBannerStore.StoreHTTPFetcher? = nil,
+                fetchCheatsTransport: IOSCheatFetcher.Transport? = nil,
                 prepareFloatingGuide: (@MainActor @Sendable (HomeScreenGuideRequest) -> Void)? = nil,
                 cancelPreparedFloatingGuide: (@MainActor @Sendable () -> Void)? = nil,
                 startFloatingGuide: (@MainActor @Sendable (HomeScreenGuideRequest) async -> Bool)? = nil,
@@ -95,6 +98,7 @@ public struct ShellHostConfig: Sendable {
             self.fetchBannerOutcome = nil
         }
         self.fetchStoreResponse = fetchStoreResponse
+        self.fetchCheatsTransport = fetchCheatsTransport
         self.prepareFloatingGuide = prepareFloatingGuide
         self.cancelPreparedFloatingGuide = cancelPreparedFloatingGuide
         self.startFloatingGuide = startFloatingGuide
@@ -1117,6 +1121,17 @@ public struct ShellHostConfig: Sendable {
                 guard let self else { return GameCheatsSnapshot(gameID: id, gameTitle: "") }
                 return await self.dismissCheatFuseAlertAsync(for: id)
             },
+            onFetchCheats: { [weak self] id in
+                guard let self else { return .failed("") }
+                return await self.fetchCheatsAsync(for: id)
+            },
+            onDeleteCheatFile: { [weak self] id in
+                self?.deleteCheatFile(for: id) ?? GameCheatsSnapshot(gameID: id, gameTitle: "")
+            },
+            onDeleteCheatFileAsync: { [weak self] id in
+                guard let self else { return GameCheatsSnapshot(gameID: id, gameTitle: "") }
+                return await self.deleteCheatFileAsync(for: id)
+            },
             onPickSaveImport: { [weak self] id in
                 guard let self else { return .cancelled }
                 return await self.pickSaveImportNow(for: id)
@@ -2115,6 +2130,14 @@ public struct ShellHostConfig: Sendable {
             }
 
             game.shaderResourcesURL = try await ShaderResources.shared.prepare(game)
+            guard isLaunchStillValid(game, expectedGeneration: expectedGeneration) else {
+                return .cancelled
+            }
+
+            let launchCheatsStore = GameCheatsStore(titleID: game.titleID, appFolder: game.appFolder, frameworkURL: game.frameworkURL)
+            await Task.detached(priority: .userInitiated) {
+                launchCheatsStore.seedBundledCheatsIfNeeded()
+            }.value
             guard isLaunchStillValid(game, expectedGeneration: expectedGeneration) else {
                 return .cancelled
             }
