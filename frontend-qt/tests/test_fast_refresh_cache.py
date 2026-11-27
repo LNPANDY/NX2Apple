@@ -311,6 +311,24 @@ class TestBuildSeedCache(unittest.TestCase):
         self.assertNotIn(plain_img, cands)
         self.assertIn(work_dmsh, cands)
 
+    def test_prefill_candidates_deduplicates_same_inode_and_case_variants(self):
+        out_dir = self.root / 'out_dedup'
+        tid = '01006D0017F7A000'
+        games_dir = out_dir / 'games' / tid
+        games_dir.mkdir(parents=True)
+        romfs_img = games_dir / 'romfs.img'
+        romfs_img.write_bytes(b'\x00' * 56 + b'DMMSLTR1')
+
+        cands = build_seed_cache.prefill_candidates(tid, out_dir)
+        img_cands = [p for p in cands if p.suffix == '.img']
+        self.assertEqual(len(img_cands), 1, f'expected 1 deduplicated romfs.img candidate, got {img_cands}')
+
+        linked_img = out_dir / 'romfs' / 'romfs.img'
+        linked_img.parent.mkdir(parents=True)
+        os.link(romfs_img, linked_img)
+        cands_linked = build_seed_cache.prefill_candidates(tid, out_dir)
+        self.assertEqual(len([p for p in cands_linked if p.suffix == '.img']), 1)
+
     def test_trailer_action_logic(self):
         # 1. No trailer -> 'append'
         self.assertEqual(build_seed_cache.trailer_action(None, 'nvn', '1111'), 'append')

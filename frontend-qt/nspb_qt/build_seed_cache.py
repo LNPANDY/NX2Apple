@@ -298,6 +298,19 @@ def inspect_seed(
     return result
 
 
+def file_identity_key(path: str | Path) -> tuple[Any, ...]:
+    """Return a stable file or directory identity key using (st_dev, st_ino) when non-zero, else normcase(realpath)."""
+    p = Path(path)
+    try:
+        st = p.stat()
+        if getattr(st, 'st_ino', 0):
+            return ('ino', getattr(st, 'st_dev', 0), st.st_ino)
+    except OSError:
+        pass
+    rp = os.path.realpath(p) if p.exists() else str(p)
+    return ('path', os.path.normcase(rp))
+
+
 def _image_has_trailer(path: Path) -> bool:
     """Quickly check if a file ends with the 8-byte trailer magic without full parsing."""
     try:
@@ -323,13 +336,12 @@ def prefill_candidates(
     tid_low = tid.lower()
 
     candidates: list[Path] = []
-    seen: set[str] = set()
+    seen: set[tuple[Any, ...]] = set()
 
     def add(p: Path | None, verify_img: bool = True) -> None:
-        if p is None:
+        if p is None or not p.exists():
             return
-        rp = p.resolve() if p.exists() else p
-        s = str(rp)
+        s = file_identity_key(p)
         if s in seen:
             return
         if p.is_file():
@@ -417,13 +429,12 @@ def find_romfs_candidates(
     tid_low = tid.lower()
 
     candidates: list[Path] = []
-    seen: set[str] = set()
+    seen: set[tuple[Any, ...]] = set()
 
     def add(p: Path | None) -> None:
         if p is None or not p.exists():
             return
-        rp = p.resolve()
-        s = str(rp)
+        s = file_identity_key(p)
         if s in seen:
             return
         if p.is_file() and p.suffix.lower() == '.img':

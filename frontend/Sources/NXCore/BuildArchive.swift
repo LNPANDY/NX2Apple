@@ -339,7 +339,7 @@ package enum RomFSArchive {
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: path, isDirectory: &isDir), !isDir.boolValue,
                   fm.fileExists(atPath: path + ".id") else { return }
-            let canonical = URL(fileURLWithPath: path).standardizedFileURL.path
+            let canonical = BuildSeedCache.canonicalFileIdentityKey(atPath: path)
             if seen.insert(canonical).inserted {
                 candidates.append(path)
             }
@@ -416,7 +416,9 @@ package enum RomFSArchive {
         var seenRoots = Set<String>()
         func addExtractRoot(_ path: String) {
             guard !path.isEmpty else { return }
-            let canonical = URL(fileURLWithPath: path).standardizedFileURL.path
+            let canonical = fm.fileExists(atPath: path)
+                ? BuildSeedCache.canonicalFileIdentityKey(atPath: path)
+                : "path:" + URL(fileURLWithPath: path).standardizedFileURL.path.lowercased()
             if seenRoots.insert(canonical).inserted {
                 extractRoots.append(path)
             }

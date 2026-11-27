@@ -1,4 +1,4 @@
-From 2e77160f9902c243a5186864bb47b8295864ea47 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: LNPANDY <lnp-andy@hotmail.com>
 Date: Sat, 28 Nov 2026 00:32:58 +0800
 Subject: [PATCH] build: persistent build seeds, GL/Vulkan self-healing, and
@@ -6,23 +6,25 @@ Subject: [PATCH] build: persistent build seeds, GL/Vulkan self-healing, and
 
 Consolidate persistent build seeds and fast refresh cache (0053), GL/Vulkan gfx_api inference and self-healing (0061), and zero-inode loop detection with zstd metal-sources fixes (0069).
 
+Also drop leftover or seeded provisional profile copies when a registered profile covers the package version (unless --provisional is requested), restore populated shader/tables over survey placeholders for genuinely provisional seeds, fail fast before prefill when shader_map.tsv lists zero shaders, align RomFS trailer extraction quotas to 2M entries / 128 GiB, and deduplicate prefill sources by inode and realpath.
+
 Upstream-Status: fork-only
 Reason: Persist reusable build seeds for fast launcher refreshes without source NSPs and self-heal GL/Vulkan/stale seed state
-Issue: none
+Issue: LNPANDY/NX2Apple#1652
 ---
  dm/ios/tests/test_bundle_id.py                |    2 +-
  dm/ios/tools/build_ipa.sh                     |   72 +-
- dm/tools/build_seed.py                        | 3523 +++++++++++++++++
+ dm/tools/build_seed.py                        | 3638 +++++++++++++++++
  dm/tools/romfs_image.py                       |  147 +-
  dm/tools/tests/test_build_seed_gfx_api.py     |  153 +
- .../tests/test_build_seed_profile_version.py  |  277 ++
+ .../tests/test_build_seed_profile_version.py  |  521 +++
  dm/tools/tests/test_build_seed_romfs_guard.py |  243 ++
  .../tests/test_build_seed_windows_dir_loop.py |  284 ++
  dm/tools/tests/test_build_seed_zstd.py        |  873 ++++
  dm/tools/tests/test_nsp_multi_program.py      |    4 +-
  dm/tools/tests/test_nsp_progress.py           |    1 +
- scripts/build_ipa_from_nsp.py                 | 1115 ++++--
- 12 files changed, 6436 insertions(+), 258 deletions(-)
+ scripts/build_ipa_from_nsp.py                 | 1194 ++++--
+ 12 files changed, 6874 insertions(+), 258 deletions(-)
  create mode 100755 dm/tools/build_seed.py
  create mode 100644 dm/tools/tests/test_build_seed_gfx_api.py
  create mode 100644 dm/tools/tests/test_build_seed_profile_version.py
@@ -157,10 +159,10 @@ index 50b352b..b0c95bd 100755
  if [ "$DM_COPY_ROMFS" != NO ] && [ -n "$AOC" ] && [ -d "$AOC" ]; then
 diff --git a/dm/tools/build_seed.py b/dm/tools/build_seed.py
 new file mode 100755
-index 0000000..687a272
+index 0000000..3208be4
 --- /dev/null
 +++ b/dm/tools/build_seed.py
-@@ -0,0 +1,3523 @@
+@@ -0,0 +1,3638 @@
 +#!/usr/bin/env python3
 +"""Persistent build seed cache (Schema v1) for fast launcher/engine refreshes without NSPs or prod.keys."""
 +
@@ -257,6 +259,68 @@ index 0000000..687a272
 +    if getattr(st, 'st_ino', 0):
 +        return ('ino', getattr(st, 'st_dev', 0), st.st_ino)
 +    return ('path', os.path.normcase(os.path.realpath(path)))
++
++
++def _path_identity_key(path, st=None):
++    """Returns a stable file or directory identity key using (st_dev, st_ino) when non-zero, else realpath."""
++    p = os.fspath(path)
++    if st is None:
++        st = os.stat(p)
++    if getattr(st, 'st_ino', 0):
++        return ('ino', getattr(st, 'st_dev', 0), st.st_ino)
++    return ('path', os.path.normcase(os.path.realpath(p)))
++
++
++_TSV_HEADER_PREFIXES = ('package\tindex\tstage\t', 'dm_ctl_sha16\tchosen_pc\t')
++
++
++def _is_empty_table_placeholder(path):
++    """Returns True when path matches one of build_seed's synthetic _EMPTY_TABLE_HEADERS."""
++    p = os.fspath(path)
++    if not p or not os.path.isfile(p) or os.path.islink(p):
++        return False
++    try:
++        st = os.lstat(p)
++        if st.st_size > 128:
++            return False
++        with open(p, 'r', encoding='utf-8', errors='replace') as f:
++            text = f.read(128)
++        return text in _EMPTY_TABLE_HEADERS.values()
++    except OSError:
++        return False
++
++
++def _tsv_is_populated(path, name=''):
++    """Returns True when a shader TSV holds real split rows or a valid chain-table stamp rather than a survey placeholder."""
++    p = os.fspath(path)
++    if not p or not os.path.isfile(p) or os.path.islink(p):
++        return False
++    tname = name or os.path.basename(p)
++    try:
++        with open(p, 'r', encoding='utf-8', errors='replace') as f:
++            first_line = f.readline()
++            if not first_line:
++                return False
++            if tname in ('c1_full.tsv', 'cb_extent.tsv'):
++                if first_line.startswith('# chain '):
++                    return True
++                if first_line == _EMPTY_TABLE_HEADERS.get(tname):
++                    return False
++            for line in [first_line, *f]:
++                s = line.strip()
++                if not s or s.startswith('#'):
++                    continue
++                if line.startswith(_TSV_HEADER_PREFIXES):
++                    continue
++                if tname == 'shader_map.tsv':
++                    cols = line.rstrip('\r\n').split('\t')
++                    if len(cols) > 4 and cols[0].endswith('.bin'):
++                        return True
++                    continue
++                return True
++    except OSError:
++        return False
++    return False
 +
 +
 +class _Quota:
@@ -2015,11 +2079,31 @@ index 0000000..687a272
 +        reg_builds = _read_game_tsv_build_versions(os.path.join(reg_dir, 'game.tsv')) if reg_dir else set()
 +
 +        prof_kv = {}
++        explicit_kind = str(meta_in.get('profile_kind') or '').strip()
 +        if eff_profile_dir and os.path.exists(eff_profile_dir):
 +            if os.path.islink(eff_profile_dir):
 +                raise ValueError(f'symlink forbidden for profile_dir: {eff_profile_dir}')
-+            eff_builds = _read_game_tsv_build_versions(os.path.join(eff_profile_dir, 'game.tsv'))
-+            if eff_builds and pkg_ver not in eff_builds:
++            is_repo_profile = (
++                reg_dir is not None
++                and os.path.exists(reg_dir)
++                and os.path.realpath(eff_profile_dir) == os.path.realpath(reg_dir)
++            )
++            eff_tsv = os.path.join(eff_profile_dir, 'game.tsv')
++            eff_kv = _read_game_tsv_kv(eff_tsv)
++            eff_hdr = eff_kv.get('_header', '')
++            eff_builds = _read_game_tsv_build_versions(eff_tsv)
++            if (
++                discovered_work_prof
++                and not is_repo_profile
++                and explicit_kind != 'provisional'
++                and 'Provisional game profile' in eff_hdr
++                and reg_dir
++                and pkg_ver in reg_builds
++            ):
++                eff_profile_dir = None
++                profile_id = reg_id
++                profile_kind = 'registered'
++            elif eff_builds and pkg_ver not in eff_builds:
 +                if discovered_work_prof and reg_dir and pkg_ver in reg_builds:
 +                    eff_profile_dir = None
 +                    profile_id = reg_id
@@ -2042,17 +2126,22 @@ index 0000000..687a272
 +            )
 +            if not profile_kind:
 +                hdr = prof_kv.get('_header', '')
-+                if 'Provisional game profile' in hdr:
++                if is_repo_profile:
++                    profile_kind = 'registered'
++                elif 'Provisional game profile' in hdr:
 +                    profile_kind = 'provisional'
 +                elif 'Derived ' in hdr:
 +                    profile_kind = 'derived'
 +                else:
-+                    profile_kind = 'registered' if is_repo_profile else 'derived'
++                    profile_kind = 'derived'
 +            if not is_repo_profile or profile_kind in ('derived', 'provisional'):
 +                _stage_tree(eff_profile_dir, os.path.join(staging_dir, 'profile', gid), quota, allow_subdirs=True)
 +                dkey = eff_profile_dir.rstrip('/\\') + '.derived.key'
 +                if os.path.isfile(dkey) and not os.path.islink(dkey):
 +                    _link_or_copy_file(dkey, os.path.join(staging_dir, 'profile', f'{gid}.derived.key'), quota)
++                dskey = eff_profile_dir.rstrip('/\\') + '.derived.split.key'
++                if os.path.isfile(dskey) and not os.path.islink(dskey):
++                    _link_or_copy_file(dskey, os.path.join(staging_dir, 'profile', f'{gid}.derived.split.key'), quota)
 +        elif reg_dir:
 +            prof_kv = _read_game_tsv_kv(os.path.join(reg_dir, 'game.tsv'))
 +            if not profile_id:
@@ -2073,7 +2162,7 @@ index 0000000..687a272
 +        src_pkg = os.path.join(src_shader, 'pkg')
 +        if os.path.exists(src_pkg):
 +            _stage_tree(src_pkg, dst_pkg, quota, allow_subdirs=True)
-+        for stamp_name in ('pkg.key', 'pkg.outputs.key', 'pso_pairs.tsv'):
++        for stamp_name in ('pkg.key', 'pkg.outputs.key', 'pso_pairs.tsv', 'geo_pairs.tsv'):
 +            sp = os.path.join(src_shader, stamp_name)
 +            if os.path.exists(sp):
 +                _link_or_copy_file(sp, os.path.join(dst_shader, stamp_name), quota)
@@ -2166,28 +2255,33 @@ index 0000000..687a272
 +        dst_tables = os.path.join(dst_shader, 'tables')
 +        os.makedirs(dst_tables, exist_ok=True)
 +        table_search_dirs = []
-+        for tdir in (
-+            os.path.join(src_shader, 'tables'),
-+            _extra_tables_dir,
-+            eff_profile_dir,
-+            reg_dir,
-+        ):
++        cand_table_dirs = [os.path.join(src_shader, 'tables'), _extra_tables_dir, eff_profile_dir]
++        if profile_kind not in ('provisional', 'derived'):
++            cand_table_dirs.append(reg_dir)
++        for tdir in cand_table_dirs:
 +            if tdir and os.path.isdir(tdir) and not os.path.islink(tdir):
 +                table_search_dirs.append(tdir)
 +
-+        for tname in ('c1_full.tsv', 'cb_extent.tsv', 'shader_map.tsv', 'shader_facts.tsv', 'shader_pairs.tsv', 'pso_pairs.tsv'):
++        for tname in ('c1_full.tsv', 'cb_extent.tsv', 'shader_map.tsv', 'shader_facts.tsv', 'shader_pairs.tsv', 'pso_pairs.tsv', 'geo_pairs.tsv'):
++            chosen_t = None
++            fallback_t = None
 +            for tdir in table_search_dirs:
 +                cand_t = os.path.join(tdir, tname)
 +                if os.path.isfile(cand_t) and not os.path.islink(cand_t):
-+                    _link_or_copy_file(cand_t, os.path.join(dst_tables, tname), quota)
-+                    break
-+            else:
-+                if gfx_api == 'nvn' and tname in _EMPTY_TABLE_HEADERS:
-+                    fallback_path = os.path.join(dst_tables, tname)
-+                    payload = _EMPTY_TABLE_HEADERS[tname].encode('utf-8')
-+                    quota.charge(1, len(payload), fallback_path)
-+                    with open(fallback_path, 'wb') as tf:
-+                        tf.write(payload)
++                    if fallback_t is None:
++                        fallback_t = cand_t
++                    if _tsv_is_populated(cand_t, tname):
++                        chosen_t = cand_t
++                        break
++            src_t = chosen_t or fallback_t
++            if src_t is not None:
++                _link_or_copy_file(src_t, os.path.join(dst_tables, tname), quota)
++            elif gfx_api == 'nvn' and tname in _EMPTY_TABLE_HEADERS:
++                fallback_path = os.path.join(dst_tables, tname)
++                payload = _EMPTY_TABLE_HEADERS[tname].encode('utf-8')
++                quota.charge(1, len(payload), fallback_path)
++                with open(fallback_path, 'wb') as tf:
++                    tf.write(payload)
 +
 +        # 8. Multi-program sub-builds (work/p1, work/p2, ...) if present
 +        programs_meta = list(meta_in.get('programs') or [])
@@ -2562,14 +2656,15 @@ index 0000000..687a272
 +        if os.path.isdir(s_sub):
 +            _stage_tree(s_sub, os.path.join(work_shader, sub), quota, allow_subdirs=True)
 +
-+    for stamp_name in ('pkg.key', 'pkg.outputs.key', 'pso_pairs.tsv', 'vk.key', 'gl.key'):
++    for stamp_name in ('pkg.key', 'pkg.outputs.key', 'pso_pairs.tsv', 'geo_pairs.tsv', 'vk.key', 'gl.key'):
 +        sp = os.path.join(src_seed, 'shader', stamp_name)
 +        if os.path.isfile(sp):
 +            _link_or_copy_file(sp, os.path.join(work_shader, stamp_name), quota)
 +
-+    tables_pso = os.path.join(src_seed, 'shader', 'tables', 'pso_pairs.tsv')
-+    if os.path.isfile(tables_pso) and not os.path.exists(os.path.join(work_shader, 'pso_pairs.tsv')):
-+        _link_or_copy_file(tables_pso, os.path.join(work_shader, 'pso_pairs.tsv'), quota)
++    for side_name in ('pso_pairs.tsv', 'geo_pairs.tsv'):
++        tables_side = os.path.join(src_seed, 'shader', 'tables', side_name)
++        if os.path.isfile(tables_side) and not os.path.exists(os.path.join(work_shader, side_name)):
++            _link_or_copy_file(tables_side, os.path.join(work_shader, side_name), quota)
 +
 +    # 3. Stage optional derived/provisional profile/<gid>/ into work/profile/<gid>/
 +    seed_prof = os.path.join(src_seed, 'profile')
@@ -2588,11 +2683,22 @@ index 0000000..687a272
 +
 +        if staged_profile_dir and os.path.isdir(os.path.join(src_seed, 'shader', 'tables')):
 +            with os.scandir(os.path.join(src_seed, 'shader', 'tables')) as it:
-+                for te in it:
-+                    if te.is_file(follow_symlinks=False) and te.name.endswith('.tsv'):
-+                        dst_t = os.path.join(staged_profile_dir, te.name)
-+                        if not os.path.exists(dst_t):
++                for te in sorted(it, key=lambda e: e.name):
++                    if not (te.is_file(follow_symlinks=False) and te.name.endswith('.tsv')):
++                        continue
++                    dst_t = os.path.join(staged_profile_dir, te.name)
++                    if not os.path.lexists(dst_t):
++                        if not _is_empty_table_placeholder(te.path):
 +                            _link_or_copy_file(te.path, dst_t, quota)
++                        continue
++                    if os.path.islink(dst_t) or os.path.isdir(dst_t):
++                        raise ValueError(f'refusing to overwrite directory or symlink in staged profile: {dst_t}')
++                    if _is_empty_table_placeholder(te.path):
++                        continue
++                    if _path_identity_key(te.path) == _path_identity_key(dst_t):
++                        continue
++                    if _tsv_is_populated(te.path, te.name) and not _tsv_is_populated(dst_t, te.name):
++                        _link_or_copy_file(te.path, dst_t, quota)
 +
 +    # 4. Stage multi-program sub-trees if present
 +    progs_root = os.path.join(src_seed, 'programs')
@@ -2779,12 +2885,23 @@ index 0000000..687a272
 +                register_lib(lib_path, prog=prog, chain_hint=b_name, platform_hint=platform_hint, origin=origin)
 +
 +        # 2. Inspect external prefill_sources first (.app, RomFS .img with DMMSLTR1 trailer, msl/ dir, b-<chain>[.img[.zst]])
++        seen_prefill_sources = set()
 +        for idx, raw_src in enumerate(prefill_sources or ()):
 +            if not raw_src:
 +                continue
 +            src = os.fspath(raw_src)
 +            if not os.path.exists(src) or os.path.islink(src):
 +                continue
++            try:
++                src_st = os.lstat(src)
++            except OSError:
++                continue
++            if _is_symlink_or_reparse(src, src_st):
++                continue
++            src_key = _path_identity_key(src, src_st)
++            if src_key in seen_prefill_sources:
++                continue
++            seen_prefill_sources.add(src_key)
 +
 +            if os.path.isdir(src):
 +                norm_s = os.path.normpath(src)
@@ -3685,15 +3802,15 @@ index 0000000..687a272
 +if __name__ == '__main__':
 +    sys.exit(main())
 diff --git a/dm/tools/romfs_image.py b/dm/tools/romfs_image.py
-index 4823a73..1bfb06f 100755
+index 4823a73..e5f3ce2 100755
 --- a/dm/tools/romfs_image.py
 +++ b/dm/tools/romfs_image.py
 @@ -31,6 +31,9 @@ GFX_API_CODES = {'nvn': 1, 'vulkan': 2, 'gl': 3}
  GFX_API_NAMES = {1: 'nvn', 2: 'vulkan', 3: 'gl'}
  MSL_APP_SUFFIXES = ('.metallib', '.json', '.tsv')
  MSL_APP_LEAVE_OUT = ('_b_build.json',)
-+MSL_EXTRACT_MAX_ENTRIES = 200_000
-+MSL_EXTRACT_MAX_BYTES = 16 << 30
++MSL_EXTRACT_MAX_ENTRIES = 2_000_000
++MSL_EXTRACT_MAX_BYTES = 128 << 30
 +MSL_EXTRACT_CHUNK = 8 << 20
  _PROG_DIR_RE = re.compile(r'^p\d+$')
  _U64_MAX = (1 << 64) - 1
@@ -4027,10 +4144,10 @@ index 0000000..dcfe887
 +    unittest.main()
 diff --git a/dm/tools/tests/test_build_seed_profile_version.py b/dm/tools/tests/test_build_seed_profile_version.py
 new file mode 100644
-index 0000000..15d1d1f
+index 0000000..0d5035a
 --- /dev/null
 +++ b/dm/tools/tests/test_build_seed_profile_version.py
-@@ -0,0 +1,277 @@
+@@ -0,0 +1,521 @@
 +#!/usr/bin/env python3
 +"""Regression tests for stale build-seed profile versions across save_seed, adopt_legacy_work, and --from-seed."""
 +
@@ -4052,7 +4169,8 @@ index 0000000..15d1d1f
 +    sys.path.insert(0, str(REPO / 'dm' / 'games'))
 +
 +import game as gamemod  # noqa: E402
-+from dm.tools import build_seed  # noqa: E402
++from unittest import mock  # noqa: E402
++from dm.tools import build_seed, romfs_image, shader_lib  # noqa: E402
 +
 +
 +def _load_nsp_script():
@@ -4304,6 +4422,249 @@ index 0000000..15d1d1f
 +        self.assertEqual(insp['seed']['profile_kind'], 'registered')
 +        self.assertFalse((work / 'profile' / tid).exists())
 +        self.assertFalse((work / 'profile' / f'{tid}.derived.key').exists())
++
++    def _make_brothership_nvn_work(self, tid='01006D0017F7A000', pkg_ver='v0', chain='89f44f9b6bb0', with_leftover_provisional=True):
++        work = self.root / f'{tid}_build'
++        ver_dir = work / 'extract' / pkg_ver
++        (ver_dir / 'ExeFS').mkdir(parents=True)
++        (ver_dir / 'ExeFS' / 'main').write_bytes(b'BROTHERSHIP_MAIN')
++        (ver_dir / 'ExeFS' / 'subsdk0').write_bytes(b'BROTHERSHIP_SUBSDK0')
++        (ver_dir / 'ExeFS' / 'sdk').write_bytes(b'BROTHERSHIP_SDK')
++        (work / 'shader' / 'pkg').mkdir(parents=True)
++        (work / 'shader' / 'pkg' / 'global.bin').write_bytes(b'SPLIT_PKG_DATA')
++        (work / 'shader' / 'tables').mkdir(parents=True)
++        (work / 'shader' / 'tables' / 'c1_full.tsv').write_text(f'# chain b-{chain} inputs 8325ba03b72c\n', encoding='utf-8')
++        (work / 'shader' / 'tables' / 'cb_extent.tsv').write_text(f'# chain b-{chain} inputs 8325ba03b72c\n', encoding='utf-8')
++        (work / 'shader' / 'tables' / 'shader_map.tsv').write_text(
++            '# kind: evidence\n'
++            'package\tindex\tstage\tdm_ctl_sha16\tsource\n'
++            'global.bin\t0\tvertex\t0011223344556677\tGlobalShaderCache\n',
++            encoding='utf-8',
++        )
++        (work / 'shader' / 'ios').mkdir(parents=True)
++        shader_lib.write(
++            {'0011223344556677_b.metallib': b'IOS_LIB', 'inputs.tsv': b'game\t01006D0017F7A000\ninputs\t8325ba03b72c\n'},
++            str(work / 'shader' / 'ios' / f'b-{chain}.img'),
++        )
++        if with_leftover_provisional:
++            prof = work / 'profile' / tid
++            prof.mkdir(parents=True)
++            (prof / 'game.tsv').write_text(
++                '# Provisional game profile (generated by scripts/build_ipa_from_nsp.py from the survey with dm/games/profile_guess.py, not checked by hand)\n'
++                f'title_id\t{tid}\n'
++                f'program_id\t{tid}\n'
++                'name\tMario & Luigi: Brothership\n'
++                'ipa\tMarioLuigiBrothership.ipa\n'
++                f'build\t{pkg_ver}\t1.0.0\tmain=59874c9b530095ace0298b938d8e5ea7\n'
++                f'package\t{pkg_ver}\n'
++                f'shader_versions\t{pkg_ver}\n'
++                'modules\tmain subsdk0 sdk\n'
++                'romfs_marker\tVermillion/Content/Paks/Vermillion-Switch.ucas\n'
++                'mem_reserve\t0xF0000000\n'
++                'mem_alias\t0xC8000000\n'
++                'mem_stack\t0x10000000\n'
++                'app_pool\t0xCD500000\n',
++                encoding='utf-8',
++            )
++            (prof / 'shader_map.tsv').write_text(
++                '# kind: evidence  provisional profile: filled by the shader split\n'
++                'package\tindex\tstage\tdm_ctl_sha16\tsource\n',
++                encoding='utf-8',
++            )
++        return work
++
++    def test_adopt_legacy_work_drops_leftover_provisional_profile_when_registered_lists_same_version(self):
++        tid = '01006D0017F7A000'
++        work = self._make_brothership_nvn_work(tid=tid, pkg_ver='v0', with_leftover_provisional=True)
++        seed_root = self.root / 'seeds_adopt_prov_drop'
++
++        res = build_seed.adopt_legacy_work(seed_root, tid, work)
++        self.assertTrue(res['valid'], res.get('reason'))
++        self.assertEqual(res['seed']['profile_kind'], 'registered')
++        self.assertEqual(res['seed']['profile_id'], tid)
++        self.assertFalse((Path(res['path']) / 'profile').exists())
++        self.assertTrue(build_seed._tsv_is_populated(Path(res['path']) / 'shader' / 'tables' / 'shader_map.tsv', 'shader_map.tsv'))
++
++    def test_from_seed_drops_seeded_provisional_copy_unless_provisional_flag_requested(self):
++        tid = '01006D0017F7A000'
++        work = self._make_brothership_nvn_work(tid=tid, pkg_ver='v0', with_leftover_provisional=True)
++        seed_root = self.root / 'seeds_stale_prov_seed'
++        # Simulate a seed saved before #1652 that already carries profile_kind="provisional" and a 2-line placeholder map.
++        res = build_seed.save_seed(
++            seed_root,
++            tid,
++            {'title_id': tid, 'pkg_ver': 'v0', 'gfx_api': 'nvn', 'chain': '89f44f9b6bb0', 'profile_kind': 'provisional', 'profile_id': tid},
++            work,
++            profile_dir=work / 'profile' / tid,
++        )
++        self.assertTrue(res['valid'], res.get('reason'))
++        self.assertTrue((Path(res['path']) / 'profile' / tid / 'game.tsv').is_file())
++
++        nsp = _load_nsp_script()
++
++        # 1. Default --from-seed (no --provisional): drops the stale provisional copy and uses dm/games/01006D0017F7A000.
++        refresh_work = self.root / 'refresh_default'
++        args = nsp.parse_args(['--from-seed', '--title-id', tid, '--seed-cache-dir', str(seed_root), '--work-dir', str(refresh_work)])
++        env = {}
++        buf = io.StringIO()
++        with contextlib.redirect_stdout(buf):
++            prep = nsp._prepare_from_seed(args, 'auto', seed_root, [], gamemod, env, False)
++        self.assertFalse(prep['provisional'])
++        self.assertFalse(prep['shadowed'])
++        self.assertFalse(prep['derived'])
++        self.assertEqual(prep['g'].dir.resolve(), (REPO / 'dm' / 'games' / tid).resolve())
++        self.assertFalse((refresh_work / 'profile' / tid).exists())
++        self.assertNotIn('DM_GAMES_DIR', env)
++        self.assertNotIn('DM_GAMES_FIRST', env)
++        self.assertIn('superseded by registered profile', buf.getvalue())
++
++        # 2. Explicit --from-seed --provisional: honors the provisional profile.
++        os.environ.pop('DM_GAMES_DIR', None)
++        os.environ.pop('DM_GAMES_FIRST', None)
++        prov_work = self.root / 'refresh_force_prov'
++        args_prov = nsp.parse_args(['--from-seed', '--provisional', '--title-id', tid, '--seed-cache-dir', str(seed_root), '--work-dir', str(prov_work)])
++        env_prov = {}
++        prep_prov = nsp._prepare_from_seed(args_prov, 'auto', seed_root, [], gamemod, env_prov, False)
++        self.assertTrue(prep_prov['provisional'])
++        self.assertTrue(prep_prov['shadowed'])
++        self.assertEqual(prep_prov['g'].dir.resolve(), (prov_work / 'profile' / tid).resolve())
++
++    def test_genuinely_provisional_seed_restores_shader_tables_over_survey_placeholders(self):
++        unregistered_tid = '0100FACE00001652'
++        work = self._make_brothership_nvn_work(tid=unregistered_tid, pkg_ver='v0', with_leftover_provisional=True)
++        (work / 'shader' / 'tables' / 'shader_facts.tsv').write_text('0011223344556677\t{"stage":"vs"}\n', encoding='utf-8')
++        (work / 'shader' / 'tables' / 'shader_pairs.tsv').write_text('0011223344556677\t8899aabbccddeeff\n', encoding='utf-8')
++        (work / 'shader' / 'tables' / 'pso_pairs.tsv').write_text('0011223344556677\t8899aabbccddeeff\n', encoding='utf-8')
++        (work / 'shader' / 'tables' / 'geo_pairs.tsv').write_text('# geo\n', encoding='utf-8')
++        # Profile has 2-line empty survey placeholders on disk before staging.
++        (work / 'profile' / unregistered_tid / 'shader_facts.tsv').write_text(
++            '# Provisional profile: filled by the shader split\n',
++            encoding='utf-8',
++        )
++
++        seed_root = self.root / 'seeds_genuine_prov'
++        res = build_seed.adopt_legacy_work(seed_root, unregistered_tid, work)
++        self.assertTrue(res['valid'], res.get('reason'))
++        self.assertEqual(res['seed']['profile_kind'], 'provisional')
++
++        nsp = _load_nsp_script()
++        refresh_work = self.root / 'refresh_genuine_prov'
++        args = nsp.parse_args(['--from-seed', '--title-id', unregistered_tid, '--seed-cache-dir', str(seed_root), '--work-dir', str(refresh_work)])
++        env = {}
++        prep = nsp._prepare_from_seed(args, 'auto', seed_root, [], gamemod, env, False)
++        self.assertTrue(prep['provisional'])
++        self.assertEqual(nsp.shader_keys(prep['g']), {'0011223344556677'})
++        self.assertIn('0011223344556677', prep['g'].table('shader_facts.tsv').read_text(encoding='utf-8'))
++        self.assertIn('8899aabbccddeeff', prep['g'].table('shader_pairs.tsv').read_text(encoding='utf-8'))
++        self.assertTrue((refresh_work / 'shader' / 'geo_pairs.tsv').is_file())
++
++    def test_empty_shader_map_fails_fast_before_prefill_and_compile(self):
++        nsp = _load_nsp_script()
++        sh = self.root / 'failfast_sh'
++        logs = self.root / 'failfast_logs'
++        logs.mkdir(parents=True)
++        (sh / 'pkg').mkdir(parents=True)
++        (sh / 'pkg' / 'global.bin').write_bytes(b'SPLIT_DATA')
++        prof_dir = self.root / 'failfast_prof' / '0100FACE00009999'
++        prof_dir.mkdir(parents=True)
++        (prof_dir / 'game.tsv').write_text(
++            '# Provisional game profile\ntitle_id\t0100FACE00009999\nprogram_id\t0100FACE00009999\nname\tEmptyMap\nipa\tEmpty.ipa\n'
++            'modules\tmain\nromfs_marker\ta\nmem_reserve\t0xF0000000\nmem_alias\t0x10000000\nmem_stack\t0x10000000\napp_pool\t0xCD500000\n',
++            encoding='utf-8',
++        )
++        (prof_dir / 'shader_map.tsv').write_text(
++            '# kind: evidence  provisional profile: filled by the shader split\n'
++            'package\tindex\tstage\tdm_ctl_sha16\tsource\n',
++            encoding='utf-8',
++        )
++        g = gamemod.Game(prof_dir)
++
++        with mock.patch.object(build_seed, 'prepare_prefill', side_effect=AssertionError('prepare_prefill must not run on empty shader_map.tsv')), \
++                mock.patch.object(nsp, 'run', side_effect=AssertionError('own_compilers.py must not run on empty shader_map.tsv')), \
++                mock.patch.object(nsp, 'chain_of', return_value='df1800562702'):
++            with self.assertRaises(nsp.BuildError) as cm:
++                nsp.build_shaders(
++                    sys.executable,
++                    REPO,
++                    sh,
++                    REPO / 'dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate',
++                    {'WORK': str(self.root)},
++                    logs,
++                    g,
++                    pkg_key=None,
++                    mac=False,
++                    seed_dir=self.root / 'seed_dummy',
++                    prefill_sources=[self.root / 'dummy.img'],
++                    from_seed=True,
++                )
++        msg = str(cm.exception)
++        self.assertIn('lists no shaders', msg)
++        self.assertIn('holds split shader data', msg)
++        self.assertNotIn(';', msg)
++
++    def test_prefill_trailer_quota_covers_2m_entries(self):
++        self.assertGreaterEqual(build_seed.SEED_MAX_ENTRIES, 2_000_000)
++        self.assertGreaterEqual(romfs_image.MSL_EXTRACT_MAX_ENTRIES, 2_000_000)
++        self.assertGreaterEqual(romfs_image.MSL_EXTRACT_MAX_BYTES, 128 << 30)
++
++    def test_prefill_deduplicates_same_inode_or_case_variant_sources(self):
++        old_chain = '89f44f9b6bb0'
++        seed_dir = self.root / 'prefill_dedup_seed'
++        ms_dir = seed_dir / 'metal-sources'
++        ms_dir.mkdir(parents=True)
++        shader_lib.write(
++            {
++                '0000000011112222_b.metal': b'vertex float4 v() { return 0; }\n',
++                '0000000011112222_b.json': b'{"stage":"vs"}\n',
++                'inputs.tsv': b'inputs\told\n',
++            },
++            str(ms_dir / f'b-{old_chain}.img'),
++        )
++
++        rom_src = self.root / 'rom_src'
++        rom_src.mkdir()
++        (rom_src / 'data.bin').write_bytes(b'ROM')
++        upper_dir = self.root / 'games' / '01006D0017F7A000'
++        upper_dir.mkdir(parents=True)
++        upper_img = upper_dir / 'romfs.img'
++        romfs_image.pack(str(rom_src), str(upper_img))
++
++        trailer_src = self.root / 'trailer_src'
++        (trailer_src / f'b-{old_chain}').mkdir(parents=True)
++        (trailer_src / f'b-{old_chain}' / '0000000011112222_b.metallib').write_bytes(b'IOS_BIN')
++        (trailer_src / f'b-{old_chain}' / 'inputs.tsv').write_bytes(b'inputs\told\n')
++        romfs_image.append_msl(str(upper_img), str(trailer_src), gfx_api='nvn', chain=f'b-{old_chain}')
++
++        lower_img = self.root / 'games' / '01006d0017f7a000' / 'romfs.img'
++        hardlink_img = self.root / 'hardlink_romfs.img'
++        os.link(upper_img, hardlink_img)
++
++        sources = [str(upper_img), str(hardlink_img)]
++        if lower_img.exists() and os.path.samefile(upper_img, lower_img):
++            sources.insert(1, str(lower_img))
++
++        extract_calls = []
++        orig_extract = romfs_image.extract_msl
++
++        def _counting_extract(img, out_dir):
++            extract_calls.append(os.fspath(img))
++            return orig_extract(img, out_dir)
++
++        with mock.patch.object(romfs_image, 'extract_msl', side_effect=_counting_extract):
++            env_val, summary = build_seed.prepare_prefill(
++                str(seed_dir),
++                sources,
++                str(self.root / 'prefill_tmp'),
++                gfx_api='nvn',
++                target_chain='df1800562702',
++            )
++        self.assertTrue(env_val)
++        self.assertEqual(len(extract_calls), 1, f'expected duplicate same-inode sources to be scanned once, got {extract_calls}')
++        self.assertEqual(summary['chains'], [f'b-{old_chain}'])
++
++        nsp = _load_nsp_script()
++        deduped = nsp._dedupe_paths(sources)
++        self.assertEqual(len(deduped), 1)
 +
 +
 +if __name__ == '__main__':
@@ -5761,7 +6122,7 @@ index eb2184f..0d20038 100644
              )
              with contextlib.ExitStack() as stack:
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 06cf01c..bfc4ae3 100755
+index 06cf01c..f48ec51 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -47,6 +47,8 @@ import tree_tar   # one file in place of a build's folders of many small files
@@ -5864,7 +6225,7 @@ index 06cf01c..bfc4ae3 100755
              if not seen: prune_stale_chains(sh, chain); prune_shader_cache(sh, chain); pack_libraries(sh, chain, None if mac else pull)   # folders from before this become the one file here
              PROG.end(f'{note}, reused (inputs unchanged)'); return out
      else: key = None
-@@ -3336,11 +3372,27 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False, se
+@@ -3336,11 +3372,39 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False, se
              + f'; {n:,} base libraries scheduled (including cache restores; later builds reuse as before)')
      if mac and not seen and g.table('shader_seen.tsv').is_file():
          say(f'building the whole shader map, {len(shader_keys(g)):,} shaders: hours for a large one the first time. --seen-shaders builds only the {len(seen_listed(g)):,} the profile\'s playtests used, in minutes; areas they do not cover then draw incomplete')
@@ -5875,6 +6236,18 @@ index 06cf01c..bfc4ae3 100755
 -    PROG.watch(None)
 +    prefill_tmp = None
 +    try:
++        if not seen and (from_seed or seed_dir or prefill_sources or g.table('shader_map.tsv').is_file()) and not shader_keys(g):
++            gid = getattr(g, 'id', None) or Path(g.dir).name
++            has_pkg_bins = (sh / 'pkg').is_dir() and any(f.endswith('.bin') for f, _ in files_under(sh / 'pkg'))
++            if has_pkg_bins:
++                raise BuildError(
++                    f'game profile {gid} lists no shaders in {g.table("shader_map.tsv")} while {sh / "pkg"} holds split shader data. '
++                    'Rebuild the game from game packages to regenerate the shader tables'
++                )
++            raise BuildError(
++                f'game profile {gid} lists no shaders in {g.table("shader_map.tsv")}. '
++                'Rebuild the game from game packages to split the shaders again'
++            )
 +        if not seen and (seed_dir or prefill_sources):
 +            tmp_base = Path(env.get('WORK') or (sh.parent / 'tmp'))
 +            tmp_base.mkdir(parents=True, exist_ok=True)
@@ -5897,7 +6270,7 @@ index 06cf01c..bfc4ae3 100755
      if not seen and not chain_tables(py, repo, sh, env, logs, g, chain): raise BuildError(f'no stamped Mac shader outputs in {sh / "cache" / f"b-{chain}"} (inputs.tsv): dmsh_build.py did not finish a full build')
      what = 'Mac' if mac else 'iOS'
      n = sum(1 for _ in shader_lib.view(libs).glob('*_b.metallib')) if shader_lib.exists(libs) else 0   # the image dmsh_build.py writes (a folder from an older chain)
-@@ -3403,7 +3455,7 @@ def layer_root_inputs(roots, dlc_roms, provisional):
+@@ -3403,7 +3467,7 @@ def layer_root_inputs(roots, dlc_roms, provisional):
      return [('stat' if provisional else 'tree', r) if rfs.isdir(r) else ('files', [r]) for r in roots] + dlc_inputs(dlc_roms)
  
  
@@ -5906,7 +6279,7 @@ index 06cf01c..bfc4ae3 100755
      """What build_vk_shaders and build_gl_shaders share: dm/gfx/tools/<api>_shaders.py on the roots → sh/<api>/ for the Mac and, unless mac (a Mac-only build), sh/ios/<api>/ for the iPhone.
      Returns the folder the host (DM_MSL_DIR) or build_ipa.sh (MSL_IOS) takes the libraries from. key: the inputs' fingerprint (None never reuses). Each target checks only its own
      stamp and complete outputs (<api>_shaders.metallib and <api>_shaders.tsv; sh/<api>.key for the Mac, sh/ios/<api>.key for iOS), and a dual-target run verifies both expected
-@@ -3421,8 +3473,16 @@ def layer_shaders(py, repo, api, name, roots, sh, key, logs, env, mac, options=(
+@@ -3421,8 +3485,16 @@ def layer_shaders(py, repo, api, name, roots, sh, key, logs, env, mac, options=(
          if missing: raise BuildError(f'no {target} {name} shader output ({", ".join(missing)}) in {d / api}')
      stamp = kmac if mac else kf
      note = reused(stamp, key) if key and complete(out) else None
@@ -5924,7 +6297,7 @@ index 06cf01c..bfc4ae3 100755
      PROG.set(step='translating')
      rmtree(kmac); rmtree(mac_out / api)
      if not mac: rmtree(kf); rmtree(ios / api)
-@@ -3445,28 +3505,29 @@ def layer_shaders(py, repo, api, name, roots, sh, key, logs, env, mac, options=(
+@@ -3445,28 +3517,29 @@ def layer_shaders(py, repo, api, name, roots, sh, key, logs, env, mac, options=(
      return out
  
  
@@ -5959,7 +6332,7 @@ index 06cf01c..bfc4ae3 100755
  
  
  class PsoLines:
-@@ -3898,7 +3959,7 @@ def mac_app_name(name):   # the app's file name: the game name with the characte
+@@ -3898,7 +3971,7 @@ def mac_app_name(name):   # the app's file name: the game name with the characte
      return re.sub(r'\s*[:/]\s*', ' - ', name).strip(' .-') or 'nxnative'
  
  
@@ -5968,7 +6341,7 @@ index 06cf01c..bfc4ae3 100755
      """The last stage of PLATFORM 'mac-app': pack the Mac app (dm/mac/pack_app.py) from what a Mac-only build made: the Mac host and font (mac_host), the packed version's RomFS and rewritten
      modules, the Mac shader libraries (msl: <shader>/cache, whose b-<chain> goes in, or a Vulkan or GL game's <shader>, whose vk / gl goes in), the DLC, the profile's tables (with the shader pairs
      the pipeline prebuild reads), the pipeline archive made offline for this Mac (mac_pso; gpus: --gpu / PSO_GPUS; prebake: --prewarm-host), the launcher settings and an environment file.
-@@ -3912,7 +3973,8 @@ def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx,
+@@ -3912,7 +3985,8 @@ def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx,
      settings = work / 'app/launcher.json'; settings.parent.mkdir(parents=True, exist_ok=True)
      run([py, repo / 'dm/games/settings.py', g.id, patched, control or game / 'control.nacp', settings,
           *(r['patched'] for r in (programs or {}).values())], logs / 'mac_settings.log', env=dict(env, GFXAPI=gfx, SETTINGS_PLATFORM='mac', DM_LANG=lang))
@@ -5978,7 +6351,7 @@ index 06cf01c..bfc4ae3 100755
             '--font', font, '--title-id', f'{app:016X}', '--name', name, '--bundle-id', bundle_id, '--lang', lang, '--sign', sign or '-']
      split_pairs = work / 'shader/pso_pairs.tsv'   # the split's copy of pso_pairs.tsv, for a profile without the table (as mac_run's DM_PSO_PAIRS)
      for opt, v in (('--version', version), ('--package-version', package), ('--category', g.get('app_category')), ('--marker', g.get('romfs_marker')), ('--aoc', aoc), ('--icon', icon),
-@@ -3922,7 +3984,8 @@ def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx,
+@@ -3922,7 +3996,8 @@ def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx,
                     ('--control', control or game / 'control.nacp')):   # the game's name in each language (DMTitleNames), from the same control data as its languages
          if v: cmd += [opt, v]
      for n, r in (programs or {}).items(): cmd += ['--program', f'{n}\t{r["patched"]}\t{r["romfs"]}\t{r["msl"]}\t{r["tables"]}\t{r["html"]}']
@@ -5988,7 +6361,7 @@ index 06cf01c..bfc4ae3 100755
      unchanged = False
      def line(ln):
          nonlocal unchanged
-@@ -3975,6 +4038,11 @@ def parse_args(argv):
+@@ -3975,6 +4050,11 @@ def parse_args(argv):
                      'it must be one the game supports, which the console lists')
      ap.add_argument('--romfs-from', action='append', metavar='IMAGE', help='a RomFS image of this game an earlier build left (a Mac app\'s Contents/Resources/romfs.img, the launcher\'s games/<title ID>/romfs.img), '
                      'taken instead of extracting the image again when the identity file beside it (<image>.id) names this title and version, its SHA-256 matches, and its files are the ones the packages hold; may be given more than once')
@@ -6000,7 +6373,7 @@ index 06cf01c..bfc4ae3 100755
      ap.add_argument('--keep-extracted', action=argparse.BooleanOptionalAction, help='keep the extracted game files after the IPA is built, for the next build (default: the KEEP_EXTRACTED setting, on)')
      ap.add_argument('--work-dir', help='the game\'s build folder, used as it is (default: the WORK_DIR setting, else <title ID>_build in the NSP folder); the extracted files, shader cache and temporary files live there, and the IPA or Mac app defaults to the folder holding it')
      ap.add_argument('--env-file', help='environment switches for a diagnostic build (one KEY=VALUE per line)')
-@@ -4147,6 +4215,10 @@ def say_game(app, name, version, bundle_id, out, icon):
+@@ -4147,6 +4227,10 @@ def say_game(app, name, version, bundle_id, out, icon):
  def say_push_romfs(image, bundle_id):
      """The command that puts a --romfs separate build's game files on the phone. The image is the extraction's RomFS.img, which stays where it is while the game files are unchanged (the extraction is reused),
      so the command is needed once per game and version, and again only when the image changed: the app compares its identity (size and a hash of the index) with the one it was built for and says so when it differs"""
@@ -6011,7 +6384,7 @@ index 06cf01c..bfc4ae3 100755
      say('the game files are not in this build. Copy them to the phone once, with the app installed (it is needed again only when the image changed, a new game version or another extraction):')
      PROG.say(f'  scripts/push_romfs.sh <device UDID> {bundle_id} "{image}"')
      # the file on disk, as build_ipa.sh's [ -f "$ROMFS" ] decides whether romfs.id is written: rfs.source() is a romfs.Path, whose is_dir() is True for an image's root (GitHub issue #530)
-@@ -4206,13 +4278,15 @@ def profile_derivation_reason(g, pkg_ver, have, alias=None, app=None):
+@@ -4206,13 +4290,15 @@ def profile_derivation_reason(g, pkg_ver, have, alias=None, app=None):
  
  def report_profile_status(g, reg, pkg_ver, derived, provisional, artifact='IPA', patched=None):
      """Keep build-specific warnings visible for the IPA, the Xcode project and a Mac-only build"""
@@ -6031,7 +6404,7 @@ index 06cf01c..bfc4ae3 100755
              say(f'this {artifact} uses the registered {pkg_ver} ({disp}) builds and every fix for them, with derived shader tables ({derived})')
          elif g.title_id != reg.title_id and not other and pkg_ver in reg.builds():   # a registered build under another title ID (same_build): every fix applies
              say(f'this {artifact} is game profile {reg.id}\'s {pkg_ver} ({disp}) under title ID {g.title_id:016X}: its settings and every fix for its builds, with shaders split from this title\'s own files')
-@@ -4267,6 +4341,340 @@ def reconcile_provisional_marker(g, rom):
+@@ -4267,6 +4353,393 @@ def reconcile_provisional_marker(g, rom):
      return type(g)(g.dir)
  
  
@@ -6057,6 +6430,43 @@ index 06cf01c..bfc4ae3 100755
 +    except OSError:
 +        rmtree(tmp_p)
 +        return False
++
++
++def _dedupe_paths(paths):
++    """Deduplicate Path objects by (st_dev, st_ino) when existing on disk, falling back to normalized realpath."""
++    out = []
++    seen = set()
++    for raw in paths or ():
++        p = Path(os.path.expanduser(str(raw)))
++        try:
++            key = build_seed._path_identity_key(p) if p.exists() else ('missing', os.path.normcase(str(p.resolve())))
++        except OSError:
++            key = ('missing', os.path.normcase(str(p)))
++        if key not in seen:
++            seen.add(key)
++            out.append(p.resolve() if p.exists() else p)
++    return out
++
++
++def _restore_seeded_split_tables(tables_dirs, g):
++    """Ensure a provisional or derived profile reused via --from-seed receives populated split tables from shader/tables."""
++    for name in ('shader_map.tsv', 'shader_facts.tsv', 'shader_pairs.tsv', 'pso_pairs.tsv', 'geo_pairs.tsv', 'c1_full.tsv', 'cb_extent.tsv'):
++        dst = g.table(name)
++        if build_seed._tsv_is_populated(dst, name):
++            continue
++        for tdir in tables_dirs:
++            if not tdir:
++                continue
++            cand = Path(tdir) / name
++            if not cand.is_file() or cand.is_symlink() or build_seed._is_empty_table_placeholder(cand):
++                continue
++            if build_seed._tsv_is_populated(cand, name) or not dst.exists():
++                dst.parent.mkdir(parents=True, exist_ok=True)
++                tmp_dst = dst.with_name(f'.{dst.name}.restore.{os.getpid()}')
++                rmtree(tmp_dst)
++                shutil.copy2(cand, tmp_dst)
++                tmp_dst.replace(dst)
++                break
 +
 +
 +def _add_games_dir(env, games_parent, prioritize=False):
@@ -6284,6 +6694,7 @@ index 06cf01c..bfc4ae3 100755
 +    provisional = False
 +    shadowed = False
 +    derived = False
++    force_provisional = bool(getattr(args, 'provisional', False) or PROVISIONAL)
 +    profile_kind = seed.get('profile_kind') or 'registered'
 +    own = own_profile_folders(args, nsp_dir, app)
 +    repo_g = gamemod.by_title(app, own)
@@ -6292,7 +6703,21 @@ index 06cf01c..bfc4ae3 100755
 +    if staged_prof_path and (staged_prof_path / 'game.tsv').is_file():
 +        staged_g = gamemod.Game(staged_prof_path)
 +        staged_builds = staged_g.builds()
-+        if (staged_builds or profile_kind == 'derived') and pkg_ver not in staged_builds:
++        staged_hdr = '\n'.join((staged_prof_path / 'game.tsv').read_text(encoding='utf-8', errors='replace').splitlines()[:5])
++        is_provisional_copy = profile_kind == 'provisional' or 'Provisional game profile' in staged_hdr
++        if is_provisional_copy and not force_provisional and repo_g and pkg_ver in repo_g.builds():
++            rmtree(staged_prof_path)
++            rmtree(derived_key(staged_prof_path))
++            rmtree(derived_split_key(staged_prof_path))
++            say(
++                f'seeded provisional profile ({staged_prof_path}) is superseded by registered profile {repo_g.id} ({pkg_ver}): '
++                f'dropped stale provisional copy and using {repo_g.id}'
++            )
++            g = repo_g
++            reg = repo_g
++            derived = False
++            provisional = False
++        elif (staged_builds or profile_kind == 'derived') and pkg_ver not in staged_builds:
 +            rmtree(staged_prof_path)
 +            rmtree(derived_key(staged_prof_path))
 +            rmtree(derived_split_key(staged_prof_path))
@@ -6317,7 +6742,7 @@ index 06cf01c..bfc4ae3 100755
 +            _add_games_dir(env, staged_prof_path.parent, prioritize=bool(repo_g))
 +            g = gamemod.load(staged_prof_path.name)
 +            reg = repo_g or g
-+            if profile_kind == 'provisional':
++            if is_provisional_copy:
 +                provisional = True
 +                shadowed = bool(repo_g)
 +            elif profile_kind == 'derived':
@@ -6333,8 +6758,9 @@ index 06cf01c..bfc4ae3 100755
 +        if app_hint:
 +            out_hint = work.parent / f'{mac_app_name(app_hint)}{"-provisional" if shadowed else ""}.app'
 +
-+    if out_hint and out_hint.suffix == '.app' and out_hint.is_dir() and out_hint not in prefill_msl:
-+        prefill_msl.append(out_hint)
++    if out_hint and out_hint.suffix == '.app' and out_hint.is_dir():
++        deduped = _dedupe_paths([*prefill_msl, out_hint])
++        prefill_msl[:] = deduped
 +
 +    seed_gfx = (seed.get('gfx_api') or '').strip().lower()
 +    if seed_gfx not in ('vulkan', 'gl'):
@@ -6372,7 +6798,7 @@ index 06cf01c..bfc4ae3 100755
  def main(args=None):
      with contextlib.ExitStack() as cleanup:
          return _main(args, cleanup)
-@@ -4275,11 +4683,12 @@ def main(args=None):
+@@ -4275,11 +4748,12 @@ def main(args=None):
  def _main(args, cleanup):
      args = args or parse_args([])
      PROG.mode = progress_mode(args.progress or PROGRESS)
@@ -6390,7 +6816,7 @@ index 06cf01c..bfc4ae3 100755
      here = Path(globals().get('__file__') or sys.argv[0]).resolve()
      if sys.version_info < (3, 12): raise BuildError('Direct RomFS image builds require Python 3.12 or newer')
      repo = find_repo(here)
-@@ -4310,19 +4719,16 @@ def _main(args, cleanup):
+@@ -4310,19 +4784,16 @@ def _main(args, cleanup):
      if romfs_mode == 'separate' and not keep: raise BuildError('--romfs separate requires --keep-extracted: the image must remain available for the one-time transfer to the phone')
      shader_files = SHADER_FILES if args.shader_files is None else args.shader_files
      if shader_files and (mac or prepare_xcode): raise BuildError('SHADER_FILES / --shader-files shapes the IPA for install tools that cannot copy a large file: it cannot be combined with ' + (f'--platform {platform}' if mac else '--prepare-xcode, which Xcode installs'))
@@ -6405,7 +6831,7 @@ index 06cf01c..bfc4ae3 100755
 +    if from_seed_arg is not None and getattr(args, 'aoc_dir', None) is not None:
 +        raise BuildError('--from-seed cannot be combined with --aoc-dir')
 +    seed_root = Path(os.path.expanduser(args.seed_cache_dir)).resolve() if getattr(args, 'seed_cache_dir', None) else Path(build_seed.default_seed_root())
-+    prefill_msl = [Path(os.path.expanduser(p)).resolve() for p in (getattr(args, 'prefill_msl', None) or ())]
++    prefill_msl = _dedupe_paths(getattr(args, 'prefill_msl', None) or ())
      aoc_dir = None
 -    if args.aoc_dir is not None:
 -        if not nup: raise BuildError('--aoc-dir requires a NUP without embedded DLC')
@@ -6419,7 +6845,7 @@ index 06cf01c..bfc4ae3 100755
      user_icon = icon_file(args.icon or ICON, '--icon / ICON'); spare_icon = icon_file(args.fallback_icon or FALLBACK_ICON, '--fallback-icon / FALLBACK_ICON')
      sys.path.insert(0, str(repo / 'dm/games')); import game as gamemod   # game profiles
      global pg; import profile_guess as pg   # dm/games: a provisional profile's keys from the game files and from the heap check
-@@ -4337,156 +4743,315 @@ def _main(args, cleanup):
+@@ -4337,156 +4808,315 @@ def _main(args, cleanup):
      env['DM_PYTHON'] = py
      want = args.title_id or TITLE_ID
      if want and not re.fullmatch(r'[0-9A-Fa-f]{16}', want): raise BuildError(f'--title-id / TITLE_ID takes a title ID, 16 hex digits: {want}')
@@ -6883,7 +7309,7 @@ index 06cf01c..bfc4ae3 100755
      if not app_name and not (mac and not mac_pack): raise BuildError(f'no game name in the base extraction ({base / "control.nacp"}; an older extraction did not save it: delete extract/ and run again, or give --app-name)')
      team_id = resolve_team_id(args, env, saved_signing, prepare_xcode)
      bundle_id = resolve_bundle_id(app, args, env, saved_signing, team_id, mac=mac, shell_fw=shell_fw)
-@@ -4496,6 +5061,8 @@ def _main(args, cleanup):
+@@ -4496,6 +5126,8 @@ def _main(args, cleanup):
      # the app version is the packed version's display version (app_display_version): never the base game's when an update is packed (#953)
      if mac_pack and picks[pkg_ver][1] is not None:
          app_version = app_display_version(g, game, base, True) or nacp.bundle_version(g.builds().get(pkg_ver, {}).get('display', '')) or nup_label
@@ -6892,7 +7318,7 @@ index 06cf01c..bfc4ae3 100755
      else:
          app_version = app_version_of(game, None if nup else base, g, pkg_ver, nup_label, nup_base=fam['base'] if nup else None)
      if mac_pack and not (args.out or OUT_IPA): out_ipa = work.parent / f'{mac_app_name(app_name)}{"-provisional" if shadowed else ""}.app'
-@@ -4509,10 +5076,10 @@ def _main(args, cleanup):
+@@ -4509,10 +5141,10 @@ def _main(args, cleanup):
          say_game(app, app_name, app_version or '1.0', bundle_id, None if prepare_xcode else out_ipa, icon)
      # the game language: Horizon gives the game one of the languages its control data lists (the packed version's, which an update may extend), so the one packed must be among them
      control = languages_control(game, base)
@@ -6906,7 +7332,7 @@ index 06cf01c..bfc4ae3 100755
  
      patched = work / f'patched_{pkg_ver}'
      g = rewrite(py, repo, game / 'ExeFS', patched, env, logs, g, provisional)
-@@ -4520,92 +5087,120 @@ def _main(args, cleanup):
+@@ -4520,92 +5152,134 @@ def _main(args, cleanup):
      chain_header(py, repo, env, logs)   # before any host is built
      if provisional or derived:   # (provisional) the heap check, then the region check (both only change keys the host is built with, not the rewrite or the shader steps)
          provisional_prep(py, repo, env, logs, g)
@@ -6988,6 +7414,20 @@ index 06cf01c..bfc4ae3 100755
 -        if observed_glslc is not None: check_glslc_coverage(observed_glslc, g)
 +        if from_seed_arg is not None:
 +            PROG.stage('shader split', step='using build seed')
++            if provisional or derived:
++                _restore_seeded_split_tables((sh / 'tables', seed_dir / 'shader/tables' if seed_dir else None), g)
++            if not shader_keys(g):
++                has_pkg_bins = (sh / 'pkg').is_dir() and any(f.endswith('.bin') for f, _ in files_under(sh / 'pkg'))
++                PROG.end(ok=False)
++                if has_pkg_bins:
++                    raise BuildError(
++                        f'game profile {g.id} lists no shaders in {g.table("shader_map.tsv")} while {sh / "pkg"} holds split shader data. '
++                        'Rebuild the game from game packages to regenerate the shader tables'
++                    )
++                raise BuildError(
++                    f'game profile {g.id} lists no shaders in {g.table("shader_map.tsv")}. '
++                    'Rebuild the game from game packages to split the shaders again'
++                )
 +            pkey = package_key(sh / 'pkg')
 +            PROG.end('seeded, reused (from build seed)')
 +        else:
@@ -7075,7 +7515,7 @@ index 06cf01c..bfc4ae3 100755
          say(f'done: {out_ipa} ({tree_size(out_ipa)[1] / 2**30:.1f} GB); '
              f'open it from Finder. Its save is in ~/Library/Application Support/nxnative/{app:016X}/, its log in ~/Library/Logs/nxnative/{app:016X}.log')
          if seen_shaders: say('a partial shader library: where a shader is missing, the log says so in red and the draw goes without it. Run this script again with --seen-shaders to add what the log names, or without it for the whole map')
-@@ -4615,9 +5210,10 @@ def _main(args, cleanup):
+@@ -4615,9 +5289,10 @@ def _main(args, cleanup):
          nvn_runtime = (py, repo / 'dm/gfx/tools/dmsh_live.py') if use_nvn_runtime else None
          if getattr(args, 'in_programs', None) is not None:   # a program packed with the application's first: finalized here, run command built after the combined host
              rmtree(work / 'tmp')
@@ -7087,7 +7527,7 @@ index 06cf01c..bfc4ae3 100755
          g = finalize_provisional_programs(g, child_runs, provisional)
          merge_games_dir(env, [r.get('profile_dir') for r in child_runs.values()])
          host, font = mac_host(py, repo, work, env, logs, g)
-@@ -4631,6 +5227,7 @@ def _main(args, cleanup):
+@@ -4631,6 +5306,7 @@ def _main(args, cleanup):
                      partial=r['partial'], parts=cp, jit=r['jit'], nvn_runtime=r['nvn_runtime'], romfs=r['romfs'], program_index=n)
              child_parts[n] = cp
          programs = write_mac_programs(parts, child_parts)
@@ -7095,7 +7535,7 @@ index 06cf01c..bfc4ae3 100755
          if programs: cmd = cmd.replace(' && ', f' && DM_PROGRAMS={shlex.quote(str(programs))} ', 1)
          say(f'done: the game runs on the Mac with this command (its save in {work / "run/save"}, kept from run to run; DM_WINDOW=1 opens a window, DM_AUDIO=1 plays sound):')
          PROG.say(cmd)
-@@ -4639,8 +5236,10 @@ def _main(args, cleanup):
+@@ -4639,8 +5315,10 @@ def _main(args, cleanup):
          return
  
      if getattr(args, 'in_programs', None) is not None:   # a program of the game: the app its first program's build packs takes these
@@ -7108,7 +7548,7 @@ index 06cf01c..bfc4ae3 100755
      g = finalize_provisional_programs(g, programs, provisional)
      merge_games_dir(env, [r.get('profile_dir') for r in programs.values()])
      if programs and romfs_mode == 'separate': raise BuildError('a game of several programs keeps its files in the app (ROMFS / --romfs bundle): Documents holds one RomFS image, one program\'s')
-@@ -4651,11 +5250,25 @@ def _main(args, cleanup):
+@@ -4651,11 +5329,25 @@ def _main(args, cleanup):
      if prepare_xcode: ipa_env['DM_XCODE_PROJECT_DIR'] = str(project.parent)
      if args.framework: ipa_env['DM_FRAMEWORK'] = '1'
      separate = romfs_mode == 'separate'
@@ -7136,7 +7576,7 @@ index 06cf01c..bfc4ae3 100755
      if env_file: ipa_env['DM_ENV_FILE'] = str(Path(os.path.expanduser(env_file)).resolve())
      show_fps = SHOW_FPS if args.show_fps is None else args.show_fps
      ipa_env['DM_SHOW_FPS'] = '1' if show_fps else '0'
-@@ -4679,8 +5292,12 @@ def _main(args, cleanup):
+@@ -4679,8 +5371,12 @@ def _main(args, cleanup):
          if not (fw / 'game.manifest.json').is_file(): raise BuildError(f'no game framework at {fw}')
          PROG.end(fw.name)
          rmtree(work / 'tmp')
@@ -7150,7 +7590,7 @@ index 06cf01c..bfc4ae3 100755
          report_profile_status(g, reg, pkg_ver, derived, provisional, 'shell framework', patched)
          return
      if prepare_xcode:
-@@ -4691,6 +5308,7 @@ def _main(args, cleanup):
+@@ -4691,6 +5387,7 @@ def _main(args, cleanup):
          except ValueError as e: raise BuildError(str(e)) from e
          PROG.end()
          rmtree(work / 'tmp')
@@ -7158,7 +7598,7 @@ index 06cf01c..bfc4ae3 100755
          say(f'ready: {workspace}')
          say(f'game project: {project}')
          say(f'Xcode derived data: {work / "xcode-derived-data"}')
-@@ -4710,6 +5328,7 @@ def _main(args, cleanup):
+@@ -4710,6 +5407,7 @@ def _main(args, cleanup):
      tree_tar.pack(xcode_data, say)
      PROG.end(f'{out_ipa.name}, {amount(out_ipa.stat().st_size, "B")}')
      rmtree(work / 'tmp')
