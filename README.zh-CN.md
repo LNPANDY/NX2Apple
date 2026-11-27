@@ -30,7 +30,7 @@
 - **iOS 游戏框架热加载、`.p12` 本机自签与瘦身共享壳**：所有游戏共用数十 MB 瘦身壳应用（`DMMSLTR1` 着色器尾块移入外置 `.img` 镜像，支持 `.nxpart` 前台自动合片），新增或更新游戏可直接热推送或导出 `DmGame.framework` 放入 `Documents/Frameworks`（侧载用户可在手机壳导入 `.p12` 证书自动完成本机签名），免重装壳 IPA，支持 **10 种界面语言**
 - **持久化构建种子与批量快刷**：`1.5` 构建自动留存 `build-seeds`，大多数后续引擎升级几分钟即可批量快刷，无需保留原始游戏包或 `_build` 目录，配套游戏专属更新版本角标（如 `1.5`）与三向缺失 `.img` 恢复。Windows 启动器（`NX2Apple-windows-x64.zip`）同步支持通用多游戏批量构建队列（`BuildQueue`）、最高 2 GiB 动态模拟堆与应用内自更新（`NX2Apple.exe`）
 - **快捷指令画中画引导、后台音频混音与手柄操控**：iPhone 与 iPad 内置 6 步添加到主屏幕向导（带画中画悬浮跟做卡片）与连手柄自动启动，支持与其他应用音频同时播放（`DM_AUDIO_MIX`）、`16:9` 交互式封面裁剪、可视化触控布局编辑器、蓝牙双 Joy-Con 横握拆分及单只横握方向映射，以及 Steam Controller（2026）
-- **208 款游戏配置，含 19 款 Switch 2 游戏**：在 Mac 或 Windows 启动器直接选择 Switch 2 游戏文件夹或 `.nup` 文件，无需 `prod.keys`，Mac、iOS 与 Windows 三端均支持任天堂商店横幅兜底
+- **261 款游戏配置，含 22 款 Switch 2 游戏**：在 Mac 或 Windows 启动器直接选择 Switch 2 游戏文件夹或 `.nup` 文件，无需 `prod.keys`，Mac、iOS 与 Windows 三端均支持任天堂商店横幅兜底
 
 所有版本见[更新日志](CHANGELOG.zh-CN.md)。
 
@@ -138,7 +138,7 @@ iPhone 上在「文件」App 里该 App 名字下：`save/` 和 `log.txt`（上�
 
 ## 游戏
 
-共有 208 个游戏 profile。部分游戏上游报告 iPhone 可玩，其余的 profile 还没在手机上试过。其中几款：
+共有 261 个游戏 profile。部分游戏上游报告 iPhone 可玩，其余的 profile 还没在手机上试过。其中几款：
 
 | | 游戏 | 运行于 | 状态 |
 |---|---|---|---|
@@ -152,12 +152,12 @@ iPhone 上在「文件」App 里该 App 名字下：`save/` 和 `log.txt`（上�
 **[GAMES.zh-CN.md](GAMES.zh-CN.md)**（带截图图库和每款的安装大小）
 有完整表格和每款游戏需要的更新包版本：更新包 NSP 的显示版本必须与 profile 一致，否则构建会提示。
 
-**Switch 2 游戏**已在引擎中支持，目前共有 19 款游戏拥有 profile：Donkey Kong Bananza、
+**Switch 2 游戏**已在引擎中支持，目前共有 22 款游戏拥有 profile：Donkey Kong Bananza、
 Splatoon Raiders、Fire Emblem Fortune's Weave、Pokémon Pokopia、Hyrule Warriors: Age of Imprisonment、
 Mario Kart World、Mario Tennis Fever、Star Fox、Yoshi and the Mysterious Book、The Legend of Zelda: Ocarina of Time、
 Kirby Air Riders、Super Mario Bros. Wonder – Nintendo Switch 2 Edition + Meetup in Bellabel Park、
 Orbitals、Fast Fusion、Resident Evil 4、Nintendo Switch 2 Welcome Tour、Nintendo Switch Sports Resort、
-Sonic Frontiers Definitive Edition 和 PRAGMATA。在构建页面选择游戏文件夹（`base/`、`updates/`、`dlc/`）或它的 `.nup` 文件即可，不需要 `prod.keys`。游戏库会把它们标为 **Switch 2**。除了 Donkey Kong Bananza 已在 Mac、iPhone 和 iPad 上验证之外，《The Legend of Zelda: Ocarina of Time》Switch 2 版已在 Mac 上完整通关至演职员表，《Fire Emblem Fortune's Weave》也已在 iPhone 上以 60 fps 验证运行。详情见 [GAMES.zh-CN.md](GAMES.zh-CN.md#switch-2-游戏)。
+Sonic Frontiers Definitive Edition、PRAGMATA、Xenoblade Chronicles: Definitive Edition – Nintendo Switch 2 Edition、Xenoblade Chronicles 2 – Nintendo Switch 2 Edition 和 Xenoblade Chronicles X: Definitive Edition – Nintendo Switch 2 Edition。在构建页面选择游戏文件夹（`base/`、`updates/`、`dlc/`）或它的 `.nup` 文件即可，不需要 `prod.keys`。游戏库会把它们标为 **Switch 2**。除了 Donkey Kong Bananza 已在 Mac、iPhone 和 iPad 上验证之外，《The Legend of Zelda: Ocarina of Time》Switch 2 版已在 Mac 上完整通关至演职员表，《Fire Emblem Fortune's Weave》也已在 iPhone 上以 60 fps 验证运行。详情见 [GAMES.zh-CN.md](GAMES.zh-CN.md#switch-2-游戏)。
 
 ## 限制
 

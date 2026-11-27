@@ -30,7 +30,7 @@
 - **iOS-Spiele ohne Neuinstallation hinzufügen und schlanke Shared-Shell**: Alle Spiele teilen sich eine nur wenige Dutzend MB große Shell-App (`DMMSLTR1`-Shader ausgelagert in `.img`, mit automatischer `.nxpart`-Zusammenführung im Vordergrund). Füge Spiele per Hot-Push hinzu oder lege `DmGame.framework` direkt in `Documents/Frameworks` ab (inklusive Import von `.p12`-Sideload-Zertifikaten für automatisches lokales Signieren auf dem Gerät), ohne die Shell-IPA neu zu installieren. Unterstützung für **10 Sprachen**.
 - **Persistente Build-Seeds und Stapel-Schnellaktualisierung**: Mit gespeicherten `build-seeds` lassen sich die meisten Upgrades in wenigen Minuten im Stapel aktualisieren, ganz ohne Original-Spieledateien oder `_build`-Ordner, inklusive Update-Versions-Badge (z. B. `1.5`) und Wiederherstellung fehlender `.img`-Dateien. Der Windows-Launcher (`NX2Apple-windows-x64.zip`) bietet eine Stapel-Warteschlange (`BuildQueue`), einen dynamischen Simulations-Heap bis 2 GiB und Selbstaktualisierung.
 - **Kurzbefehle-PiP-Assistent, Hintergrund-Audiomixing und Controller**: Integrierter 6-Schritte-Assistent für Home-Bildschirm-Kurzbefehle (mit Bild-in-Bild-Fenster) und Autostart beim Anschließen eines Controllers, gleichzeitige Wiedergabe mit anderem Ton (`DM_AUDIO_MIX`), `16:9`-Cover-Zuschnitt, eigene Touch-Layouts, Aufteilung eines Bluetooth-Joy-Con-Paars mit Ausrichtungs-Mapping für einzelne quer gehaltene Joy-Cons sowie Steam Controller (2026).
-- **208 Spieleprofile, davon 19 Switch-2-Spiele**: Wähle im Mac- oder Windows-Launcher direkt einen Switch-2-Spielordner oder eine `.nup`-Datei aus, ganz ohne `prod.keys`.
+- **261 Spieleprofile, davon 22 Switch-2-Spiele**: Wähle im Mac- oder Windows-Launcher direkt einen Switch-2-Spielordner oder eine `.nup`-Datei aus, ganz ohne `prod.keys`.
 
 Alle Versionen stehen im [Changelog](CHANGELOG.md).
 
@@ -165,7 +165,7 @@ gehört zu [seedds/nxnative](https://github.com/seedds/nxnative/issues). Hänge 
 
 ## Spiele
 
-208 Spiele haben ein Profil. Einige gelten upstream auf einem iPhone als spielbar, und die meisten haben
+261 Spiele haben ein Profil. Einige gelten upstream auf einem iPhone als spielbar, und die meisten haben
 ein Profil, das noch nicht auf einem Handy ausprobiert wurde. Einige davon:
 
 | | Spiel | Wo es läuft | Status |
@@ -181,13 +181,14 @@ ein Profil, das noch nicht auf einem Handy ausprobiert wurde. Einige davon:
 vollständige Tabelle mit der Update-Version, die jedes Spiel braucht: Die angezeigte Version der Update-NSP
 muss zu der des Profils passen, sonst sagt dir das der Build.
 
-**Switch-2-Spiele** sind neu in der Engine. 19 Titel haben bereits ein Profil: Donkey Kong Bananza,
+**Switch-2-Spiele** sind neu in der Engine. 22 Titel haben bereits ein Profil: Donkey Kong Bananza,
 Splatoon Raiders, Fire Emblem Fortune's Weave, Pokémon Pokopia, Hyrule Warriors: Age of Imprisonment,
 Mario Kart World, Mario Tennis Fever, Star Fox, Yoshi and the Mysterious Book,
 The Legend of Zelda: Ocarina of Time, Kirby Air Riders,
 Super Mario Bros. Wonder – Nintendo Switch 2 Edition + Meetup in Bellabel Park, Orbitals, Fast Fusion,
 Resident Evil 4, Nintendo Switch 2 Welcome Tour, Nintendo Switch Sports Resort,
-Sonic Frontiers Definitive Edition und PRAGMATA. Wähle auf der Build-Seite den Spielordner
+Sonic Frontiers Definitive Edition, PRAGMATA, Xenoblade Chronicles: Definitive Edition – Nintendo Switch 2 Edition,
+Xenoblade Chronicles 2 – Nintendo Switch 2 Edition und Xenoblade Chronicles X: Definitive Edition – Nintendo Switch 2 Edition. Wähle auf der Build-Seite den Spielordner
 (`base/`, `updates/`, `dlc/`) oder die `.nup`-Datei aus, ganz ohne `prod.keys`. Die Bibliothek markiert sie
 als **Switch 2**. Donkey Kong Bananza wurde über den Launcher auf Mac, iPhone und iPad verifiziert (ohne
 Probleme auf Mac und iPhone, nahezu ohne auf dem iPad), The Legend of Zelda: Ocarina of Time (Switch-2-Version)

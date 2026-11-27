@@ -30,7 +30,7 @@
 - **Lägg till iOS-spel utan ominstallation och slank delad skal-app**: Alla spel delar en skal-app på bara några tiotals MB (`DMMSLTR1`-shadrar flyttade till `.img`, med automatisk `.nxpart`-sammanslagning i förgrunden). Lägg till spel via snabböverföring eller genom att placera `DmGame.framework` direkt i `Documents/Frameworks` (med import av `.p12`-sidladdningscertifikat på enheten för automatisk lokal signering) utan att installera om skal-IPA:n. Stöd för **10 språk**.
 - **Beständiga byggfrön och snabb batchuppdatering**: Med sparade `build-seeds` uppdateras de flesta uppgraderingar i batch på några minuter utan att originalets spelfiler eller `_build`-mappen behöver sparas, med versionsbricka för uppdateringar (t.ex. `1.5`) och återställning av saknade `.img`-filer. Windows-launchern (`NX2Apple-windows-x64.zip`) lägger till batchbyggkö (`BuildQueue`), dynamisk simuleringsheap upp till 2 GiB och självuppdatering.
 - **Genvägar med bild-i-bild-guide, bakgrundsmixning av ljud och handkontroller**: Inbyggd 6-stegsguide för hemskärmsgenvägar (med flytande bild-i-bild-fönster) och autostart när en handkontroll ansluts, uppspelning samtidigt som annat ljud (`DM_AUDIO_MIX`), beskärning av omslag i `16:9`, anpassade pekkontrollayouter, uppdelning av ett Bluetooth-anslutet Joy-Con-par med riktningsmappning för enskilda sidledes Joy-Cons samt Steam Controller (2026).
-- **208 spelprofiler, varav 19 Switch 2-spel**: Välj en Switch 2-spelmapp eller en `.nup`-fil direkt i Mac- eller Windows-launchern, helt utan `prod.keys`.
+- **261 spelprofiler, varav 22 Switch 2-spel**: Välj en Switch 2-spelmapp eller en `.nup`-fil direkt i Mac- eller Windows-launchern, helt utan `prod.keys`.
 
 Alla versioner finns i [ändringsloggen](CHANGELOG.md).
 
@@ -159,7 +159,7 @@ Bifoga aldrig nycklar, spelfiler eller något som extraherats ur ett spel.
 
 ## Spel
 
-208 spel har en profil. Flera rapporteras som spelbara på en iPhone uppströms, och de flesta har en
+261 spel har en profil. Flera rapporteras som spelbara på en iPhone uppströms, och de flesta har en
 profil som ännu inte har prövats på en telefon. Några av dem:
 
 | | Spel | Var det körs | Status |
@@ -175,13 +175,14 @@ profil som ännu inte har prövats på en telefon. Några av dem:
 tabellen med den uppdateringsversion som varje spel behöver: Uppdaterings-NSP:ns visade version måste
 stämma med profilens, annars säger bygget ifrån.
 
-**Switch 2-spel** är nya i motorn. 19 titlar har redan en profil: Donkey Kong Bananza,
+**Switch 2-spel** är nya i motorn. 22 titlar har redan en profil: Donkey Kong Bananza,
 Splatoon Raiders, Fire Emblem Fortune's Weave, Pokémon Pokopia, Hyrule Warriors: Age of Imprisonment,
 Mario Kart World, Mario Tennis Fever, Star Fox, Yoshi and the Mysterious Book,
 The Legend of Zelda: Ocarina of Time, Kirby Air Riders,
 Super Mario Bros. Wonder – Nintendo Switch 2 Edition + Meetup in Bellabel Park, Orbitals, Fast Fusion,
 Resident Evil 4, Nintendo Switch 2 Welcome Tour, Nintendo Switch Sports Resort,
-Sonic Frontiers Definitive Edition och PRAGMATA. Välj spelets mapp (`base/`, `updates/`, `dlc/`) eller dess
+Sonic Frontiers Definitive Edition, PRAGMATA, Xenoblade Chronicles: Definitive Edition – Nintendo Switch 2 Edition,
+Xenoblade Chronicles 2 – Nintendo Switch 2 Edition och Xenoblade Chronicles X: Definitive Edition – Nintendo Switch 2 Edition. Välj spelets mapp (`base/`, `updates/`, `dlc/`) eller dess
 `.nup`-fil på byggsidan, helt utan `prod.keys`. Biblioteket märker dem **Switch 2**. Donkey Kong Bananza
 har verifierats via launchern på Mac, iPhone och iPad (inga problem på Mac och iPhone och nästan inga på iPad),
 The Legend of Zelda: Ocarina of Time (Switch 2-versionen) har spelats igenom och verifierats på Mac, och

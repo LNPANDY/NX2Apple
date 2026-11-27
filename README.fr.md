@@ -30,7 +30,7 @@
 - **Ajout de jeux iOS sans réinstallation et coque partagée allégée** : tous vos jeux partagent une app coque de quelques dizaines de Mo (shaders `DMMSLTR1` externalisés dans `.img`, avec fusion automatique des `.nxpart` au premier plan). Ajoutez des jeux par envoi rapide ou en déposant `DmGame.framework` dans `Documents/Frameworks` (avec import de certificats `.p12` sur l’appareil pour signer automatiquement en local) sans jamais réinstaller l’IPA coque. Prise en charge de **10 langues**.
 - **Graines de compilation persistantes et actualisation groupée rapide** : grâce aux `build-seeds` conservés, la plupart des mises à niveau s’actualisent par lots en quelques minutes sans garder les fichiers originaux du jeu ni le dossier `_build`, avec badge de version de mise à jour (ex. `1.5`) et récupération des `.img` manquants. Le lanceur Windows (`NX2Apple-windows-x64.zip`) ajoute la file d’attente de compilation par lots (`BuildQueue`), un tas de simulation dynamique jusqu’à 2 Gio et sa propre mise à jour automatique.
 - **Assistant Raccourcis en Image dans l’image, mixage audio en arrière-plan et manettes** : assistant intégré en 6 étapes pour les raccourcis d’écran d’accueil (avec fenêtre flottante Image dans l’image) et lancement automatique à la connexion d’une manette, lecture simultanée avec d’autres sons (`DM_AUDIO_MIX`), recadrage des jaquettes en `16:9`, dispositions tactiles personnalisées, séparation d’une paire de Joy-Con Bluetooth avec mappage d’orientation à l’horizontale et prise en charge du Steam Controller (2026).
-- **208 profils de jeux, dont 19 jeux Switch 2** : choisissez directement un dossier de jeu Switch 2 ou un fichier `.nup` dans le lanceur Mac ou Windows, sans `prod.keys`.
+- **261 profils de jeux, dont 22 jeux Switch 2** : choisissez directement un dossier de jeu Switch 2 ou un fichier `.nup` dans le lanceur Mac ou Windows, sans `prod.keys`.
 
 Toutes les versions sont dans le [journal des modifications](CHANGELOG.md).
 
@@ -161,7 +161,7 @@ de jeu ni rien d’extrait d’un jeu.
 
 ## Jeux
 
-208 jeux ont un profil. Plusieurs sont signalés jouables sur un iPhone en amont, et la plupart ont un
+261 jeux ont un profil. Plusieurs sont signalés jouables sur un iPhone en amont, et la plupart ont un
 profil qui n’a pas encore été essayé sur un téléphone. En voici quelques-uns :
 
 | | Jeu | Où il tourne | Statut |
@@ -177,13 +177,14 @@ profil qui n’a pas encore été essayé sur un téléphone. En voici quelques-
 tableau complet avec la version de mise à jour dont chaque jeu a besoin : la version affichée du NSP de mise à
 jour doit correspondre à celle du profil, sinon la compilation le signale.
 
-**Les jeux Switch 2** sont nouveaux dans le moteur. 19 titres disposent d’un profil : Donkey Kong Bananza,
+**Les jeux Switch 2** sont nouveaux dans le moteur. 22 titres disposent d’un profil : Donkey Kong Bananza,
 Splatoon Raiders, Fire Emblem Fortune's Weave, Pokémon Pokopia, Hyrule Warriors: Age of Imprisonment,
 Mario Kart World, Mario Tennis Fever, Star Fox, Yoshi and the Mysterious Book,
 The Legend of Zelda: Ocarina of Time, Kirby Air Riders,
 Super Mario Bros. Wonder – Nintendo Switch 2 Edition + Meetup in Bellabel Park, Orbitals, Fast Fusion,
 Resident Evil 4, Nintendo Switch 2 Welcome Tour, Nintendo Switch Sports Resort,
-Sonic Frontiers Definitive Edition et PRAGMATA. Sélectionnez le dossier du jeu (`base/`, `updates/`, `dlc/`)
+Sonic Frontiers Definitive Edition, PRAGMATA, Xenoblade Chronicles: Definitive Edition – Nintendo Switch 2 Edition,
+Xenoblade Chronicles 2 – Nintendo Switch 2 Edition et Xenoblade Chronicles X: Definitive Edition – Nintendo Switch 2 Edition. Sélectionnez le dossier du jeu (`base/`, `updates/`, `dlc/`)
 ou son fichier `.nup` sur la page de compilation, sans avoir besoin de `prod.keys`. La bibliothèque les marque
 **Switch 2**. Donkey Kong Bananza a été vérifié via le lanceur sur Mac, iPhone et iPad (sans problème sur Mac
 et iPhone, quasi aucun sur iPad), The Legend of Zelda: Ocarina of Time (version Switch 2) a été terminé et

@@ -587,7 +587,7 @@ swift test --package-path frontend --filter LauncherPerformanceTests
 ```
 
 The test builds a synthetic library in a temporary folder. It has 30 owned games
-with banners, and every third game is built. The checkout has 208 game profiles.
+with banners, and every third game is built. The checkout has 261 game profiles.
 One game has two frame time recordings of about 3 MB together. No real game
 files or keys are used. The launcher is hosted in a window and driven with the
 gamepad. The test measures six interactions: a redraw of the library, the three

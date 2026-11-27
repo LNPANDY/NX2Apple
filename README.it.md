@@ -32,7 +32,7 @@ Follows [README.md](README.md) as of v1.5.0
 - **Aggiunta di giochi iOS senza reinstallare e shell condivisa leggera**: tutti i giochi condividono un'app contenitore di poche decine di MB (shader `DMMSLTR1` esternalizzati in `.img`, con unione automatica dei file `.nxpart` in primo piano). Aggiungi giochi tramite invio rapido o copiando `DmGame.framework` in `Documents/Frameworks` (con importazione di certificati `.p12` su dispositivo per la firma locale automatica) senza mai reinstallare l'IPA contenitore. Supporto per **10 lingue**.
 - **Seed di compilazione persistenti e aggiornamento rapido in blocco**: grazie ai `build-seeds` salvati, la maggior parte degli aggiornamenti si applica in blocco in pochi minuti senza conservare i file originali del gioco né la cartella `_build`, con badge di versione dell'aggiornamento (ad es. `1.5`) e recupero dei `.img` mancanti. Il launcher per Windows (`NX2Apple-windows-x64.zip`) introduce la coda di compilazione in blocco (`BuildQueue`), un heap di simulazione dinamico fino a 2 GiB e l'aggiornamento automatico.
 - **Guida Comandi Rapidi in Picture-in-Picture, mixaggio audio in background e controller**: procedura guidata integrata in 6 passaggi per i comandi rapidi sulla schermata Home (con finestra Picture-in-Picture) e avvio automatico al collegamento del controller, riproduzione simultanea con altro audio (`DM_AUDIO_MIX`), ritaglio copertine `16:9`, layout touch personalizzati, divisione di una coppia di Joy-Con Bluetooth con mappatura dell'orientamento orizzontale e supporto per Steam Controller (2026).
-- **208 profili di giochi, inclusi 19 titoli Switch 2**: seleziona direttamente una cartella di gioco Switch 2 o un file `.nup` nel launcher per Mac o Windows, senza bisogno di `prod.keys`.
+- **261 profili di giochi, inclusi 22 titoli Switch 2**: seleziona direttamente una cartella di gioco Switch 2 o un file `.nup` nel launcher per Mac o Windows, senza bisogno di `prod.keys`.
 
 Ogni versione è elencata nel [changelog](CHANGELOG.it.md).
 
@@ -155,7 +155,7 @@ qualsiasi elemento estratto da un gioco.
 
 ## Giochi
 
-208 giochi dispongono di un profilo. Diversi sono segnalati come giocabili su iPhone nel progetto upstream e la maggior
+261 giochi dispongono di un profilo. Diversi sono segnalati come giocabili su iPhone nel progetto upstream e la maggior
 parte ha un profilo che non è ancora stato provato su un telefono. Eccone alcuni:
 
 | | Gioco | Dove gira | Stato |
@@ -171,13 +171,14 @@ parte ha un profilo che non è ancora stato provato su un telefono. Eccone alcun
 di ciascun gioco e la tabella completa con la versione dell'aggiornamento richiesta da ogni titolo: la versione visualizzata dell'NSP di aggiornamento
 deve corrispondere a quella prevista dal profilo, altrimenti il processo di compilazione lo segnalerà.
 
-**I giochi Switch 2** sono una novità del motore. 19 titoli hanno già un profilo: Donkey Kong Bananza,
+**I giochi Switch 2** sono una novità del motore. 22 titoli hanno già un profilo: Donkey Kong Bananza,
 Splatoon Raiders, Fire Emblem Fortune's Weave, Pokémon Pokopia, Hyrule Warriors: Age of Imprisonment,
 Mario Kart World, Mario Tennis Fever, Star Fox, Yoshi and the Mysterious Book,
 The Legend of Zelda: Ocarina of Time, Kirby Air Riders,
 Super Mario Bros. Wonder – Nintendo Switch 2 Edition + Meetup in Bellabel Park, Orbitals, Fast Fusion,
 Resident Evil 4, Nintendo Switch 2 Welcome Tour, Nintendo Switch Sports Resort,
-Sonic Frontiers Definitive Edition e PRAGMATA. Seleziona la cartella del gioco (`base/`, `updates/`, `dlc/`)
+Sonic Frontiers Definitive Edition, PRAGMATA, Xenoblade Chronicles: Definitive Edition – Nintendo Switch 2 Edition,
+Xenoblade Chronicles 2 – Nintendo Switch 2 Edition e Xenoblade Chronicles X: Definitive Edition – Nintendo Switch 2 Edition. Seleziona la cartella del gioco (`base/`, `updates/`, `dlc/`)
 o il relativo file `.nup` nella pagina di compilazione, senza bisogno di `prod.keys`. La libreria li contrassegna
 come **Switch 2**. Donkey Kong Bananza è stato verificato tramite il launcher su Mac, iPhone e iPad (nessun
 problema su Mac e iPhone e quasi nessuno su iPad), The Legend of Zelda: Ocarina of Time (edizione Switch 2) è
