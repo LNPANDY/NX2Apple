@@ -27,6 +27,7 @@ struct BuildSelectedSheet: View {
     /// Active build engine selected on the Builds page (when nil, falls back to `macNativeGamesSelected`).
     var activeUpstream: EngineUpstreamKind? = nil
     var autoFetchCheats: Binding<Bool> = .constant(true)
+    var kwsSeparateRomfs: Bool = true
     var revealSaveTarget: (MacNativeGamesSaveEngine.SaveTarget) -> Void = MacNativeGamesSaveFinder.reveal
     var added: (String) -> Void = { _ in }
     let close: () -> Void
@@ -397,7 +398,8 @@ struct BuildSelectedSheet: View {
                     packageAfter: !standaloneIOS && packagesSharedApp && isIOS,
                     exportIPA: standaloneIOS ? true : (isIOS && exportsFramework ? true : nil),
                     exportFramework: standaloneIOS ? false : (isIOS && exportsFramework ? true : nil),
-                    autoFetchCheats: autoFetchCheats.wrappedValue
+                    autoFetchCheats: autoFetchCheats.wrappedValue,
+                    separateRomfs: (standaloneIOS && rowUpstream == .kidWithSword) ? kwsSeparateRomfs : nil
                 )
             }
         })
@@ -410,9 +412,9 @@ extension QueueEntry {
     /// The snapshot of a library game for the build queue: the inputs and output folder the library holds for it now, and the target.
     /// The hero's "Rebuild" is `stores.queue.enqueue([QueueEntry(game: game, engineID: engine.selection.engineID)])`, "Rebuild all" the
     /// same for `library.games.filter { toolsAge.older.contains($0.id) }`.
-    init(game: LibraryGame, engineID: String, target: String? = nil, batch: UUID = UUID(), packageAfter: Bool = false, exportIPA: Bool? = nil, exportFramework: Bool? = nil, autoFetchCheats: Bool? = nil) {
+    init(game: LibraryGame, engineID: String, target: String? = nil, batch: UUID = UUID(), packageAfter: Bool = false, exportIPA: Bool? = nil, exportFramework: Bool? = nil, autoFetchCheats: Bool? = nil, separateRomfs: Bool? = nil) {
         self.init(gameID: game.id, titleID: game.titleID, name: game.name, target: target ?? game.lastTarget,
                   inputs: game.inputs.filter { $0.key != GameLibrary.folderInput }, gameFolder: game.inputs[GameLibrary.folderInput]?.first,
-                  outputDirectory: game.outputDirectory, engineID: engineID, batch: batch, packageAfter: packageAfter, exportIPA: exportIPA, exportFramework: exportFramework, autoFetchCheats: autoFetchCheats)
+                  outputDirectory: game.outputDirectory, engineID: engineID, batch: batch, packageAfter: packageAfter, exportIPA: exportIPA, exportFramework: exportFramework, autoFetchCheats: autoFetchCheats, separateRomfs: separateRomfs)
     }
 }

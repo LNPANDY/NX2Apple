@@ -10,6 +10,7 @@ extension BuildStore {
     /// unsigned, zipped as Payload/<app>.app. The game's data stays where the archive step put it.
     package func exportShell(framework: String, titleID: String, name: String, extraFrameworksToClean: [String] = []) {
         buildingGame = true; runningTarget = BuildTarget.ios
+        clearSeparateRomfsState()
         beginOperation(.exportingIPA, game: name, titleID: titleID, destination: .none)
         running = true
         let installer = makeInstaller()
@@ -33,6 +34,7 @@ extension BuildStore {
                     return
                 }
                 guard result.ok else { self.finishInstall(result.message); return }
+                self.clearSeparateRomfsState()
                 self.exportedIPAPath = result.ipaPath
                 self.finishInstall(nil, note: result.message)
             }

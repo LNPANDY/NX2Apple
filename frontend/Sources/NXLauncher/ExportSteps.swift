@@ -37,16 +37,24 @@ package struct ExportSteps: View {
     private var toDrive: Bool { devices.sendWhere == SendWhere.drive }
     private var gameName: String { build.gameName }
     private var oneGame: Bool { resultOnly ? build.completedOneGameIPA : (build.forcesStandaloneOneGameIPA || devices.exportOneGame) }
+    private var separateRomfs: Bool {
+        if resultOnly { return build.completedOneGameSeparateRomfs }
+        if exported { return build.completedOneGameSeparateRomfs }
+        return build.supportsSeparateRomfsOption && build.kwsSupportsSeparateRomfs && build.kwsSeparateRomfs
+    }
 
     private var frameworkOnly: Bool { resultOnly ? build.completedFramework : !oneGame && devices.exportFramework }
 
     package var body: some View {
         let exportBuiltCount = !oneGame && !frameworkOnly && !build.running && build.exportsShell && !build.exportsOneGame && !build.exportsFramework ? build.builtShellGames().count : 0
         let step1Title = frameworkOnly ? "shell.frameworkStep1Title" : "shell.step1Title"
-        let step1Done = oneGame ? "shell.oneGameDone" : frameworkOnly ? "shell.frameworkStep1Done" : "shell.step1Done"
-        let step1Sub = oneGame ? "shell.oneGameSub" : frameworkOnly ? "shell.frameworkStep1Sub" : "shell.step1Sub"
+        let step1Done = oneGame ? (separateRomfs ? "shell.oneGameSeparateDone" : "shell.oneGameDone")
+                                : frameworkOnly ? "shell.frameworkStep1Done" : "shell.step1Done"
+        let step1Sub = oneGame ? (separateRomfs ? "shell.oneGameSeparateSub" : "shell.oneGameSub")
+                               : frameworkOnly ? "shell.frameworkStep1Sub" : "shell.step1Sub"
         let step2Title = frameworkOnly ? "shell.frameworkStep2Title" : "shell.step2Title"
-        let step2Sub = oneGame ? "shell.oneGameStep2Sub" : frameworkOnly ? "shell.frameworkStep2Sub" : "shell.step2Sub"
+        let step2Sub = oneGame ? (separateRomfs ? "shell.oneGameSeparateStep2Sub" : "shell.oneGameStep2Sub")
+                               : frameworkOnly ? "shell.frameworkStep2Sub" : "shell.step2Sub"
         return VStack(spacing: 0) {
             if !resultOnly {
                 step(1, exported ? .done : .current, title: loc.t(step1Title),
@@ -76,10 +84,41 @@ package struct ExportSteps: View {
                 step(resultOnly ? 1 : 2, sentDone ? .done : exported ? .current : .upcoming, title: loc.t(step2Title),
                      sub: loc.t(step2Sub)) { EmptyView() }
             }
-            if !oneGame { if !resultOnly || exported { CardDivider() }; sendStep }
+            if !oneGame {
+                if !resultOnly || exported { CardDivider() }
+                sendStep
+            } else if separateRomfs {
+                if !resultOnly || exported { CardDivider() }
+                separateRomfsStep
+            }
         }
         .sheet(item: $selectSheetMode) { mode in
             SendSelectedSheet(mode: mode, build: build) { selectSheetMode = nil }.environmentObject(loc)
+        }
+    }
+
+    /// Step 3, placing the external `romfs.img` into the standalone app's `Documents` folder.
+    private var separateRomfsStep: some View {
+        let hasImage = !build.externalRomfsImagePath.isEmpty
+        return VStack(alignment: .leading, spacing: 0) {
+            step(resultOnly ? (exported ? 2 : 1) : 3, exported ? .current : .upcoming,
+                 title: loc.t("shell.oneGameSeparateStep3Title"),
+                 sub: loc.t("shell.oneGameSeparateStep3Sub")) {
+                if hasImage {
+                    action(loc.t("shell.showInFinder"), id: "revealRomfs", enabled: true) {
+                        revealInFinder(build.externalRomfsImagePath)
+                    }
+                } else {
+                    EmptyView()
+                }
+            }
+            if hasImage {
+                VStack(alignment: .leading, spacing: ExportGrid.noteGap) {
+                    note(.info, String(format: loc.t("shell.oneGameSeparatePathNote"), build.shortPath(build.externalRomfsImagePath)))
+                }
+                .padding(.leading, ExportGrid.axis).padding(.trailing, ExportGrid.inset).padding(.bottom, ExportGrid.inset)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 

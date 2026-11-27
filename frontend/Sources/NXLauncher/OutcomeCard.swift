@@ -91,8 +91,13 @@ package struct OutcomeCard: View {
                 : base
             return .success(detail)
         case .exported:
-            return .info(build.completedFramework ? String(format: loc.t("shell.frameworkStep1Done"), build.exportedIPAText)
-                         : loc.t(build.completedOneGameIPA ? "result.oneGameIPA" : "result.sharedIPA"))
+            if build.completedFramework {
+                return .info(String(format: loc.t("shell.frameworkStep1Done"), build.exportedIPAText))
+            }
+            if build.completedOneGameIPA {
+                return .info(loc.t(build.completedOneGameSeparateRomfs ? "result.oneGameSeparateIPA" : "result.oneGameIPA"))
+            }
+            return .info(loc.t("result.sharedIPA"))
         case .needsData: return .warning(loc.t("result.notReady"))
         }
     }
@@ -100,7 +105,15 @@ package struct OutcomeCard: View {
     private func artifacts(_ status: BuildCompletionStatus) -> [(path: String, id: String)] {
         switch status {
         case .mac: return build.macAppPath.isEmpty ? [] : [(build.macAppPath, "set.build.done.reveal")]
-        case .exported: return build.exportedIPAPath.isEmpty ? [] : [(build.exportedIPAPath, "set.build.export.reveal")]
+        case .exported:
+            var files: [(path: String, id: String)] = []
+            if !build.exportedIPAPath.isEmpty {
+                files.append((build.exportedIPAPath, "set.build.export.reveal"))
+            }
+            if build.completedOneGameSeparateRomfs, !build.externalRomfsImagePath.isEmpty {
+                files.append((build.externalRomfsImagePath, "set.build.done.revealRomfs"))
+            }
+            return files
         default: return build.archivePath.isEmpty ? [] : [(build.archivePath, "set.build.done.archive")]
         }
     }

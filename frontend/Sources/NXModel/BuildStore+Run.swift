@@ -16,6 +16,8 @@ extension BuildStore {
         queuedExportIPA = nil
         queuedExportOneGame = nil
         queuedExportFramework = nil
+        queuedSeparateRomfs = nil
+        activeSeparateRomfsBuild = false
         activeQueueEntryUpstream = nil
         queuedIOSSeenShaders = nil
         queuedAutoFetchCheats = nil
@@ -84,6 +86,7 @@ extension BuildStore {
         installedAppPath = ""
         shellUpdatedOnDevice = false
         exportedIPAPath = ""
+        clearSeparateRomfsState()
         if !deferShellPackaging {
             needsReplaceOldImgReminder = false
             updatedImgPath = ""
@@ -352,12 +355,23 @@ extension BuildStore {
         let macOutput = macApp ? MacAppOutput(workDir: URL(fileURLWithPath: workDir), key: tidHex, titleID: gameTitleID, upstream: buildUpstream, preferred: macAppPath) : nil
         oneGameIPAPath = ""
         if exportsOneGame {
-            // One game's own IPA with its game data inside (BuildStore+OneGame.swift, #540)
+            // One game's own IPA (BuildStore+OneGame.swift, #540, #1627)
             oneGameIPAPath = OneGameIPA.path(folder: outDir.isEmpty ? baseDir : outDir, titleID: tidHex, upstream: buildUpstream)
             let variantBundleID = isVariant && RepoLayout.supportsBundleID(capabilityDir)
                 ? OneGameIPA.personalBundleID(titleID: tidHex, teamID: devices.signingTeam, upstream: buildUpstream)
                 : nil
-            args += OneGameIPA.arguments(ipa: oneGameIPAPath, bundleID: variantBundleID)
+            let romfsSupported = RepoLayout.supportsRomfsMode(capabilityDir)
+            let useSeparateRomfs = usesSeparateRomfsForCurrentBuild && romfsSupported
+            activeSeparateRomfsBuild = useSeparateRomfs
+            if usesSeparateRomfsForCurrentBuild && !romfsSupported {
+                say(String(format: t("msg.toolsOld"), "scripts/build_ipa_from_nsp.py (--romfs)"))
+            }
+            args += OneGameIPA.arguments(
+                ipa: oneGameIPAPath,
+                bundleID: variantBundleID,
+                separateRomfs: useSeparateRomfs,
+                includeRomfsFlag: !isVariant || romfsSupported
+            )
         } else if let macOutput {
             macAppPath = ""
             args += ["--platform", "mac-app", "-o", macOutput.builderURL.path]
@@ -415,7 +429,7 @@ extension BuildStore {
                 denv["PATH"] = extraNszBinDir + ":" + curPath
             }
         }
-        if !oneGameIPAPath.isEmpty { denv.merge(OneGameIPA.environment) { $1 } }
+        if !oneGameIPAPath.isEmpty { denv.merge(OneGameIPA.environment(separateRomfs: activeSeparateRomfsBuild)) { $1 } }
 
         if needsAsyncManagedNszInstall {
             let gen = archiveGeneration
@@ -606,6 +620,7 @@ extension BuildStore {
                     }
                 } else {
                     self.fastRefreshExternalImgPath = nil
+                    self.clearSeparateRomfsState()
                     if self.s2armRun {
                         let note = self.s2armFailureNote(status: status)
                         if let i = self.stages.lastIndex(where: { $0.state == .running }) {

@@ -8,6 +8,7 @@ extension BuildStore {
     package func exportFrameworkBundle(framework: String, titleID: String, name: String) {
         buildingGame = true
         runningTarget = BuildTarget.ios
+        clearSeparateRomfsState()
         beginOperation(.exportingIPA, game: name, titleID: titleID, destination: .none)
         running = true
 
@@ -53,6 +54,7 @@ extension BuildStore {
                     self.finishInstall(msg)
                     return
                 }
+                self.clearSeparateRomfsState()
                 self.exportedIPAPath = destPath
                 let note: String
                 if let signedTeam = outcome.signedTeam, !signedTeam.isEmpty {

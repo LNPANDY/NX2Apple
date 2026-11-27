@@ -66,6 +66,14 @@ package enum RepoLayout {
         return text.contains("'--env-file'") || text.contains("\"--env-file\"")
     }
 
+    /// Whether the checkout's build script accepts `--romfs` (`bundle` / `separate`).
+    package static func supportsRomfsMode(_ dir: String) -> Bool {
+        let script = EngineLayout.root(dir) + "/" + buildScript
+        if !FileManager.default.fileExists(atPath: script), EngineLayout.hasEngineTool(dir) { return true }
+        guard let text = try? String(contentsOfFile: script, encoding: .utf8) else { return false }
+        return text.contains("'--romfs'") || text.contains("\"--romfs\"")
+    }
+
     /// Whether the checkout's build script has this fork's `--work-dir` (issue #5): an upstream
     /// nxnative checkout, or a ZIP of an older release, stops with "unrecognized arguments" when the
     /// app passes it. Read from the script's own argparse rather than assumed — the option is the

@@ -128,6 +128,7 @@ extension BuildStore {
         installedOn = ""
         installedAppPath = ""
         exportedIPAPath = ""
+        clearSeparateRomfsState()
         archivePath = ""
         needsReplaceOldImgReminder = false
         updatedImgPath = ""
@@ -251,6 +252,7 @@ extension BuildStore {
             queuedExportIPA = true
             queuedExportOneGame = true
             queuedExportFramework = false
+            queuedSeparateRomfs = targetUpstream == .kidWithSword ? entry.separateRomfs : nil
         } else if normalizedTarget != BuildTarget.mac, let entryExport = entry.exportIPA {
             queuedExportIPA = entryExport
             if entry.exportFramework == true && entryExport {
@@ -260,10 +262,12 @@ extension BuildStore {
                 queuedExportOneGame = entryExport ? !entry.packageAfter : false
                 queuedExportFramework = false
             }
+            queuedSeparateRomfs = nil
         } else {
             queuedExportIPA = nil
             queuedExportOneGame = nil
             queuedExportFramework = nil
+            queuedSeparateRomfs = nil
         }
         queuedIOSSeenShaders = normalizedTarget != BuildTarget.mac ? entry.iosSeenShaders : nil
         queuedAutoFetchCheats = entry.autoFetchCheats
@@ -307,6 +311,7 @@ extension BuildStore {
             queuedExportIPA = nil
             queuedExportOneGame = nil
             queuedExportFramework = nil
+            queuedSeparateRomfs = nil
             queuedIOSSeenShaders = nil
             queuedAutoFetchCheats = nil
             deferShellPackaging = false
@@ -356,6 +361,8 @@ extension BuildStore {
         queuedExportIPA = nil
         queuedExportOneGame = nil
         queuedExportFramework = nil
+        queuedSeparateRomfs = nil
+        activeSeparateRomfsBuild = false
         queuedIOSSeenShaders = nil
         queuedAutoFetchCheats = nil
         deferShellPackaging = false
