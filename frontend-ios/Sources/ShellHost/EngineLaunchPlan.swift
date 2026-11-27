@@ -200,9 +200,9 @@ public struct EngineLaunchPlan: Equatable, Sendable {
         }
         // In locked portrait launch, resolve DM_SCREEN_ASPECT=auto to 4:3 (1.333) so games with
         // SCREEN_ASPECT support render true 4:3 into the portrait slot in both Fit and Fill.
-        // DM_SCREEN_ASPECT is read once at engine startup (dm_fps_state_apply), while auto/landscape
-        // keeps "auto" for front_ios.m to resolve from the active window orientation.
-        if env["DM_ROTATION"] == "portrait", env["DM_SCREEN_ASPECT"] == "auto" {
+        // When DM_PORTRAIT_EDGE=1 (full top past Dynamic Island), keep "auto" so front_ios.m
+        // resolves the exact aspect ratio of the device's full upper half at launch.
+        if env["DM_ROTATION"] == "portrait", env["DM_SCREEN_ASPECT"] == "auto", env["DM_PORTRAIT_EDGE"] != "1" {
             env["DM_SCREEN_ASPECT"] = "1.333"
         }
 

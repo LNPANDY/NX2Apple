@@ -35,6 +35,27 @@ import ShellUI
         #expect(Set(payload.items.map(\.env)).isDisjoint(with: excluded))
     }
 
+    @Test func portraitEdgeRowAppearsAndLocalizesWhenGameSupportsScreenAspect() throws {
+        let profileWithEdgeJSON = """
+        {
+          "schema": 1,
+          "game": "01006F8002326000",
+          "settings": [
+            {"env":"DM_ROTATION","kind":"choice","section":"Game","label":"Rotation","note":"","default":"auto","options":[["auto","Automatic"],["landscape","Landscape"],["portrait","Portrait"]]},
+            {"env":"DM_PORTRAIT_EDGE","kind":"choice","section":"Game","label":"Portrait frame","note":"","default":"0","options":[["0","Standard (4:3)"],["1","Full top (past Dynamic Island)"]]}
+          ]
+        }
+        """
+        let profile = try LauncherProfile.parse(Data(profileWithEdgeJSON.utf8))
+        let lprojPath = try #require(ShellStrings.bundle.path(forResource: "zh-Hans", ofType: "lproj"))
+        let zhBundle = try #require(Bundle(path: lprojPath))
+        let payload = ShellInGameMenu.build(profile: profile, titleID: Fixtures.orbit, shellDefaults: [:], bundle: zhBundle)
+        #expect(payload.items.map(\.env) == ["DM_ROTATION", "DM_PORTRAIT_EDGE"])
+        let edgeItem = try #require(payload.items.first { $0.env == "DM_PORTRAIT_EDGE" })
+        #expect(edgeItem.label == "竖屏画框")
+        #expect(edgeItem.options == [["0", "标准（4:3）"], ["1", "顶天立地（越过灵动岛）"]])
+    }
+
     @Test func localizesMenuUsingBundle() throws {
         let profile = try LauncherProfile.parse(Data(Self.mixedProfileJSON.utf8))
         let expected: [(lang: String, consoleMode: String, docked: String, fps: String)] = [

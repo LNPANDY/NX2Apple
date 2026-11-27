@@ -10625,6 +10625,70 @@
         }
       }
     },
+    "Extends the portrait picture to the top of the screen past the Dynamic Island. Native full-top rendering takes effect on next launch.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zieht das Bild im Hochformat über die Dynamic Island hinaus bis an den oberen Bildschirmrand. Die native Darstellung greift beim nächsten Start."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extends the portrait picture to the top of the screen past the Dynamic Island. Native full-top rendering takes effect on next launch."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extiende la imagen vertical hasta el borde superior de la pantalla pasando la Dynamic Island. El renderizado nativo se aplica en el próximo inicio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Étend l’image en mode portrait jusqu’au bord supérieur de l’écran, au-delà de la Dynamic Island. Le rendu natif prend effet au prochain lancement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estende l’immagine in verticale fino al bordo superiore dello schermo oltre la Dynamic Island. Il rendering nativo ha effetto al prossimo avvio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "縦向き時にゲーム画面を Dynamic Island を越えて画面上端まで広げます。ネイティブ比率の描画は次回の起動から反映されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세로 모드에서 게임 화면을 Dynamic Island 너머 화면 맨 위까지 확장합니다. 네이티브 비율 렌더링은 다음 실행부터 적용됩니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estende a imagem no modo vertical até o topo da tela além da Dynamic Island. A renderização nativa entra em vigor na próxima abertura."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sträcker ut bilden i stående läge ända till skärmens överkant förbi Dynamic Island. Inbyggd fullhöjdsrendering gäller vid nästa start."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在竖屏下将游戏画面一直延伸至屏幕顶部并越过灵动岛。原生全高渲染在下次启动时生效。"
+          }
+        }
+      }
+    },
     "Face buttons": {
       "localizations": {
         "de": {
@@ -12157,6 +12221,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "全屏"
+          }
+        }
+      }
+    },
+    "Full top (past Dynamic Island)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bis ganz oben (über Dynamic Island)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full top (past Dynamic Island)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Borde superior completo (sobre Dynamic Island)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plein haut (au-delà de Dynamic Island)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fino al bordo superiore (oltre Dynamic Island)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上端まで拡大（Dynamic Island を越える）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "상단 끝까지 (Dynamic Island 너머)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Topo inteiro (além da Dynamic Island)"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ända upp (förbi Dynamic Island)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顶天立地（越过灵动岛）"
           }
         }
       }
@@ -23617,6 +23745,70 @@
         }
       }
     },
+    "Portrait frame": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hochformat-Bildbereich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Portrait frame"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marco vertical"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cadre en portrait"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riquadro verticale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "縦向き画面枠"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세로 화면 영역"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quadro vertical"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stående bildram"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "竖屏画框"
+          }
+        }
+      }
+    },
     "Portuguese": {
       "localizations": {
         "de": {
@@ -29757,6 +29949,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "标准"
+          }
+        }
+      }
+    },
+    "Standard (4:3)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardformat (4:3)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard (4:3)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estándar (4:3)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classique (4:3)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Normale (4:3)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準（4:3）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "표준 (4:3)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Padrão (4:3)"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardvy (4:3)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标准（4:3）"
           }
         }
       }

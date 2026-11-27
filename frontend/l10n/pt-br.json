@@ -1,12 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "pt-br",
-      "pt",
-      "portuguese"
-    ],
-    "name": "Português (Brasil)"
-  },
+  "_language": {"locales": ["pt-br", "pt", "portuguese"], "name": "Português (Brasil)"},
   "activity.averageSession": "Média %@",
   "activity.button": "Registro de atividade",
   "activity.dayCount": "%lld dias",
@@ -2012,6 +2005,8 @@
   "launch.opt.DM_OPMODE.1": "Na base",
   "launch.opt.DM_PICTURE_FIT.fill": "Preencher",
   "launch.opt.DM_PICTURE_FIT.fit": "Ajustar",
+  "launch.opt.DM_PORTRAIT_EDGE.0": "Padrão (4:3)",
+  "launch.opt.DM_PORTRAIT_EDGE.1": "Topo inteiro (além da Dynamic Island)",
   "launch.opt.DM_PRESENT_INTERVAL.display": "60 fps",
   "launch.opt.DM_PRESENT_INTERVAL.game": "30 fps",
   "launch.opt.DM_PRESENT_UPSCALE.metalfx": "MetalFX",
@@ -2068,6 +2063,8 @@
   "launch.set.DM_PAD_PRESS_TO_JOIN": "Pressione um botão para entrar",
   "launch.set.DM_PICTURE_FIT": "Imagem",
   "launch.set.DM_PICTURE_FIT.note": "Preencher corta a imagem 16:9 do jogo para cobrir a tela. Barras de vida, legendas ou mapas perto das bordas podem ser cortados. Uma imagem em tela cheia sem corte precisa de um patch para cada jogo.",
+  "launch.set.DM_PORTRAIT_EDGE": "Quadro vertical",
+  "launch.set.DM_PORTRAIT_EDGE.note": "Estende a imagem no modo vertical até o topo da tela além da Dynamic Island. A renderização nativa entra em vigor na próxima abertura.",
   "launch.set.DM_PRESENT_INTERVAL": "Taxa de quadros",
   "launch.set.DM_PRESENT_SNAP": "Buffer de quadros",
   "launch.set.DM_PRESENT_SNAP.note": "Até um quadro a mais de latência na tela.",
