@@ -307,6 +307,12 @@ extension BuildStore {
                 hop { self?.finishStoppedExternalPrepIfCurrent(gen) }
                 return
             }
+            if MacNativeGamesCompat.ensureOotAppIconCompatibility(in: tree) {
+                hop {
+                    guard let self, self.archiveGeneration == gen, !self.stopping, !self.installCancel.value else { return }
+                    self.say("Applied macOS launcher compatibility fix for Ocarina of Time app icon URL")
+                }
+            }
             var py = MacNativeGamesBuilder.findMNGPython314(home: homeDir, runner: runner)
             if py == nil {
                 if cancel.value {

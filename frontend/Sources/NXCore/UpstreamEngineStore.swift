@@ -143,6 +143,8 @@ package struct UpstreamEngineStore: Sendable {
             S2ArmBootstrap.ensureGitRepo(in: source.path)
         } else if kind == .kidWithSword {
             _ = KidWithSwordCompat.ensureMacPackCompatibility(in: source.path)
+        } else if kind == .macNativeGames {
+            _ = MacNativeGamesCompat.ensureOotAppIconCompatibility(in: source.path)
         }
 
         if shouldCancel?() == true {
