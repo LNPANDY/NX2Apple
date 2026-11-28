@@ -1,4 +1,4 @@
-From 1c293e6d3aa6be463703330f832aa49be74b4b82 Mon Sep 17 00:00:00 2001
+From 9d301b058274a42bda2019e08eeffae395b31f8a Mon Sep 17 00:00:00 2001
 From: LNPANDY <lnp-andy@hotmail.com>
 Date: Sun, 22 Nov 2026 18:46:11 +0800
 Subject: [PATCH] gfx: GPU BC1-3 to ASTC 4x4 transcode and BC4-5 compute decode
@@ -20,8 +20,12 @@ Issue: LNPANDY/NX2Apple#180
  dm/gfx/tests/t_astc_hw.m             | 117 ++++++
  dm/gfx/tests/t_bc2astc_gpu.m         |  85 +++++
  dm/gfx/tests/t_bc_cpu.m              | 267 +++++++++++--
+ dm/gfx/tests/t_clear_ds.m            |   2 +-
+ dm/gfx/tests/t_clear_msaa.m          |   2 +-
  dm/gfx/tests/t_up_order.m            |  96 +++++
  dm/gfx/tests/t_vk_bc.m               | 164 ++++++++
+ dm/gfx/tests/t_zero_colour.m         |   2 +-
+ dm/gfx/tests/t_zero_depth.m          |   2 +-
  dm/gfx/tex/bc2astc_body.inc          | 399 ++++++++++++++++++++
  dm/gfx/tex/bc2astc_core.h            |  14 +
  dm/gfx/tex/bc2astc_msl.h             |  19 +
@@ -36,7 +40,7 @@ Issue: LNPANDY/NX2Apple#180
  dm/ios/tests/test_bc_device_check.py |   2 +-
  dm/ios/tools/build_ipa.sh            |   4 +-
  dm/tools/tests/test_ipa_tables.py    |  22 ++
- 22 files changed, 2260 insertions(+), 139 deletions(-)
+ 26 files changed, 2264 insertions(+), 143 deletions(-)
  create mode 100644 dm/gfx/tests/t_astc_hw.m
  create mode 100644 dm/gfx/tests/t_bc2astc_gpu.m
  create mode 100644 dm/gfx/tests/t_up_order.m
@@ -65,7 +69,7 @@ index eb64daf..6145a57 100644
  void mtl_pool_add(const void *mem, uint64_t size);
  void mtl_pool_addressed(const void *mem, uint64_t size);   // the game holds a GPU address in this range, so raw global memory may reach it
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 7caeb0e..d90ade7 100644
+index bf302a4..8110142 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
 @@ -30,7 +30,10 @@
@@ -1599,6 +1603,32 @@ index bdc08fc..4d1cba5 100644
 +    CHECK("teardown releases bca/bcd pipelines and ASTC zero buffer", g_bca_ps == nil && g_bcd_ps == nil && g_astc_zero_buf == nil && g_up_asts == NULL && g_up_decs == NULL && g_no_bc_cache == -1);
 +    printf("t_bc_cpu (astc=%d): %d checks, %d failed\n", astc_mode(), checks, failed); return failed!=0;
  }}
+diff --git a/dm/gfx/tests/t_clear_ds.m b/dm/gfx/tests/t_clear_ds.m
+index 3fb83c1..4f5a751 100644
+--- a/dm/gfx/tests/t_clear_ds.m
++++ b/dm/gfx/tests/t_clear_ds.m
+@@ -53,7 +53,7 @@ int main(void) { @autoreleasepool {
+         ops.clear=(p_clear_ds){.depth=.25, .depth_mask=cases[i].depth, .stencil=0x3c, .stencil_mask=cases[i].mask};
+         ops.end=(op_hdr){OP_END,sizeof(op_hdr)};
+         int zero_init = i == sizeof cases/sizeof *cases - 1;
+-        if (zero_init) tex_zero_fill(base); else mtl_exec((const uint8_t *)&ops);
++        if (zero_init) tex_zero_fill(base, 0); else mtl_exec((const uint8_t *)&ops);
+         mtl_sub_commit(); mtl_drain();
+         CHECK(!mtl_last_commit_error(), "production clear completes without GPU error");
+         id<MTLTexture> stencil = [base newTextureViewWithPixelFormat:MTLPixelFormatX32_Stencil8];
+diff --git a/dm/gfx/tests/t_clear_msaa.m b/dm/gfx/tests/t_clear_msaa.m
+index e9bba24..323b716 100644
+--- a/dm/gfx/tests/t_clear_msaa.m
++++ b/dm/gfx/tests/t_clear_msaa.m
+@@ -28,7 +28,7 @@ int main(void) { @autoreleasepool {
+         rp.colorAttachments[0].storeAction = MTLStoreActionStore; rp.colorAttachments[0].clearColor = MTLClearColorMake(.75,.5,.25,.875);
+         id<MTLCommandBuffer> cb = [q commandBuffer]; [[cb renderCommandEncoderWithDescriptor:rp] endEncoding]; [cb commit]; [cb waitUntilCompleted];
+         CHECK(cb.status == MTLCommandBufferStatusCompleted);
+-        res_add(t); state_reset(); memset(&R,0,sizeof R); mtl_sub_begin(); tex_zero_fill(t); mtl_sub_commit(); mtl_drain();
++        res_add(t); state_reset(); memset(&R,0,sizeof R); mtl_sub_begin(); tex_zero_fill(t, 0); mtl_sub_commit(); mtl_drain();
+         CHECK(!mtl_last_commit_error());
+         id<MTLBuffer> out = [g_dev newBufferWithLength:64*samples*16 options:MTLResourceStorageModeShared];
+         cb = [q commandBuffer]; id<MTLComputeCommandEncoder> e = [cb computeCommandEncoder];
 diff --git a/dm/gfx/tests/t_up_order.m b/dm/gfx/tests/t_up_order.m
 new file mode 100644
 index 0000000..98a1d14
@@ -1871,6 +1901,32 @@ index 0000000..a04e14e
 +    fprintf(stderr, "t_vk_bc: %d checks, %d failed\n", checks, fails);
 +    return fails != 0;
 +}
+diff --git a/dm/gfx/tests/t_zero_colour.m b/dm/gfx/tests/t_zero_colour.m
+index f4191b4..1978b70 100644
+--- a/dm/gfx/tests/t_zero_colour.m
++++ b/dm/gfx/tests/t_zero_colour.m
+@@ -40,7 +40,7 @@ int main(void) { @autoreleasepool {
+         CHECK(cb.status == MTLCommandBufferStatusCompleted, "the texture takes its non-zero bytes");
+         res_add(base);
+         state_reset(); memset(&R, 0, sizeof R); mtl_sub_begin();
+-        tex_zero_fill(base);
++        tex_zero_fill(base, 0);
+         int pieces0 = 0; for (int k = 0; k < g_nup_blits; k++) pieces0 += g_up_blits[k].dst == base && g_up_blits[k].slice == 0 && g_up_blits[k].level == 0 && !g_up_blits[k].tsrc;
+         CHECK(pieces0 == (int)cases[i].pieces, "level 0 of layer 0 is zeroed by the expected number of copies");
+         mtl_sub_commit(); mtl_drain();
+diff --git a/dm/gfx/tests/t_zero_depth.m b/dm/gfx/tests/t_zero_depth.m
+index 854ffc4..c1857bb 100644
+--- a/dm/gfx/tests/t_zero_depth.m
++++ b/dm/gfx/tests/t_zero_depth.m
+@@ -48,7 +48,7 @@ int main(void) { @autoreleasepool {
+         CHECK(cb.status == MTLCommandBufferStatusCompleted, "the texture takes its non-zero depth");
+         res_add(base);
+         state_reset(); memset(&R, 0, sizeof R); mtl_sub_begin();
+-        tex_zero_fill(base);
++        tex_zero_fill(base, 0);
+         int pieces0 = 0; for (int k = 0; k < g_nup_blits; k++) pieces0 += g_up_blits[k].dst == base && g_up_blits[k].slice == 0 && g_up_blits[k].level == 0 && !g_up_blits[k].tsrc;
+         CHECK(pieces0 == (int)cases[i].pieces, "level 0 of a layer is zeroed by the expected number of copies, with no render pass");
+         mtl_sub_commit(); mtl_drain();
 diff --git a/dm/gfx/tex/bc2astc_body.inc b/dm/gfx/tex/bc2astc_body.inc
 new file mode 100644
 index 0000000..e1203d5

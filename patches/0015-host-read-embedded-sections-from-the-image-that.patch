@@ -1,4 +1,4 @@
-From 08f469bb99aebd8e16b0a663cd1e2aca451e490f Mon Sep 17 00:00:00 2001
+From 5c521a9833821e94051809d002a225ce1fc990b2 Mon Sep 17 00:00:00 2001
 From: LNPANDY <lnp-andy@hotmail.com>
 Date: Thu, 5 Nov 2026 23:02:30 +0800
 Subject: [PATCH] host: read embedded sections from the image that holds the
@@ -12,7 +12,7 @@ Issue: LNPANDY/NX2Apple#451
 ---
  dm/gfx/gl/hle_gl.m            | 5 ++---
  dm/gfx/nvn/hle_nvn.c          | 5 ++---
- dm/gfx/tests/t_gl_imports.m   | 2 +-
+ dm/gfx/tests/t_gl_imports.m   | 4 ++--
  dm/gfx/tests/t_registration.m | 2 +-
  dm/gfx/vk/hle_vk.m            | 5 ++---
  dm/host/hle.c                 | 5 ++---
@@ -20,7 +20,7 @@ Issue: LNPANDY/NX2Apple#451
  dm/host/hle_sf.c              | 5 ++---
  dm/host/host_image.h          | 8 ++++++++
  dm/host/loader.c              | 7 +++----
- 10 files changed, 25 insertions(+), 24 deletions(-)
+ 10 files changed, 26 insertions(+), 25 deletions(-)
  create mode 100644 dm/host/host_image.h
 
 diff --git a/dm/gfx/gl/hle_gl.m b/dm/gfx/gl/hle_gl.m
@@ -70,9 +70,18 @@ index 0e53653..8c8e8e9 100644
      for (unsigned i = 0; i < NVN_NFUNC; i++) nvn_slot[i].fn = (void *)nvn_unimpl_entry;
      for (unsigned k = 0; k < nim; k++) {
 diff --git a/dm/gfx/tests/t_gl_imports.m b/dm/gfx/tests/t_gl_imports.m
-index 94b0315..d2e4ec7 100644
+index 94b0315..94011d7 100644
 --- a/dm/gfx/tests/t_gl_imports.m
 +++ b/dm/gfx/tests/t_gl_imports.m
+@@ -907,7 +907,7 @@ static void test_shared_buffer_lifetime(void) {
+ 
+ static PFNNVNDEVICEGETPROCADDRESSPROC nvn_loader(void) {
+     unsigned long bytes;
+-    const hle_force_ent *hooks = (const hle_force_ent *)getsectiondata(&_mh_execute_header, "__DATA", "swforce", &bytes);
++    const hle_force_ent *hooks = (const hle_force_ent *)getsectiondata(DM_HOST_IMAGE, "__DATA", "swforce", &bytes);
+     for (unsigned long i = 0; i < bytes / sizeof *hooks; i++)
+         if (!strcmp(hooks[i].name, "nvnBootstrapLoader"))
+             return (PFNNVNDEVICEGETPROCADDRESSPROC)((PFNNVNBOOTSTRAPLOADERPROC)hooks[i].fn)("nvnDeviceGetProcAddress");
 @@ -1935,7 +1935,7 @@ int main(int argc, char **argv) {
      if (fixture) test_argument_buffers(fixture);
  

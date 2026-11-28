@@ -1,4 +1,4 @@
-From 3a9f7c8af8c58951fab73b3ebeb341cd6cf600aa Mon Sep 17 00:00:00 2001
+From 493ecd6aa10c53e27bfd2e37c1d885b49b83d084 Mon Sep 17 00:00:00 2001
 From: LNPANDY <lnp-andy@hotmail.com>
 Date: Sat, 28 Nov 2026 00:32:57 +0800
 Subject: [PATCH] ios: full host teardown, ObjC class isolation, and async
@@ -35,7 +35,7 @@ Issue: none
  dm/host/crash.c                        |   91 +-
  dm/host/dm.h                           |    5 +
  dm/host/haptics_apple.m                |  162 ++-
- dm/host/hle.c                          |    8 +
+ dm/host/hle.c                          |    9 +
  dm/host/hle.h                          |    1 +
  dm/host/hle_account.c                  |   11 +
  dm/host/hle_audio.c                    |   45 +-
@@ -61,7 +61,7 @@ Issue: none
  dm/host/hle_thread.c                   |  211 +++-
  dm/host/hle_uemalloc.c                 |   33 +-
  dm/host/hle_web.c                      |   15 +-
- dm/host/loader.c                       |  105 +-
+ dm/host/loader.c                       |  107 +-
  dm/host/main.c                         |    2 +
  dm/host/pad_switch2_apple.h            |    1 +
  dm/host/pad_switch2_apple.m            |   79 +-
@@ -90,7 +90,7 @@ Issue: none
  dm/ios/tools/build_ipa.sh              |   12 +-
  dm/ios/tools/compile_check.py          |   16 +-
  dm/ios/tools/gen_objc_namespace.py     |  381 +++++++
- 80 files changed, 5091 insertions(+), 848 deletions(-)
+ 80 files changed, 5094 insertions(+), 848 deletions(-)
  create mode 100644 dm/gfx/tests/t_mtl_teardown.m
  create mode 100644 dm/host/tests/t_shell_crash_teardown.c
  create mode 100644 dm/ios/tests/test_objc_namespace.py
@@ -5207,13 +5207,14 @@ index ccb797b..fc750c3 100644
 +    pthread_mutex_unlock(&routeLock);
  }
 diff --git a/dm/host/hle.c b/dm/host/hle.c
-index d757b4f..dff37e8 100644
+index d757b4f..750da4d 100644
 --- a/dm/host/hle.c
 +++ b/dm/host/hle.c
-@@ -121,6 +121,14 @@ void gate_register(uint64_t ret_abs, const char *kind, int arg, uint64_t orig) {
+@@ -121,6 +121,15 @@ void gate_register(uint64_t ret_abs, const char *kind, int arg, uint64_t orig) {
      g_gate[i] = (gate_t){ret_abs, k, arg, orig}; g_ngate++;
  }
  
++#define DM_GATES_TEARDOWN_DEFINED 1
 +void dm_gates_teardown(void) {
 +    free(g_gate); g_gate = NULL;
 +    g_ngate = g_gate_cap = 0;
@@ -7367,7 +7368,7 @@ index e2c19dd..9deee8f 100644
  // The page as a session the game drives while it runs (Super Mario 3D All-Stars' Sunshine: its launcher pause menu, launcher_pause_menu.htdocs, started hidden at boot and shown with
  // Appear when the player suspends; Super Mario 64 imports the same). The SDK's own Start creates a library applet (null read in applet::StartLibraryAppletImmediately)
 diff --git a/dm/host/loader.c b/dm/host/loader.c
-index 0c07cf1..8147ea4 100644
+index 70403e0..c223be2 100644
 --- a/dm/host/loader.c
 +++ b/dm/host/loader.c
 @@ -21,7 +21,10 @@ int g_nmod;
@@ -7499,12 +7500,14 @@ index 0c07cf1..8147ea4 100644
              for (int i = 0; i < n; i++) if (lens[i]) { g_mod[i].span_slot = base + offs[i]; g_mod[i].span_len = lens[i]; }
          }
      }
-@@ -1153,3 +1158,51 @@ void run_module_inits(void) {
+@@ -1153,3 +1158,53 @@ void run_module_inits(void) {
          dm_exl_sync_all();   // flush any persistent MapProcessMemory views before earlier modules' (e.g. main's) DT_INIT runs
      }
  }
 +
++#ifndef DM_GATES_TEARDOWN_DEFINED
 +__attribute__((weak)) void dm_gates_teardown(void) {}
++#endif
 +void dm_modules_teardown(void) {
 +    dm_gates_teardown();
 +    for (int i = 0; i < g_nmod; i++) {
@@ -8699,7 +8702,7 @@ index 1cf370f..6d967a6 100644
 +    k_idle = nil; k_on = nil; k_line = nil; k_ringFill = nil; k_text = nil; k_textOn = nil;
 +}
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index e32f410..a644557 100644
+index fba076b..efda1ba 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
 @@ -8,6 +8,7 @@
@@ -8730,7 +8733,7 @@ index e32f410..a644557 100644
  @interface DmRootVC : UIViewController
  @property (nonatomic, strong) UIView *gameClip;
  @property (nonatomic, strong) DmGameView *game;
-@@ -142,7 +149,7 @@ - (void)viewDidLoad {
+@@ -143,7 +150,7 @@ - (void)viewDidLoad {
  #if defined(__IPHONE_27_0)   // compiled only with an SDK that has the scene accessory API
      if (@available(iOS 27.0, *)) {   // iOS 27 offers a TV scene only to a registered scene accessory, no longer from the Info.plist entry alone (that path stays for iOS 26)
          UISceneConfiguration *c = [[UISceneConfiguration alloc] initWithName:@"TV" sessionRole:UIWindowSceneSessionRoleExternalDisplayNonInteractive];
@@ -8739,7 +8742,7 @@ index e32f410..a644557 100644
          self.tv = [self registerSceneAccessory:[UISceneAccessory externalNonInteractiveSceneAccessoryWithConfiguration:c]];
      }
  #endif
-@@ -316,10 +323,11 @@ static UIInterfaceOrientationMask plist_orientations(void) {
+@@ -319,10 +326,11 @@ static UIInterfaceOrientationMask plist_orientations(void) {
      return m ? m : UIInterfaceOrientationMaskAll;
  }
  UIInterfaceOrientationMask front_ios_app_orientations(void) { return dm_rotation_mask(getenv("DM_ROTATION"), plist_orientations()); }
@@ -8752,7 +8755,7 @@ index e32f410..a644557 100644
      UIInterfaceOrientationMask m = front_ios_app_orientations() & dm_rotation_vc_mask();
      for (UIScene *sc in UIApplication.sharedApplication.connectedScenes) {
          if (![sc isKindOfClass:UIWindowScene.class] || ![sc.session.role isEqualToString:UIWindowSceneSessionRoleApplication]) continue;   // not a TV's
-@@ -394,9 +402,6 @@ bool dm_setting_live(const char *env, const char *value) {
+@@ -406,9 +414,6 @@ bool dm_setting_live(const char *env, const char *value) {
      if (!strcmp(env, "DM_RUMBLE")) { if (value) { dm_haptics_set_enabled(atoi(value) != 0); LOG("front end: game rumble %s (in-game menu)", atoi(value) ? "on" : "off"); } return true; }
      return false;
  }
@@ -8762,7 +8765,7 @@ index e32f410..a644557 100644
  @implementation DmTVSceneDelegate
  - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)o {
      self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
-@@ -410,17 +415,19 @@ - (void)sceneDidDisconnect:(UIScene *)s { if (g_tv == self.window) tv_detach();
+@@ -422,17 +427,19 @@ - (void)sceneDidDisconnect:(UIScene *)s { if (g_tv == self.window) tv_detach();
  // Thermal state and screen brightness for the power and present rows every 300 frames (hle_nvn.c; its weak defaults return -1 on the Mac). thermalState: 0 nominal, 1 fair, 2 serious, 3 critical.
  // Brightness is read on the main thread at start and on each change; every change of the thermal state and of Low Power Mode (which lowers the CPU clock) is logged with the time since launch
  static _Atomic double g_brightness = -1;
@@ -8786,7 +8789,7 @@ index e32f410..a644557 100644
      screen_refresh();
      LOG("front end: thermal state %d, brightness %.2f, Low Power Mode %s, screen %d Hz", dm_thermal_now(), g_brightness, dm_low_power_now() ? "on" : "off", front_screen_max_fps());
  }
-@@ -435,7 +442,8 @@ static void front_ios_power_watch(void) {
+@@ -447,7 +454,8 @@ static void front_ios_power_watch(void) {
      l.backgroundColor = [UIColor colorWithWhite:0 alpha:0.45]; l.layer.cornerRadius = 6; l.layer.masksToBounds = YES; l.userInteractionEnabled = NO;
      l.text = @"-- fps";
      __block uint64_t n0 = mtl_present_count(); __block double t0 = CACurrentMediaTime();
@@ -8796,7 +8799,7 @@ index e32f410..a644557 100644
          (void)t; uint64_t n = mtl_present_count(); double now = CACurrentMediaTime();
          if (now - t0 < 1.5) l.text = [NSString stringWithFormat:@"%.0f fps", (n - n0) / (now - t0)];   // a longer span is the time in the background: no reading
          n0 = n; t0 = now;
-@@ -691,7 +699,7 @@ static BOOL front_ios_same_outputs(NSArray<AVAudioSessionPortDescription *> *pre
+@@ -703,7 +711,7 @@ static BOOL front_ios_same_outputs(NSArray<AVAudioSessionPortDescription *> *pre
  }
  static void front_ios_audio_watch(void) {
      NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
@@ -8805,7 +8808,7 @@ index e32f410..a644557 100644
          NSUInteger type = [n.userInfo[AVAudioSessionInterruptionTypeKey] unsignedIntegerValue], reason = [n.userInfo[AVAudioSessionInterruptionReasonKey] unsignedIntegerValue];
          if (type == AVAudioSessionInterruptionTypeBegan) { LOG("audio session: interrupted (reason %lu)", (unsigned long)reason); g_audio_intr = 1; }
          else {
-@@ -701,7 +709,7 @@ static void front_ios_audio_watch(void) {
+@@ -713,7 +721,7 @@ static void front_ios_audio_watch(void) {
          front_ios_audio_apply();
      }];
      // Reapply the channel preference first. A changed output can also interrupt callbacks at the same channel count.
@@ -8814,7 +8817,7 @@ index e32f410..a644557 100644
          NSUInteger reason = [n.userInfo[AVAudioSessionRouteChangeReasonKey] unsignedIntegerValue];
          AVAudioSession *session = AVAudioSession.sharedInstance;
          AVAudioSessionRouteDescription *previous = n.userInfo[AVAudioSessionRouteChangePreviousRouteKey];
-@@ -715,7 +723,7 @@ static void front_ios_audio_watch(void) {
+@@ -727,7 +735,7 @@ static void front_ios_audio_watch(void) {
              dm_audio_route_changed();
          }
      }];
@@ -8823,7 +8826,7 @@ index e32f410..a644557 100644
          (void)n; LOG("audio session: the media services were reset; setting the session and the outputs up again");
          front_ios_audio_session(); dm_audio_reset();
      }];
-@@ -735,8 +743,9 @@ static void save_sync_background(void) {
+@@ -747,8 +755,9 @@ static void save_sync_background(void) {
      });
  }
  
@@ -8834,7 +8837,7 @@ index e32f410..a644557 100644
      switch (ev) {
          case 0: quit_close(); dm_movie_active(0); dm_gamepad_inactive(); dm_focus_set(2); break;
          case 1:
-@@ -855,14 +864,62 @@ static void quit_show_prompt(GCController *holder) {
+@@ -867,14 +876,62 @@ static void quit_show_prompt(GCController *holder) {
      g_hq_view = v;
      UIAccessibilityPostNotification(UIAccessibilityScreenChangedNotification, v.accessibilityElements.firstObject);
  }
@@ -8899,7 +8902,7 @@ index e32f410..a644557 100644
          dm_host_shutdown("the quit prompt");
      });
  }
-@@ -893,7 +950,7 @@ static void quit_changed(hq_phase was, hq_phase now, GCController *holder) {
+@@ -905,7 +962,7 @@ static void quit_changed(hq_phase was, hq_phase now, GCController *holder) {
  }
  void front_ios_quit_poll(void) {   // DmGamepad.m on a controller's change, and the hold's timer (main queue)
      quit_start();
@@ -8908,7 +8911,7 @@ index e32f410..a644557 100644
      g_hq_busy = 1;
      int home, a, b; GCController *holder = nil; quit_buttons(&home, &a, &b, &holder);
      double now = CACurrentMediaTime();
-@@ -912,7 +969,7 @@ void front_ios_quit_poll(void) {   // DmGamepad.m on a controller's change, and
+@@ -924,7 +981,7 @@ void front_ios_quit_poll(void) {   // DmGamepad.m on a controller's change, and
  }
  static void quit_open(void) {   // the in-game menu's Quit
      quit_start();
