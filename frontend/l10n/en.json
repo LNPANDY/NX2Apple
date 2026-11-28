@@ -1,5 +1,11 @@
 {
-  "_language": {"locales": ["en"], "name": "English", "order": 1},
+  "_language": {
+    "locales": [
+      "en"
+    ],
+    "name": "English",
+    "order": 1
+  },
   "activity.averageSession": "Average %@",
   "activity.button": "Activity Log",
   "activity.dayCount": "%lld days",
@@ -2005,8 +2011,6 @@
   "launch.opt.DM_OPMODE.1": "Docked",
   "launch.opt.DM_PICTURE_FIT.fill": "Fill",
   "launch.opt.DM_PICTURE_FIT.fit": "Fit",
-  "launch.opt.DM_PORTRAIT_EDGE.0": "Standard (4:3)",
-  "launch.opt.DM_PORTRAIT_EDGE.1": "Full top (past Dynamic Island)",
   "launch.opt.DM_PRESENT_INTERVAL.display": "60 fps",
   "launch.opt.DM_PRESENT_INTERVAL.game": "30 fps",
   "launch.opt.DM_PRESENT_UPSCALE.metalfx": "MetalFX",
@@ -2018,6 +2022,7 @@
   "launch.opt.DM_SCREEN_ASPECT.1.43": "iPhone Duo screen (1.43:1)",
   "launch.opt.DM_SCREEN_ASPECT.1.6": "MacBook (16:10)",
   "launch.opt.DM_SCREEN_ASPECT.auto": "Match screen",
+  "launch.opt.DM_SCREEN_ASPECT.portrait-full": "Portrait full screen",
   "launch.opt.DM_TOUCH_SIZE.large": "Large",
   "launch.opt.DM_TOUCH_SIZE.medium": "Medium",
   "launch.opt.DM_TOUCH_SIZE.small": "Small",
@@ -2063,8 +2068,6 @@
   "launch.set.DM_PAD_PRESS_TO_JOIN": "Press a button to join",
   "launch.set.DM_PICTURE_FIT": "Picture",
   "launch.set.DM_PICTURE_FIT.note": "Fill crops the game's 16:9 picture to cover the screen. Health bars, subtitles or maps near the edges can be cut off. A full-screen picture without cropping needs a patch for each game.",
-  "launch.set.DM_PORTRAIT_EDGE": "Portrait frame",
-  "launch.set.DM_PORTRAIT_EDGE.note": "Extends the portrait picture to the top of the screen past the Dynamic Island. Native full-top rendering takes effect on next launch.",
   "launch.set.DM_PRESENT_INTERVAL": "Frame rate",
   "launch.set.DM_PRESENT_SNAP": "Frame buffering",
   "launch.set.DM_PRESENT_SNAP.note": "Up to one frame more display latency.",
@@ -2080,7 +2083,7 @@
   "launch.set.DM_RUMBLE_GAIN": "Rumble strength",
   "launch.set.DM_RUMBLE_MIN": "Rumble cutoff",
   "launch.set.DM_SCREEN_ASPECT": "Picture shape",
-  "launch.set.DM_SCREEN_ASPECT.note": "Taller shapes render more pixels and can increase GPU time and heat.",
+  "launch.set.DM_SCREEN_ASPECT.note": "Taller shapes render more pixels and can increase GPU time and heat. Portrait full screen extends the portrait picture to the top of the screen past the Dynamic Island.",
   "launch.set.DM_SHOW_FPS": "Frame-rate counter",
   "launch.set.DM_SW2": "Switch 2 controllers",
   "launch.set.DM_SW2.note": "Plays Joy-Con 2 and Pro Controller 2 over Bluetooth: hold Sync on one during the game to pair it (on iPhone and iPad, after each start). The system asks once for Bluetooth access.",

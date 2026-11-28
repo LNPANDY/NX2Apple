@@ -120,7 +120,7 @@ index 2d0d56d..b5dd660 100644
  #include <stdatomic.h>
  #include <ctype.h>
 +#include <math.h>
- 
+
  // Limits of Atmosphère's own order (0x2000 dwords of program, 256 cheats per file): no shared cheat-site file and no
  // hand-made one can exhaust the arrays
 @@ -123,6 +124,8 @@ typedef struct {
@@ -130,7 +130,7 @@ index 2d0d56d..b5dd660 100644
 +    uint8_t baked_kind;                            // DM_CHEAT_BAKED_*: status from dm/cheat_trampolines.tsv
 +    uint64_t key_mask;                             // union of Opcode 8 / C4 key masks in this entry
  } cheat_t;
- 
+
  static cheat_t g_cheat[CHEAT_MAX]; static int g_ncheat;
 @@ -532,6 +535,528 @@ static void changed_load(void) { dm_changed_load(&g_changed_tbl, g_main_mod, dm_
  // Data is written through the alias too when there is one, else directly (those pages are read + write). The checks
@@ -680,7 +680,7 @@ index 2d0d56d..b5dd660 100644
 +    memcpy(dst, src, len);
 +    if (code) { sys_icache_invalidate((void *)(uintptr_t)addr, len); g_icache_flushes++; }   // the game's own fetches must see the new instructions
  }
- 
+
  // Read len bytes at a guest address without any consequence for a cheat: 0 and the value, or -1 when unmapped (the dry run
 @@ -614,7 +1145,11 @@ static void cheat_write(cheat_t *c, uint64_t addr, uint64_t len, uint64_t val) {
              return;
@@ -726,7 +726,7 @@ index 2d0d56d..b5dd660 100644
 @@ -1380,6 +1920,24 @@ static int section_marker(const char *name, char *sec, size_t n) {
      return kind;
  }
- 
+
 +// Zing group markers: single-word 20000000 starts a section named after the entry, 20000001 ends it.
 +static void zing_finalize_entry(cheat_t *ent, char section[NAME_MAX]) {
 +    if (!ent || ent->broken || ent->master || ent->nins != 1) return;
@@ -814,7 +814,7 @@ index 2d0d56d..b5dd660 100644
 +    pthread_mutex_unlock(&g_lock);
 +    pthread_mutex_unlock(&g_scan_lock);
  }
- 
+
  // ---------- the Mac cheats menu and panel (callers: front_mac.m; nothing else uses these) ----------
 @@ -1932,7 +2516,10 @@ void dm_cheat_toggle(int i) {
              cheat_t *p = &g_cheat[c->pair];
@@ -846,7 +846,7 @@ index 2d0d56d..b5dd660 100644
      }
 @@ -2070,3 +2660,291 @@ const char *dm_cheats_skipped_why(int i) { return i >= 0 && i < g_nskip ? g_skip
  int dm_cheats_nsources(void) { return g_nsrc; }
- 
+
  const char *dm_cheats_source(int i) { return i >= 0 && i < g_nsrc ? g_src[i] : ""; }
 +
 +int dm_cheat_baked_kind_at(int i) { return i >= 0 && i < g_ncheat ? g_cheat[i].baked_kind : DM_CHEAT_BAKED_NONE; }
@@ -1176,7 +1176,7 @@ index f340124..5d6201e 100644
  // GetNpadStates(out, n, id): newest first, n entries: the current state repeated with consecutive sampling numbers. The host keeps no history, but on hardware the
  // 16-entry history is always full, and games read all of it whatever count comes back: Super Mario Odyssey (main+0x93fc20) polls every controller slot each frame, which advances
 diff --git a/dm/host/loader.c b/dm/host/loader.c
-index 8147ea4..0098806 100644
+index f7c2c0a..fe99c01 100644
 --- a/dm/host/loader.c
 +++ b/dm/host/loader.c
 @@ -422,6 +422,7 @@ static void read_layout(module_t *m, const char *dir) {
@@ -1187,7 +1187,7 @@ index 8147ea4..0098806 100644
          else if (!strcmp(key, "RENDER_SCALE")) m->render_scale_max = (uint32_t)v;
          else if (!strcmp(key, "MOVIE_NATIVE_COLOR_KEYS")) m->movie_native_color_keys = v == 1;
          else if (!strcmp(key, "STEP_MAX")) m->step_max = (uint32_t)v;
-@@ -559,6 +560,13 @@ static void install_key_page(module_t *m) {
+@@ -564,6 +565,13 @@ static void install_key_page(module_t *m) {
      for (int k = 0; k < KEY_N; k++) if (!page[m->key_idx[k]]) die("%s: key page entry %d is 0 (host key not created) -- the game would read TSD slot 0", m->name, k);
      if (mprotect(m->base + m->key_page_off, m->key_page_size, PROT_READ)) die("%s key page mprotect", m->name);
      if (m->fps_state_off) install_fps_state(m);
@@ -1199,7 +1199,7 @@ index 8147ea4..0098806 100644
 +        memset(m->base + m->cheat_state_off, 0, 0x1000);   // all trampoline slots start disabled (original instructions)
 +    }
  }
- 
+
  static void register_gates(module_t *m, const char *dir) {
 diff --git a/dm/host/tests/t_cheats.c b/dm/host/tests/t_cheats.c
 index 4be180d..155ed33 100644
@@ -1208,7 +1208,7 @@ index 4be180d..155ed33 100644
 @@ -56,7 +56,7 @@ const char *dm_module_dir(void) { return moddir; }
  static int checks, fails;
  #define CHECK(c, s) do { checks++; int ok_ = !!(c); fails += !ok_; printf("%s %s\n", ok_ ? "✓" : "✗", s); } while (0)
- 
+
 -#define IMG 0x10000      // main: text 0x0000-0x3FFF, data 0x4000-0xBFFF, the host's key page 0xC000-0xFFFF
 +#define IMG 0x14000      // main: text 0x0000-0x3FFF, data 0x4000-0xBFFF, key page 0xC000-0xFFFF, cheat state page 0x10000-0x13FFF
  static uint8_t *img;     // main's image (page-aligned, so the engine can remap it)
@@ -1226,7 +1226,7 @@ index 4be180d..155ed33 100644
 @@ -707,11 +707,223 @@ int main(int argc, char **argv) {
      dm_cheat_toggle(at("TickFree", 0));
      atomic_store(&g_clock_auto, 1);
- 
+
 +    // ---- Zing group markers (single-word 20000000 / 20000001) ----
 +    fresh("zing",
 +          "[Combat Group]\n20000000\n"
@@ -1444,7 +1444,7 @@ index 4be180d..155ed33 100644
 +          g_scan_hits == NULL && g_cheat_state == NULL && g_main_mod == NULL,
 +          "dm_cheats_teardown frees all dynamic buffers and clears g_main_mod/g_cheat_state");
 +    CHECK(dm_cheat_scan_write(0, 0x4920, DM_SCAN_U32, 1) == -1, "scanner write safely refuses main access after teardown");
- 
+
      files_drain();
      if (removefile(root, NULL, REMOVEFILE_RECURSIVE)) perror(root);
 diff --git a/dm/host/tests/t_hid.c b/dm/host/tests/t_hid.c
@@ -1454,7 +1454,7 @@ index cbbe71b..4022364 100644
 @@ -2147,6 +2147,42 @@ static void t_joy_hold_type(void) {
      h_hid_JoyDual(&(uint32_t){0}); h_hid_HoldType(0); dm_joy_attach(0, 0); dm_pad_players(1); h_hid_SetStyles(0xffffffffu);
  }
- 
+
 +static void t_cheats_keys(void) {
 +    dm_input_hold(0);
 +    dm_input_set(0, 0, 0, 0, 0);
@@ -4141,11 +4141,11 @@ index 37b0588..ad5a725 100644
 -import mod_layout, nso, nso_asm, nso_syms
 +import mod_layout, nso, nso_asm, nso_syms, cheat_bake
  from nso_asm import *   # the instruction encoders (B, ADRP, LDRX, ...), shared with the per-build patch files
- 
+
  # The NSP script terminates a failed or cancelled rewrite with SIGTERM. Exit through the pool's context manager so it reaps the workers too.
 @@ -33,6 +33,15 @@ except ValueError: sys.exit('[RED] DM_REWRITE_J must be a positive integer')
  if WORKERS < 1: sys.exit('[RED] DM_REWRITE_J must be a positive integer')
- 
+
  src, outdir, NAME = sys.argv[1], sys.argv[2], sys.argv[3]
 +CHEAT_FILE_ARG = CHEAT_DIR_ARG = None
 +_arg_i = 4
@@ -4209,7 +4209,7 @@ index 37b0588..ad5a725 100644
 +        if _coff + 4 <= TEXT_END and cheat_bake._is_cave_padding_word(struct.unpack_from('<I', IMG, _coff)[0]):
 +            struct.pack_into('<I', IMG, _coff, _cword)
 +            CHEAT_CAVE_ADDRS.add(_coff)
- 
+
  # ---- Unreal console variables in main (dm/tools/ue_cvar.py finds them by their registered names, without a build ID) ----
  # The fixups table names each one's TAutoConsoleVariable (UE_CVAR:<name>); the host writes those the profile decides on (hle_fpslock.c, hle_uecvar.c)
 @@ -1533,7 +1562,7 @@ if (BUILD_ID in FRAME_STEP or FS_MATCH) and NAME == 'main':
@@ -4224,7 +4224,7 @@ index 37b0588..ad5a725 100644
 @@ -1913,6 +1942,52 @@ for g in spin_regions: spin_emit(g)
  if os.environ.get('DM_SPIN_LIST'):
      for T, bes, n in spin_sites: print(f'{NAME} spin wait {T:#x} ({n} instructions), back-edges ' + ' '.join(f'{b:#x}' for b in bes))
- 
+
 +# ---- Offline cheat trampoline baking (dm/tools/cheat_bake.py) ----
 +CHEAT_PLAN = None
 +if CHEAT_PATH is not None and NAME == 'main':
@@ -4285,7 +4285,7 @@ index 37b0588..ad5a725 100644
      open(P('patched.bin'), 'wb').write(IMG + bytearray(FILE_IMAGE_LEN - len(IMG)) + patch)
 @@ -1956,13 +2031,15 @@ def movie_native_color_keys():
      return RO_OFF <= target < DATA_OFF and IMG[target:target + len(key)] == key
- 
+
  with open(os.path.join(outdir, 'build_src.sha256'), 'w') as f:   # the same for every module: the rewriter and every patch file, by path from dm/tools
 -    for src_ in (os.path.abspath(__file__), nso.__file__, nso_code.__file__, nso_asm.__file__, nso_syms.__file__, ue_cvar.__file__, ue_malloc.__file__, fps_target.__file__, monolith_fps.__file__, ue_fixed_rate.__file__, unity_fps.__file__, unity_bucket.__file__, ue_region.__file__, ue_ring.__file__, snowdrop_pools.__file__, os.path.join(os.path.dirname(ue_malloc.__file__), 'loader_census.py'), *PATCH_FILES): f.write(hashlib.sha256(open(src_, 'rb').read()).hexdigest() + f'  {os.path.relpath(os.path.abspath(src_), os.path.dirname(os.path.abspath(__file__)))}\n')
 +    for src_ in (os.path.abspath(__file__), mod_layout.__file__, nso.__file__, nso_code.__file__, nso_asm.__file__, nso_syms.__file__, cheat_bake.__file__, ue_cvar.__file__, ue_malloc.__file__, fps_target.__file__, monolith_fps.__file__, ue_fixed_rate.__file__, unity_fps.__file__, unity_bucket.__file__, ue_region.__file__, ue_ring.__file__, snowdrop_pools.__file__, os.path.join(os.path.dirname(ue_malloc.__file__), 'loader_census.py'), *PATCH_FILES): f.write(hashlib.sha256(open(src_, 'rb').read()).hexdigest() + f'  {os.path.relpath(os.path.abspath(src_), os.path.dirname(os.path.abspath(__file__)))}\n')
@@ -5358,7 +5358,7 @@ index fb1793b..0601577 100644
 @@ -79,5 +79,33 @@ class IpaTables(unittest.TestCase):
          self.assertNotEqual(check('# chain b-0123456789ab inputs aaaaaaaaaaaa0\n'), 0)
          self.assertNotEqual(check('# chain b-0123456789ab inputs bbbbbbbbbbbb\n'), 0)
- 
+
 +    def test_bundled_cheats_folder_is_optional_and_copied_when_present(self):
 +        result = self.stage('nvn')
 +        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -5387,16 +5387,16 @@ index fb1793b..0601577 100644
 +        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 +        self.assertEqual((self.tables / 'cheat_trampolines.tsv').read_bytes(), tsv)
 +
- 
+
  if __name__ == '__main__': unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index bfc4ae3..1710c7a 100755
+index c6ef3af..345bd15 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -2103,12 +2103,78 @@ def provisional_modules(g, exe_dir, nros):
      return set_keys(g, {'modules': (' '.join(mods), f'the NROs the game loads at run time import from {why}, which main does not')} if add else {}, 'After the NRO collection', edit=row)
- 
- 
+
+
 -def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
 +def _default_cheat_dir(app, work):
 +    if sys.platform == 'darwin':
@@ -5519,11 +5519,11 @@ index bfc4ae3..1710c7a 100755
      PROG.end(', '.join(mods) + (f' and {len(nros)} NROs' if nros else ''))
 -    return capture_nro(py, repo, exe_dir, out, nro_dir, env, logs, g, provisional)
 +    return capture_nro(py, repo, exe_dir, out, nro_dir, env, logs, g, provisional, **_cheat_kw)
- 
- 
+
+
  NRO_CAPTURE_SECS = 120   # Mario Tennis Fever's boot stub decodes its 24.7 MB NRO in under a second, with a cold file cache far less than this
- 
- 
+
+
 -def capture_nro(py, repo, exe_dir, out, nro_dir, env, logs, g, provisional):
 +def capture_nro(py, repo, exe_dir, out, nro_dir, env, logs, g, provisional, cheat_file=None, cheat_dir=None, title_id=None):
      """An NRO its NRR registers and no file holds (nro_collect.py's missing.tsv): the game decodes it at run time, so boot the rewritten modules with DM_NRO_CAPTURE (dm/host/hle_ro.c), which writes the image
@@ -5536,10 +5536,10 @@ index bfc4ae3..1710c7a 100755
 -    return rewrite(py, repo, exe_dir, out, env, logs, g, provisional)
 +    _cheat_kw = {'cheat_file': cheat_file, 'cheat_dir': cheat_dir, 'title_id': title_id} if (cheat_file or cheat_dir) else {}
 +    return rewrite(py, repo, exe_dir, out, env, logs, g, provisional, **_cheat_kw)
- 
- 
+
+
  def captured_nros(patched):   # the folder of the NROs of a build that captured some (capture_nro): the shader split reads them, as it reads main, and the file table of Camelot's archive is in one
-@@ -4041,6 +4119,10 @@ def parse_args(argv):
+@@ -4053,6 +4131,10 @@ def parse_args(argv):
      ap.add_argument('--from-seed', nargs='?', const='auto', default=None, metavar='SEED_DIR',
                      help='fast refresh from a persistent build seed without NSPs or prod.keys (uses --title-id in --seed-cache-dir, or pass a seed folder directly)')
      ap.add_argument('--seed-cache-dir', help='folder holding persistent build seeds (default: app support build-seeds)')
@@ -5550,9 +5550,9 @@ index bfc4ae3..1710c7a 100755
      ap.add_argument('--prefill-msl', action='append', default=[], metavar='PATH',
                      help='existing .app, .img with a DMMSLTR1 shader trailer, msl folder, or b-<chain>[.img] used for DMSH_PREFILL on shader chain changes (may be given more than once)')
      ap.add_argument('--keep-extracted', action=argparse.BooleanOptionalAction, help='keep the extracted game files after the IPA is built, for the next build (default: the KEEP_EXTRACTED setting, on)')
-@@ -5082,7 +5164,9 @@ def _main(args, cleanup):
+@@ -5147,7 +5229,9 @@ def _main(args, cleanup):
          + (f'; the game\'s languages: {" ".join(have_langs)}' if have_langs else '; the control data lists no languages (not checked)') + (' (DM_LANG=<code> in the run command changes it)' if mac else ' (DM_LANG=<code> in the app\'s Documents/env.txt changes it)'))
- 
+
      patched = work / f'patched_{pkg_ver}'
 -    g = rewrite(py, repo, game / 'ExeFS', patched, env, logs, g, provisional)
 +    _eff_cheat_dir = _maybe_fetch_cheats(args, app, game / 'ExeFS', work)

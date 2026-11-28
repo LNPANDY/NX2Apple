@@ -157,7 +157,7 @@ index 0bbed0b..fede774 100644
 +    if (g_ndss_cache < 128) { g_dss_cache[g_ndss_cache].k = k; g_dss_cache[g_ndss_cache].s = st; g_ndss_cache++; } else RED1("more than 128 depth / stencil states");
      return st;
  }
- 
+
 @@ -1370,13 +1372,14 @@ static void ff_bind(void) {
      [e setFragmentTexture:texture atIndex:0];
      [e setFragmentSamplerState:sampler atIndex:0];
@@ -1160,7 +1160,7 @@ index 5f4268f..26a7fab 100644
  static pthread_mutex_t g_live_build = PTHREAD_MUTEX_INITIALIZER;
  static NSString *g_live_python, *g_live_compiler, *g_live_cache;
 +static int g_live_configured;
- 
+
  static void live_configure(void) {
 -    static dispatch_once_t once;
 -    dispatch_once(&once, ^{
@@ -1186,7 +1186,7 @@ index 5f4268f..26a7fab 100644
 +    g_live_configured = 0;
 +    os_unfair_lock_unlock(&g_live_index);
  }
- 
+
  static NSDictionary<NSString *, NSString *> *live_lookup(NSString *key) {
 @@ -106,4 +117,5 @@ static void live_compile(NSString *key, const NVNshaderData *sd) {
  #else
@@ -1236,7 +1236,7 @@ index 6d6d335..341f35e 100644
 +    if (atomic_load(&g_gfx_teardown)) return;
 +    dispatch_group_async(bg_group(), q, ^{ if (!atomic_load(&g_gfx_teardown)) b(); });
 +}
- 
+
  static id<MTLDevice> g_dev;
  static void ser_compile_begin(void), ser_compile_end(void), plain_compile_begin(void), plain_compile_end(void);
 @@ -566,7 +600,7 @@ static void res_remove(id<MTLAllocation> r) { @autoreleasepool {
@@ -1357,7 +1357,7 @@ index 6d6d335..341f35e 100644
 +        g_fill_pat = [g_dev newBufferWithBytes:tmp length:PAT options:MTLResourceStorageModeShared]; free(tmp); g_fill_pat_v = value; g_fill_pat_ok = 1; res_add(g_fill_pat); }
 +    for (uint64_t off = 0; off < n; off += PAT) { uint64_t k = n - off < PAT ? n - off : PAT; enc_b_copy_buffer(blit_buf(0, 0, dst + off, dst + off + k), g_fill_pat, 0, (__bridge id<MTLBuffer>)db, dof + off, k); }
  }
- 
+
  static void post(post_op o) {
 @@ -3310,6 +3359,7 @@ static void post_complete(uint64_t fence, uint64_t c0, uint64_t c1) {
      nvn_queue_gpu_progress();
@@ -1410,7 +1410,7 @@ index 6d6d335..341f35e 100644
  static int up_reuse(void) { static int on = -1; if (on < 0) { const char *e = getenv("DM_NVN_UPLOAD_REUSE"); on = !e || atoi(e); } return on; }
  static int up_retained(id<MTLBuffer> b, unsigned slot) { return b && (b == g_up_slot_blk[slot] || b == g_up_slot_over[slot]); }
 @@ -4141,16 +4191,16 @@ static size_t up_slot_block_size(size_t demand) {
- 
+
  // Idle trimming is opt-in. An explicit 0 still reports the cache for A/B runs.
  static int g_up_idle_report;
 +static int64_t g_up_idle_ns = -1;
@@ -1433,7 +1433,7 @@ index 6d6d335..341f35e 100644
 @@ -4167,6 +4217,7 @@ static void up_idle_drop(__strong id<MTLBuffer> *block) {
      *block = nil;
  }
- 
+
 +static uint64_t g_up_idle_said_ns;
  static void up_idle_release(void) {
      uint64_t idle = up_idle_period();
@@ -3847,7 +3847,7 @@ index a5c85dd..3b0121c 100644
 -static int g_rb_busy, g_rb_started, g_rb_sleeping;              // the encode thread is working through a block; the thread exists; it waits for work
 +static int g_rb_busy, g_rb_started, g_rb_sleeping, g_rb_stop;   // the encode thread is working through a block; the thread exists; it waits for work
 +static pthread_t g_rb_th;
- 
+
  static inline uint64_t rec_obj(id o) { return o ? (uint64_t)(uintptr_t)CFBridgingRetain(o) : 0; }
  static inline id rec_id(uint64_t v) { return (__bridge id)(void *)(uintptr_t)v; }
 @@ -158,11 +163,11 @@ static _Atomic int g_rx_fly, g_rx_held, g_rx_drain, g_rx_busy_hold;   // main co
@@ -4082,7 +4082,7 @@ index 07c0b33..92506e3 100644
 +    EXPECT("write to A in second session after teardown is dirty", 1, nvn_dirty_since(pa, na, stamp));
 +    nvn_dirty_teardown();
      munmap(blk, 4 * pg);
- 
+
      // Written pages but those holding a byte of the host's own write (nvn_dirty_since_except: a GPU copy's bytes the host wrote into a texture's storage, nvn_mtl.m pkg_copy_absorb)
 diff --git a/dm/gfx/tests/t_host_stubs.c b/dm/gfx/tests/t_host_stubs.c
 index d9c6598..1005eb4 100644
@@ -4244,10 +4244,10 @@ index 70fb66b..3895085 100644
 +    if (_argumentState) { pthread_mutex_lock(&g_ab_sampler_mu); if (g_ab_sampler_count) g_ab_sampler_count--; pthread_mutex_unlock(&g_ab_sampler_mu); }
  }
  @end
- 
+
 @@ -396,6 +396,53 @@ static int argbuf_ok(const shinfo *si) {
  struct VkSwapchainKHR_T { uint32_t n, next; VkImage img[4]; uint64_t ticket[4]; uint8_t held[4]; pthread_mutex_t mu; pthread_cond_t cv; };
- 
+
  static void *zalloc(size_t n) { void *p = calloc(1, n); if (!p) die("[vk] out of memory %zu", n); return p; }
 +static pthread_mutex_t g_vk_live_mu = PTHREAD_MUTEX_INITIALIZER;
 +static CFMutableDictionaryRef g_vk_live;
@@ -4296,7 +4296,7 @@ index 70fb66b..3895085 100644
 +    pthread_cond_broadcast(&sc->cv);
 +    pthread_mutex_unlock(&sc->mu);
 +}
- 
+
  // ---------- Instance and physical device ----------
  static VkResult fill_names(const char *const *names, uint32_t n, uint32_t *count, VkExtensionProperties *p) {
 @@ -645,13 +692,14 @@ static int storage_image_supported(VkFormat f) {
@@ -4385,7 +4385,7 @@ index 70fb66b..3895085 100644
  }
 -VKB(vkDestroyImageView, void, VkDevice d, VkImageView v, const VkAllocationCallbacks *a) { (void)d; (void)a; if (v) { v->tex = nil; free(v); } }
 +VKB(vkDestroyImageView, void, VkDevice d, VkImageView v, const VkAllocationCallbacks *a) { (void)d; (void)a; if (v && vk_live_del(v)) dtor_iview(v); }
- 
+
  static MTLSamplerAddressMode addr_mode(VkSamplerAddressMode m) {
      switch (m) {
 @@ -916,14 +968,12 @@ static MTLSamplerAddressMode addr_mode(VkSamplerAddressMode m) {
@@ -4402,7 +4402,7 @@ index 70fb66b..3895085 100644
 -    if (s) { s->s = nil; s->ref = nil; free(s); }
 -}
 +VKB(vkDestroySampler, void, VkDevice d, VkSampler s, const VkAllocationCallbacks *a) { (void)d; (void)a; if (s && vk_live_del(s)) dtor_samp(s); }
- 
+
  // ---------- Descriptor sets ----------
  static int is_dyn(VkDescriptorType t) { return t == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC || t == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC; }
 @@ -956,6 +1006,7 @@ static MTLSamplerAddressMode addr_mode(VkSamplerAddressMode m) {
@@ -4467,7 +4467,7 @@ index 70fb66b..3895085 100644
 -    free(p);
 -}
 +VKB(vkDestroyPipeline, void, VkDevice d, VkPipeline p, const VkAllocationCallbacks *a) { (void)d; (void)a; if (p && vk_live_del(p)) dtor_pipe(p); }
- 
+
  // ---------- Command buffers: recording ----------
  enum { C_BRP = 1, C_ERP, C_PIPE, C_SETS, C_VB, C_IB, C_VP, C_SC, C_DRAWI, C_COPYB, C_COPYB2I, C_DRAW, C_PUSH, C_COPYI, C_COPYI2B, C_QRESET, C_QTS, C_QBEGIN, C_QEND, C_CLEARI, C_STENCIL,
 @@ -2121,26 +2166,27 @@ static void fan_arrays(rs_t *s, const c_draw *x) {
@@ -4539,7 +4539,7 @@ index 70fb66b..3895085 100644
 +    g_vk_transfer_psos[key] = p;
      return p;
  }
- 
+
 @@ -2315,6 +2361,7 @@ static void split_for_transfer(rs_t *s) {
      if (tex.textureType == type && tex.mipmapLevelCount == 1) return tex;
      return [tex newTextureViewWithPixelFormat:tex.pixelFormat textureType:type levels:NSMakeRange(level, 1) slices:NSMakeRange(layer, 1)];
@@ -4804,7 +4804,7 @@ index b2e03cf..66d0591 100644
 +static pthread_mutex_t g_watch_mu = PTHREAD_MUTEX_INITIALIZER;
 +static pthread_cond_t g_watch_cv = PTHREAD_COND_INITIALIZER;
 +static int g_watch_stop;
- 
+
  static uint64_t watch_now_ns(void) {
      struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
 @@ -69,17 +78,25 @@ static int watch_sample(const char *path) {
@@ -4952,11 +4952,11 @@ index ccb797b..fc750c3 100644
  #include <pthread.h>
 +#include <stdatomic.h>
  #include <time.h>
- 
+
  @interface DmRumbleChannel : NSObject
 @@ -39,6 +40,8 @@ - (void)stop;
  @end
- 
+
  static dispatch_queue_t queue;
 +static _Atomic uint64_t g_haptics_gen __attribute__((section("__DATA,__dm_keep")));
 +static _Atomic int g_haptics_down __attribute__((section("__DATA,__dm_keep")));
@@ -5213,7 +5213,7 @@ index d757b4f..750da4d 100644
 @@ -121,6 +121,15 @@ void gate_register(uint64_t ret_abs, const char *kind, int arg, uint64_t orig) {
      g_gate[i] = (gate_t){ret_abs, k, arg, orig}; g_ngate++;
  }
- 
+
 +#define DM_GATES_TEARDOWN_DEFINED 1
 +void dm_gates_teardown(void) {
 +    free(g_gate); g_gate = NULL;
@@ -5224,7 +5224,7 @@ index d757b4f..750da4d 100644
 +}
 +
  uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr);   // hle_svc.c
- 
+
  uint64_t gate_dispatch(uint64_t ret_addr, uint64_t *regs) {
 diff --git a/dm/host/hle.h b/dm/host/hle.h
 index 042b0eb..441ec9f 100644
@@ -5292,7 +5292,7 @@ index be46b0f..fce7391 100644
      return NULL;
  }
 -static void au_watchdog_start(void) { pthread_t t; if (!pthread_create(&t, NULL, au_watchdog, NULL)) pthread_detach(t); }
- 
+
  // AudioOutParameter = { int32 sampleRate; uint16 channelCount; uint16 _r; ... }, 0 = system default (48 kHz / 2 channels)
  HLE_FORCE("_ZN2nn5audio27InitializeAudioOutParameterEPNS0_17AudioOutParameterE", "audio output parameter defaults", void, h_au_InitParam, uint8_t *p) { memset(p, 0, 8); }
 @@ -693,8 +699,10 @@ static Result au_open_at(void *g, void *ev, const char *name, const uint8_t *par
@@ -5345,7 +5345,7 @@ index 88a6a97..23b352a 100644
 --- a/dm/host/hle_audren.c
 +++ b/dm/host/hle_audren.c
 @@ -79,10 +79,10 @@ size_t dm_audren_work_size(const uint8_t *p, uint32_t revision) {
- 
+
  // An SDK without the renderer in the process (SDK 1.3.1, Rayman Legends: Definitive Edition: no ExecuteAudioRendererRendering, only CreateAudioRendererManagerByHipc) is only the client of
  // audren:u, which the host serves (hle_audren_sv.c). Its work size, open and close go to the SDK as the game called them: the SDK's own client talks to the service
 +static int g_ar_in_process_v = -1;
@@ -5395,7 +5395,7 @@ index 4613b37..2af4963 100644
  #include <math.h>
  #include <stdatomic.h>
 +#include <time.h>
- 
+
  void *dm_guest_thread_spawn(void (*fn)(void *), void *arg, int prio, size_t stack_size);
  void dm_guest_thread_join(void *tt);
 @@ -27,6 +28,7 @@ void dm_pcmout_start(void *k);
@@ -5404,7 +5404,7 @@ index 4613b37..2af4963 100644
  void dm_pcmout_wait(void *k, int ms);
 +void dm_pcmout_wake(void *k);
  size_t dm_audren_work_size(const uint8_t *p, uint32_t revision);   // hle_audren.c: the service's work buffer budget
- 
+
  enum { HDR = 0x40, BEH_IN = 0x10, BEH_OUT = 0xb0, MP_IN = 0x20, MP_OUT = 0x10, CR_IN = 0x70, V_IN = 0x170, V_OUT = 0x10, FX_IN = 0xc0, FX_OUT = 0x10, MIX_IN = 0x930,
 @@ -54,6 +56,7 @@ typedef struct {
      int started; uint32_t time_limit;
@@ -5417,7 +5417,7 @@ index 4613b37..2af4963 100644
 @@ -61,6 +64,7 @@ typedef struct {
      int16_t pcm[NBUF][FRAME_MAX * 3 * 2]; aout_buf bufs[NBUF];
  } sv_rnd;
- 
+
 +static int g_sv_logged;
  static uint32_t rd32(const uint8_t *p) { uint32_t v; memcpy(&v, p, 4); return v; }
  static uint64_t rd64(const uint8_t *p) { uint64_t v; memcpy(&v, p, 8); return v; }
@@ -5473,7 +5473,7 @@ index 4613b37..2af4963 100644
 +    pthread_cond_broadcast(&r->stop_cv);
 +    pthread_mutex_unlock(&r->mu);
  }
- 
+
  // ---------- the sessions ----------
 +static void sv_free_host(sv_rnd *r) {
 +    free(r->voice); free(r->cr); free(r->fx); free(r->mix); free(r->sink); free(r->mb);
@@ -5541,7 +5541,7 @@ index fbd733a..0aaaf01 100644
 --- a/dm/host/hle_bigstack.c
 +++ b/dm/host/hle_bigstack.c
 @@ -22,8 +22,8 @@ int dm_guest_as_contains(uintptr_t a);   // hle_svc.c
- 
+
  #define BS_SIZE (512u << 10)
  #define BS_GUARD 16384u
 -static pthread_key_t g_bs_key;
@@ -5550,13 +5550,13 @@ index fbd733a..0aaaf01 100644
 +static pthread_once_t g_bs_once __attribute__((section("__DATA,__dm_keep"))) = PTHREAD_ONCE_INIT;
  static void bs_free(void *top) { if (top) munmap((uint8_t *)top - BS_SIZE - BS_GUARD, BS_SIZE + BS_GUARD); }
  static void bs_init(void) { if (pthread_key_create(&g_bs_key, bs_free)) die("big stack pthread_key_create"); }
- 
+
 diff --git a/dm/host/hle_cheats.c b/dm/host/hle_cheats.c
 index 921af59..2d0d56d 100644
 --- a/dm/host/hle_cheats.c
 +++ b/dm/host/hle_cheats.c
 @@ -1005,10 +1005,14 @@ void dm_cheats_present(void) {
- 
+
  // The fixed ~60 Hz passes when the game is not presenting (window minimized, graphics suspended or before the first
  // present): a stopped game still changes under its cheats, as on hardware where the cheat process keeps running
 +static _Atomic int g_tick_stop __attribute__((section("__DATA,__dm_keep")));
@@ -5592,7 +5592,7 @@ index 921af59..2d0d56d 100644
 +    }
 +    g_tick_th = th;
  }
- 
+
  // ---------- the cheat states: <build>.enabled, DM_CHEATS_ON, the folder's flag files ----------
 @@ -1046,7 +1055,8 @@ static void flag_file(char *out, size_t n, const char *what) { snprintf(out, n,
  // a clean exit, so nothing is lost or read stale. The queue's blocks take no lock of this file: a drain under g_lock
@@ -5617,7 +5617,7 @@ index 921af59..2d0d56d 100644
 +    }
 +    files_drain();
 +}
- 
+
  // ---------- the Mac cheats menu and panel (callers: front_mac.m; nothing else uses these) ----------
  // Cheap accessors read straight from the shared state: the list itself is rebuilt only from the main thread (this
 diff --git a/dm/host/hle_codec_video.c b/dm/host/hle_codec_video.c
@@ -5693,7 +5693,7 @@ index b4e6984..241784b 100644
 +static int g_rtld_owned;
 +#endif
 +static int g_exl_trace = -1;
- 
+
  #if TARGET_OS_IPHONE
  void dm_exl_fake_rtld(void) {}
 @@ -61,7 +65,7 @@ void dm_exl_fake_rtld(void) {
@@ -6161,7 +6161,7 @@ index de45fad..ba492ab 100644
 @@ -68,7 +68,8 @@ HLE_FORCE("_ZN5movie9Extractor13SetDataSourceEPKc", "movie demuxer: the host doe
  #define MD_FMT_PCM16 1
  #define MD_PCM_CAP (8192 * 8 * 2)   // bytes per audio output: a Vorbis packet gives at most 4096 samples per channel (blocksize 8192), 8 channels at most
- 
+
 -typedef struct {
 +typedef struct mdec {
 +    struct mdec *next_all;
@@ -6526,7 +6526,7 @@ index 0453fb9..c65c06d 100644
 +uint32_t sf_session_lifecycle(const char *name, sf_answer answer, void *ctx, void (*close)(void *), void (*stop)(void *), void (*teardown)(void *)) {
 +    return sf_new_ex(name, 0, answer, ctx, close, stop, teardown);
 +}
- 
+
  // The Switch 2's camera (a USB camera, for GameChat's video). nn::camera::sdk::CreateCameraContext asks the graphics system's user session (gsv) for a session to the camera service and
  // gives it to the caller as a UniqueNativeHandle (a 32-bit handle; SDK 22.2.0 sdk+0x2c42c0 writes it), with 0x3af3 when the SDK has no gsv session, which the host never opens. The game then
 @@ -130,6 +152,10 @@ HLE_FORCE("_ZN2nn2sf4hipc24CloseClientSessionHandleENS_3svc6HandleE", "close a s
@@ -6608,7 +6608,7 @@ index 324c529..72ef623 100644
  static uint64_t (*g_orig_alloc_v3)(void *, size_t, size_t, size_t, uint64_t (*)(uint64_t));
 -static pthread_once_t g_sa_once = PTHREAD_ONCE_INIT;
 +static int g_sa_resolved;
- 
+
  static void stack_alloc_resolve(void) {
 -    g_orig_ctor_c1   = sdk_sym("_ZN2nn2os6detail21AddressSpaceAllocatorC1Emmm");
 -    g_orig_ctor_c2   = sdk_sym("_ZN2nn2os6detail21AddressSpaceAllocatorC2Emmm");
@@ -6628,7 +6628,7 @@ index 324c529..72ef623 100644
 +    }
 +    pthread_mutex_unlock(&g_stack_alloc_mu);
  }
- 
+
  HLE_FORCE("_ZN2nn2os6detail21AddressSpaceAllocatorC1Emmm",
            "record stack-region allocator instance and guard size for deterministic stack placement (hle_svc.c dm_stack_alloc)",
            void, h_asa_ctor_c1, void *self, uint64_t start, uint64_t end, uint64_t guard) {
@@ -6722,7 +6722,7 @@ index 8cf6537..d532b59 100644
 +    pthread_mutex_unlock(&g_bg_lock);
 +    return stop;
 +}
- 
+
  // Give the files' blocks under [lo, hi) (whole host pages, inside the block) back to the disk with F_PUNCHHOLE. Over a mapped range it also drops the pages, written out or still dirty, and they read 0
  // again (measured on the Mac: a 64 MB shared mapping, half written out: blocks 32 MB → 16 MB after punching a written and a dirty quarter, both read 0, and a later msync writes nothing for them). A
 @@ -164,8 +180,7 @@ static void *guest_file_thread(void *arg) {
@@ -6783,7 +6783,7 @@ index 8cf6537..d532b59 100644
 +    }
 +    pthread_mutex_unlock(&g_init_lock);
  }
- 
+
  // Application memory pool = the 3285 MB the Switch (4 GB model) gives applications. At startup (main+0x1b66160) the game sets the whole total reported by QueryMemoryInfo as the heap, retrying with 2 MB less on failure,
 @@ -477,6 +501,57 @@ int dm_guest_heap_read(uint64_t addr, void *out, size_t len) {
      pthread_mutex_unlock(&g_map_lock);
@@ -6905,7 +6905,7 @@ index 8615fff..824fb65 100644
 +static pthread_key_t g_keythr __attribute__((section("__DATA,__dm_keep")));
  static uint64_t g_next_id = 0x51;
  static thr_t *g_wait;          // All waiting threads (lock / condition / address / synchronization)
- 
+
 @@ -206,9 +206,11 @@ static void hand_leave(thr_t *t) { hand_signal(t); t->nhand = 0; t->start_by = N
  // returns at once, and the pthread started too late and read null (main+0x1dc0, once in a dozen boots). So this waits until the threads started so far have been dispatched
  // into guest code, then for a round trip. As in dm_thread_service_request, it models a time; the bound is for a thread the host cannot run
@@ -6991,7 +6991,7 @@ index 8615fff..824fb65 100644
 +    if (atomic_load(&g_teardown_park)) teardown_exit_locked(t);
      return t->wres;
  }
- 
+
 @@ -433,7 +459,9 @@ static void *thread_main(void *p) {
      guest_gate_stack(1);   // the guest runs on its own stack from dm_thread_enter on: this pthread's stack below this frame is where its SVCs run
      // CloseHandle before StartThread ends the thread here (closed_unstarted): as on Horizon, closing the last handle of a thread that never ran destroys it.
@@ -7364,11 +7364,11 @@ index e2c19dd..9deee8f 100644
 +    pthread_mutex_unlock(&g_web_mu);
 +    if (dm_teardown_is_parking()) dm_teardown_check_current_thread();
 +}
- 
+
  // The page as a session the game drives while it runs (Super Mario 3D All-Stars' Sunshine: its launcher pause menu, launcher_pause_menu.htdocs, started hidden at boot and shown with
  // Appear when the player suspends; Super Mario 64 imports the same). The SDK's own Start creates a library applet (null read in applet::StartLibraryAppletImmediately)
 diff --git a/dm/host/loader.c b/dm/host/loader.c
-index 70403e0..c223be2 100644
+index 4122ad0..f7c2c0a 100644
 --- a/dm/host/loader.c
 +++ b/dm/host/loader.c
 @@ -21,7 +21,10 @@ int g_nmod;
@@ -7381,7 +7381,7 @@ index 70403e0..c223be2 100644
 +pthread_key_t g_keytlr __attribute__((section("__DATA,__dm_keep")));
 +pthread_key_t g_keygate __attribute__((section("__DATA,__dm_keep")));
  enum { KEY_K18, KEY_KTLS, KEY_KTLR, KEY_KGATE, KEY_N };
- 
+
  uint64_t resolve_import(module_t *m, const char *name);
 @@ -35,8 +38,10 @@ static pthread_key_t key_value(unsigned i) {
      }
@@ -7395,7 +7395,7 @@ index 70403e0..c223be2 100644
 +    }
      LOG("key numbers K18=%lu KTLS=%lu KTLR=%lu KGATE=%lu", g_key18, g_keytls, g_keytlr, g_keygate);
  }
- 
+
 @@ -147,10 +152,10 @@ int dm_game_imports(const char *prefix) {
  // SDK major version, from the version string the SDK's libraries keep in the sdk module's read-only data ("NintendoSDK_nnSdk-10_4_0"; SDK 12 spells it NintendoSdk_;
  // Switch 2 SDKs name a variant first: "NintendoSdk_nnSdk-Generic_20_5_19", Donkey Kong Bananza).
@@ -7423,7 +7423,7 @@ index 70403e0..c223be2 100644
 +    if (!g_sdk_major) LOG("[RED] sdk: no SDK version string in the sdk module; SDK-dependent behaviour takes the newer SDKs' side");
 +    return g_sdk_major;
  }
- 
+
  // Whether the sdk module was built for the Switch 2 ("Ounce"): its file system access log line names the build spec ("FS_ACCESS: { sdk_version: 20.5.19, spec: Ounce }";
  // Switch 1 SDKs say "spec: NX"). The Switch 2's NVN (NVN2) reports another API version (hle_nvn.c nvn_api)
 +static int g_sdk_ounce = -1;
@@ -7443,7 +7443,7 @@ index 70403e0..c223be2 100644
 +    if (g_sdk_ounce) LOG("sdk: built for the Switch 2 (spec: Ounce)");
 +    return g_sdk_ounce;
  }
- 
+
  // NVN 53's device-info switch in SDK 5.4.0 uses signed word offsets from its table. Case 0 returns the 53 set before the dispatch; case 1 sets the minor and branches to the same epilogue.
 @@ -219,13 +224,13 @@ int dm_sdk_nvn1_minor(void) {
  // 21.4.4: 231.39 and 20). Games check them: Splatoon Raiders requires minor >= 39 and otherwise creates no graphics system (main+0x31b86b0). The driver's switch over the items loads w0 with the
@@ -7482,16 +7482,16 @@ index 70403e0..c223be2 100644
      if ((c[0] & 0xFFE0001F) != 0x52800000 || (c[1] & 0xFC000000) != 0x14000000) return 0;   // mov w0, #imm16; b
      *out = (int)((c[0] >> 5) & 0xFFFF);
      return 1;
-@@ -980,7 +985,7 @@ static void mod_span_init(int n) { (void)n; }
+@@ -985,7 +990,7 @@ static void mod_span_init(int n) { (void)n; }
  uint8_t *dm_mod_rtld_slot(size_t *page_out) { (void)page_out; return NULL; }
  #else
  static uint8_t *g_mod_span;
 -static size_t g_mod_span_page;
 +static size_t g_mod_span_page, g_mod_span_len;
- 
+
  uint8_t *dm_mod_rtld_slot(size_t *page_out) {
      if (!g_mod_span) return NULL;
-@@ -1019,7 +1024,7 @@ static void mod_span_init(int n) {
+@@ -1024,7 +1029,7 @@ static void mod_span_init(int n) {
      if (count) {
          uint8_t *base = mmap(NULL, total, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0);
          if (base != MAP_FAILED) {
@@ -7500,7 +7500,7 @@ index 70403e0..c223be2 100644
              for (int i = 0; i < n; i++) if (lens[i]) { g_mod[i].span_slot = base + offs[i]; g_mod[i].span_len = lens[i]; }
          }
      }
-@@ -1153,3 +1158,53 @@ void run_module_inits(void) {
+@@ -1158,3 +1163,53 @@ void run_module_inits(void) {
          dm_exl_sync_all();   // flush any persistent MapProcessMemory views before earlier modules' (e.g. main's) DT_INIT runs
      }
  }
@@ -7573,7 +7573,7 @@ index cf7b96d..56f3d6d 100644
 +++ b/dm/host/pad_switch2_apple.h
 @@ -33,6 +33,7 @@ typedef struct {
  } dm_switch2_front;
- 
+
  int dm_switch2_start(const dm_switch2_front *front);   // 1: started; 0: off (DM_SW2 is not 1, or the Info.plist has no Bluetooth usage description)
 +void dm_switch2_teardown(void);                         // stops scanning and disconnects sessions, safe to call multiple times
  void dm_switch2_active(int on);                         // focus lost (0): the sensors stop driving the game's; back (1): they continue
@@ -7584,7 +7584,7 @@ index 2e2cac0..16da5e0 100644
 --- a/dm/host/pad_switch2_apple.m
 +++ b/dm/host/pad_switch2_apple.m
 @@ -58,6 +58,10 @@ @interface S2Session : NSObject <CBPeripheralDelegate>
- 
+
  static NSMutableDictionary<NSUUID *, S2Session *> *g_sessions;
  static CBCentralManager *g_central;
 +static _Atomic uint64_t g_s2_gen __attribute__((section("__DATA,__dm_keep")));
@@ -7593,7 +7593,7 @@ index 2e2cac0..16da5e0 100644
 +#endif
  static void s2_session_closed(S2Session *s);
  static void s2_rumble_timer(void);
- 
+
 @@ -103,7 +107,11 @@ - (instancetype)initWith:(CBPeripheral *)p pid:(uint16_t)pid use:(int)use {
  - (void)begin {
      [_peripheral discoverServices:nil];
@@ -7655,7 +7655,7 @@ index 2e2cac0..16da5e0 100644
 @@ -540,12 +550,67 @@ static void s2_rumble_timer(void) {
      }];
  }
- 
+
 +static void s2_reset_state(void) {
 +    memset(&g_front, 0, sizeof g_front);
 +    g_verbose = 0; g_motion_right = 1; g_motion = 1; g_active = 1; g_joy = 1;
@@ -7733,7 +7733,7 @@ index 431b306..04d46ef 100644
  static uint64_t g_commits, g_sent;                // Commits seen; the Commits the last send covered
 +static pthread_t g_sender_th;
  static char g_save[PATH_MAX], g_title[24], g_cloud[PATH_MAX];
- 
+
  static void *sender(void *arg) {
      (void)arg;
      pthread_mutex_lock(&g_mu);
@@ -7762,7 +7762,7 @@ index 431b306..04d46ef 100644
 +    pthread_mutex_unlock(&g_mu);
      return NULL;
  }
- 
+
 @@ -1155,7 +1160,7 @@ static int mount_once(const char *save, const char *title) {
      g_failed = failed;
      pthread_t th;
@@ -7774,7 +7774,7 @@ index 431b306..04d46ef 100644
  }
 @@ -1193,10 +1198,9 @@ int save_sync_report(const char *save, const char *title, const char *folder, in
  }
- 
+
  int save_sync_mount(const char *save, const char *title) {   // the first mount does it; a second one (the device save) waits for it and gets its answer
 -    static int unsafe;
      pthread_mutex_lock(&g_mount_mu);
@@ -7788,7 +7788,7 @@ index 431b306..04d46ef 100644
 @@ -1217,6 +1221,26 @@ int save_sync_flush(int timeout_ms) {
      return ok;
  }
- 
+
 +void dm_save_sync_stop(void) {
 +    if (atomic_load(&g_on)) {
 +        save_sync_flush(500);
@@ -7881,7 +7881,7 @@ index f21b649..5142683 100644
      h_au_Close(out6);
 -    assert(!object.key && unit.disposals == 3);
 +    assert(!object.key && unit.disposals == 5);
- 
+
      // Six-channel output on a stereo route: the unit takes stereo and the host downmixes (front 1.0, center and back 0.707, LFE 0.251, Q15).
      unit.route_ch = 2; unit.device = 6; unit.format_ch = 0; unit.layout_tag = 0;
 @@ -649,7 +671,7 @@ int main(void) {
@@ -7891,7 +7891,7 @@ index f21b649..5142683 100644
 -    assert(!object.key && unit.disposals == 4);
 +    assert(!object.key && unit.disposals == 6);
      unit.route_ch = 2; unit.device = 1;
- 
+
      // Route change mid-session (HDMI 5.1 to the speakers and back): the unit's own notification leads to a new unit at the route's count, off the notifying thread.
 @@ -657,36 +679,36 @@ int main(void) {
      uint32_t outr[16] = {0};
@@ -7949,7 +7949,7 @@ index f21b649..5142683 100644
 -    assert(!object.key && unit.disposals == 12);
 +    assert(!object.key && unit.disposals == 14);
      unit.route_ch = 2; unit.device = 1;
- 
+
      // Failure after listener registration follows the same cleanup path as Close.
      unit.device = 1; unit.rate = 48000; unit.init_error = kAudioUnitErr_FailedInitialization;
      aout failed = {.ch = 2};
@@ -7982,7 +7982,7 @@ index 0e94ae1..c24b22f 100644
  void dm_pcmout_wait(void *k, int ms) { (void)k; (void)ms; }
 +void dm_pcmout_wake(void *k) { pcm_wake_calls++; last_wake_arg = k; }
  size_t dm_audren_work_size(const uint8_t *p, uint32_t revision) { return revision == 0x32564552 && rd32(p) == 48000 ? 0x12000 : 0; }
- 
+
  // A non-domain CMIF request: optional process ID and copied handles in a special header, A then B descriptors, the raw input after "SFCI"
 @@ -148,6 +151,36 @@ int main(void) {
      CHECK(call(r_dup, 0, NULL, 0, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0) == RES_OK && rd32(out_raw()) == 48000, "duplicate renderer answers GetSampleRate after original closes");
@@ -8028,7 +8028,7 @@ index 57b7e42..4be180d 100644
 @@ -707,6 +707,12 @@ int main(int argc, char **argv) {
      dm_cheat_toggle(at("TickFree", 0));
      atomic_store(&g_clock_auto, 1);
- 
+
 +    // ---- Shell game switch: tick thread joins cleanly and files queue drains ----
 +    tick_start();
 +    CHECK(g_tick_started == 1, "tick_start starts the ~60 Hz apply thread");
@@ -8043,7 +8043,7 @@ index 97af107..c8aee7e 100644
 --- a/dm/host/tests/t_codec_video.c
 +++ b/dm/host/tests/t_codec_video.c
 @@ -52,6 +52,7 @@ static OSStatus vt_test_create(CFAllocatorRef allocator, CMVideoFormatDescriptio
- 
+
  uint64_t now_ns(void) { return 1; }
  __thread _Atomic int dm_host_work;   // hle_thread.c
 +void dm_host_lock(pthread_mutex_t *m) { pthread_mutex_lock(m); }
@@ -8117,7 +8117,7 @@ index 9a86665..a6a365d 100644
 @@ -877,6 +891,69 @@ int main(void) { @autoreleasepool {
      advance(0.2);
      assert(ebPad2.reports.count == eb2Before + 1);
- 
+
 +    // Shell game switch: teardown resets gain and rumble_min and allows the next game to re-read or clear DM_RUMBLE_GAIN / DM_RUMBLE_MIN
 +    dm_haptics_apple_teardown();
 +    assert(gain == 1 && rumble_min == 0 && !g_haptics_inited);
@@ -8475,7 +8475,7 @@ index 8c23a9f..a7a950c 100644
  void dm_applet_enter(const char *name) { (void)name; }   // hle_oe.c: the shop stand-ins hold the game out of focus
  void dm_applet_leave(void) {}
 +void dm_oe_wake_teardown(void) {}
- 
+
  struct dm_flags g_flag;
  module_t *g_mod;
 diff --git a/dm/host/thread.c b/dm/host/thread.c
@@ -8539,7 +8539,7 @@ index 1cf370f..6d967a6 100644
  static __weak DmGamepad *g_view;
 +static _Atomic uint64_t g_gamepad_gen __attribute__((section("__DATA,__dm_keep")));
  static void pads_start(void);   // Physical controllers, below
- 
+
  @implementation DmGamepad {
 @@ -241,12 +242,11 @@ - (instancetype)initWithFrame:(CGRect)f {
              [_touchFeedback prepare];
@@ -8579,7 +8579,7 @@ index 1cf370f..6d967a6 100644
 +    });   // the touch gamepad hides while any controller is in use
  }
  @end
- 
+
 @@ -947,6 +953,16 @@ static int cp_waiting(void) {   // connected controllers that are no player yet
      g_cp_count.text = @(t[CP_TEXT_COUNT]);
      g_cp_done_btn.enabled = cp_can_confirm(&g_cp);
@@ -8622,7 +8622,7 @@ index 1cf370f..6d967a6 100644
 @@ -1029,7 +1048,10 @@ static void s2pad_detach(s2_pad *d) {   // d is already off the transport's list
  }
  static const dm_switch2_front g_s2front = {s2pad_attach, s2pad_detach, s2pad_read, s2pad_player, s2pad_blocked};
- 
+
 -UIView *dm_gamepad_view(CGRect frame) { DmGamepad *v = [[DmGamepad alloc] initWithFrame:frame]; g_view = v; return v; }
 +UIView *dm_gamepad_view(CGRect frame) {
 +    atomic_fetch_add(&g_gamepad_gen, 1);
@@ -8702,7 +8702,7 @@ index 1cf370f..6d967a6 100644
 +    k_idle = nil; k_on = nil; k_line = nil; k_ringFill = nil; k_text = nil; k_textOn = nil;
 +}
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index fba076b..efda1ba 100644
+index 0d6c920..558dd4a 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
 @@ -8,6 +8,7 @@
@@ -8725,7 +8725,7 @@ index fba076b..efda1ba 100644
 @@ -92,6 +95,10 @@ - (void)updateConstraints {
  }
  @end
- 
+
 +@interface DmTVSceneDelegate : UIResponder <UIWindowSceneDelegate>
 +@property (strong, nonatomic) UIWindow *window;
 +@end
@@ -8742,7 +8742,7 @@ index fba076b..efda1ba 100644
          self.tv = [self registerSceneAccessory:[UISceneAccessory externalNonInteractiveSceneAccessoryWithConfiguration:c]];
      }
  #endif
-@@ -319,10 +326,11 @@ static UIInterfaceOrientationMask plist_orientations(void) {
+@@ -321,10 +328,11 @@ static UIInterfaceOrientationMask plist_orientations(void) {
      return m ? m : UIInterfaceOrientationMaskAll;
  }
  UIInterfaceOrientationMask front_ios_app_orientations(void) { return dm_rotation_mask(getenv("DM_ROTATION"), plist_orientations()); }
@@ -8755,7 +8755,7 @@ index fba076b..efda1ba 100644
      UIInterfaceOrientationMask m = front_ios_app_orientations() & dm_rotation_vc_mask();
      for (UIScene *sc in UIApplication.sharedApplication.connectedScenes) {
          if (![sc isKindOfClass:UIWindowScene.class] || ![sc.session.role isEqualToString:UIWindowSceneSessionRoleApplication]) continue;   // not a TV's
-@@ -406,9 +414,6 @@ bool dm_setting_live(const char *env, const char *value) {
+@@ -399,9 +407,6 @@ bool dm_setting_live(const char *env, const char *value) {
      if (!strcmp(env, "DM_RUMBLE")) { if (value) { dm_haptics_set_enabled(atoi(value) != 0); LOG("front end: game rumble %s (in-game menu)", atoi(value) ? "on" : "off"); } return true; }
      return false;
  }
@@ -8765,7 +8765,7 @@ index fba076b..efda1ba 100644
  @implementation DmTVSceneDelegate
  - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)o {
      self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
-@@ -422,17 +427,19 @@ - (void)sceneDidDisconnect:(UIScene *)s { if (g_tv == self.window) tv_detach();
+@@ -415,17 +420,19 @@ - (void)sceneDidDisconnect:(UIScene *)s { if (g_tv == self.window) tv_detach();
  // Thermal state and screen brightness for the power and present rows every 300 frames (hle_nvn.c; its weak defaults return -1 on the Mac). thermalState: 0 nominal, 1 fair, 2 serious, 3 critical.
  // Brightness is read on the main thread at start and on each change; every change of the thermal state and of Low Power Mode (which lowers the CPU clock) is logged with the time since launch
  static _Atomic double g_brightness = -1;
@@ -8789,7 +8789,7 @@ index fba076b..efda1ba 100644
      screen_refresh();
      LOG("front end: thermal state %d, brightness %.2f, Low Power Mode %s, screen %d Hz", dm_thermal_now(), g_brightness, dm_low_power_now() ? "on" : "off", front_screen_max_fps());
  }
-@@ -447,7 +454,8 @@ static void front_ios_power_watch(void) {
+@@ -440,7 +447,8 @@ static void front_ios_power_watch(void) {
      l.backgroundColor = [UIColor colorWithWhite:0 alpha:0.45]; l.layer.cornerRadius = 6; l.layer.masksToBounds = YES; l.userInteractionEnabled = NO;
      l.text = @"-- fps";
      __block uint64_t n0 = mtl_present_count(); __block double t0 = CACurrentMediaTime();
@@ -8799,7 +8799,7 @@ index fba076b..efda1ba 100644
          (void)t; uint64_t n = mtl_present_count(); double now = CACurrentMediaTime();
          if (now - t0 < 1.5) l.text = [NSString stringWithFormat:@"%.0f fps", (n - n0) / (now - t0)];   // a longer span is the time in the background: no reading
          n0 = n; t0 = now;
-@@ -703,7 +711,7 @@ static BOOL front_ios_same_outputs(NSArray<AVAudioSessionPortDescription *> *pre
+@@ -696,7 +704,7 @@ static BOOL front_ios_same_outputs(NSArray<AVAudioSessionPortDescription *> *pre
  }
  static void front_ios_audio_watch(void) {
      NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
@@ -8808,7 +8808,7 @@ index fba076b..efda1ba 100644
          NSUInteger type = [n.userInfo[AVAudioSessionInterruptionTypeKey] unsignedIntegerValue], reason = [n.userInfo[AVAudioSessionInterruptionReasonKey] unsignedIntegerValue];
          if (type == AVAudioSessionInterruptionTypeBegan) { LOG("audio session: interrupted (reason %lu)", (unsigned long)reason); g_audio_intr = 1; }
          else {
-@@ -713,7 +721,7 @@ static void front_ios_audio_watch(void) {
+@@ -706,7 +714,7 @@ static void front_ios_audio_watch(void) {
          front_ios_audio_apply();
      }];
      // Reapply the channel preference first. A changed output can also interrupt callbacks at the same channel count.
@@ -8817,7 +8817,7 @@ index fba076b..efda1ba 100644
          NSUInteger reason = [n.userInfo[AVAudioSessionRouteChangeReasonKey] unsignedIntegerValue];
          AVAudioSession *session = AVAudioSession.sharedInstance;
          AVAudioSessionRouteDescription *previous = n.userInfo[AVAudioSessionRouteChangePreviousRouteKey];
-@@ -727,7 +735,7 @@ static void front_ios_audio_watch(void) {
+@@ -720,7 +728,7 @@ static void front_ios_audio_watch(void) {
              dm_audio_route_changed();
          }
      }];
@@ -8826,10 +8826,10 @@ index fba076b..efda1ba 100644
          (void)n; LOG("audio session: the media services were reset; setting the session and the outputs up again");
          front_ios_audio_session(); dm_audio_reset();
      }];
-@@ -747,8 +755,9 @@ static void save_sync_background(void) {
+@@ -740,8 +748,9 @@ static void save_sync_background(void) {
      });
  }
- 
+
 +static _Atomic int g_quitting;
  void front_ios_focus_event(int ev) {
 -    if (!g_layer) return;
@@ -8837,7 +8837,7 @@ index fba076b..efda1ba 100644
      switch (ev) {
          case 0: quit_close(); dm_movie_active(0); dm_gamepad_inactive(); dm_focus_set(2); break;
          case 1:
-@@ -867,14 +876,62 @@ static void quit_show_prompt(GCController *holder) {
+@@ -860,14 +869,62 @@ static void quit_show_prompt(GCController *holder) {
      g_hq_view = v;
      UIAccessibilityPostNotification(UIAccessibilityScreenChangedNotification, v.accessibilityElements.firstObject);
  }
@@ -8902,7 +8902,7 @@ index fba076b..efda1ba 100644
          dm_host_shutdown("the quit prompt");
      });
  }
-@@ -905,7 +962,7 @@ static void quit_changed(hq_phase was, hq_phase now, GCController *holder) {
+@@ -898,7 +955,7 @@ static void quit_changed(hq_phase was, hq_phase now, GCController *holder) {
  }
  void front_ios_quit_poll(void) {   // DmGamepad.m on a controller's change, and the hold's timer (main queue)
      quit_start();
@@ -8911,7 +8911,7 @@ index fba076b..efda1ba 100644
      g_hq_busy = 1;
      int home, a, b; GCController *holder = nil; quit_buttons(&home, &a, &b, &holder);
      double now = CACurrentMediaTime();
-@@ -924,7 +981,7 @@ void front_ios_quit_poll(void) {   // DmGamepad.m on a controller's change, and
+@@ -917,7 +974,7 @@ void front_ios_quit_poll(void) {   // DmGamepad.m on a controller's change, and
  }
  static void quit_open(void) {   // the in-game menu's Quit
      quit_start();
@@ -8925,14 +8925,14 @@ index 4bc48ff..19874f7 100644
 --- a/dm/ios/framework/ShellGlue.m
 +++ b/dm/ios/framework/ShellGlue.m
 @@ -20,13 +20,17 @@
- 
+
  __attribute__((used, visibility("default"))) const int dm_glue_version = DM_GLUE_VERSION;
- 
+
 -static char **g_argv; static int g_argc; static int g_boot_ok;
 +static char **g_argv __attribute__((section("__DATA,__dm_keep")));
 +static int g_argc __attribute__((section("__DATA,__dm_keep")));
 +static int g_boot_ok;
- 
+
  __attribute__((used, visibility("default")))
  const char *dm_glue_start_game(const char *const *argv, int argc, const void *game_image) {
      if (argc < 2 || !game_image) return "The game's start arguments are incomplete.";
@@ -9072,7 +9072,7 @@ index 5c6d3d0..a0622ae 100644
 +            )
          undef = run('nm', '-u', binary).stdout
          self.assertNotIn('__mh_execute_header', undef, 'the framework must read its own image header (__dso_handle), not the executable\'s')
- 
+
 diff --git a/dm/ios/tests/test_objc_namespace.py b/dm/ios/tests/test_objc_namespace.py
 new file mode 100644
 index 0000000..d62b431

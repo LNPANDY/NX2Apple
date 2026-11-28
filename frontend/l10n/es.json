@@ -1,5 +1,12 @@
 {
-  "_language": {"locales": ["es", "spanish", "español"], "name": "Español"},
+  "_language": {
+    "locales": [
+      "es",
+      "spanish",
+      "español"
+    ],
+    "name": "Español"
+  },
   "activity.averageSession": "Media %@",
   "activity.button": "Registro de actividad",
   "activity.dayCount": "%lld días",
@@ -2005,8 +2012,6 @@
   "launch.opt.DM_OPMODE.1": "Sobremesa",
   "launch.opt.DM_PICTURE_FIT.fill": "Rellenar",
   "launch.opt.DM_PICTURE_FIT.fit": "Ajustar",
-  "launch.opt.DM_PORTRAIT_EDGE.0": "Estándar (4:3)",
-  "launch.opt.DM_PORTRAIT_EDGE.1": "Borde superior completo (sobre Dynamic Island)",
   "launch.opt.DM_PRESENT_INTERVAL.display": "60 fps",
   "launch.opt.DM_PRESENT_INTERVAL.game": "30 fps",
   "launch.opt.DM_PRESENT_UPSCALE.metalfx": "MetalFX",
@@ -2018,6 +2023,7 @@
   "launch.opt.DM_SCREEN_ASPECT.1.43": "Pantalla del iPhone Duo (1,43:1)",
   "launch.opt.DM_SCREEN_ASPECT.1.6": "MacBook (16:10)",
   "launch.opt.DM_SCREEN_ASPECT.auto": "Ajustar a la pantalla",
+  "launch.opt.DM_SCREEN_ASPECT.portrait-full": "Vertical completa",
   "launch.opt.DM_TOUCH_SIZE.large": "Grande",
   "launch.opt.DM_TOUCH_SIZE.medium": "Mediano",
   "launch.opt.DM_TOUCH_SIZE.small": "Pequeño",
@@ -2063,8 +2069,6 @@
   "launch.set.DM_PAD_PRESS_TO_JOIN": "Pulsa un botón para unirte",
   "launch.set.DM_PICTURE_FIT": "Imagen",
   "launch.set.DM_PICTURE_FIT.note": "Rellenar recorta la imagen 16:9 del juego para cubrir la pantalla. Se pueden cortar barras de vida, subtítulos o mapas cerca de los bordes. Una imagen a pantalla completa sin recorte necesita un parche para cada juego.",
-  "launch.set.DM_PORTRAIT_EDGE": "Marco vertical",
-  "launch.set.DM_PORTRAIT_EDGE.note": "Extiende la imagen vertical hasta el borde superior de la pantalla pasando la Dynamic Island. El renderizado nativo se aplica en el próximo inicio.",
   "launch.set.DM_PRESENT_INTERVAL": "Tasa de fotogramas",
   "launch.set.DM_PRESENT_SNAP": "Almacenamiento de fotogramas",
   "launch.set.DM_PRESENT_SNAP.note": "Hasta un fotograma más de latencia en pantalla.",
@@ -2080,7 +2084,7 @@
   "launch.set.DM_RUMBLE_GAIN": "Intensidad de la vibración",
   "launch.set.DM_RUMBLE_MIN": "Umbral de la vibración",
   "launch.set.DM_SCREEN_ASPECT": "Forma de la imagen",
-  "launch.set.DM_SCREEN_ASPECT.note": "Los formatos más altos renderizan más píxeles y pueden aumentar el tiempo de GPU y el calor.",
+  "launch.set.DM_SCREEN_ASPECT.note": "Los formatos más altos renderizan más píxeles y pueden aumentar el tiempo de GPU y el calor. Vertical completa extiende la imagen vertical hasta el borde superior de la pantalla pasando la Dynamic Island.",
   "launch.set.DM_SHOW_FPS": "Contador de fotogramas",
   "launch.set.DM_SW2": "Mandos de Switch 2",
   "launch.set.DM_SW2.note": "Usa Joy-Con 2 y Pro Controller 2 por Bluetooth: mantén pulsado Sync en uno durante el juego para emparejarlo (en iPhone y iPad, después de cada inicio). El sistema pide una vez el acceso a Bluetooth.",

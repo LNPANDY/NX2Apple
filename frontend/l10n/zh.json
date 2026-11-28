@@ -1,5 +1,12 @@
 {
-  "_language": {"locales": ["zh", "chinese"], "name": "中文", "order": 0},
+  "_language": {
+    "locales": [
+      "zh",
+      "chinese"
+    ],
+    "name": "中文",
+    "order": 0
+  },
   "activity.averageSession": "平均 %@",
   "activity.button": "游玩记录",
   "activity.dayCount": "%lld 天",
@@ -2005,8 +2012,6 @@
   "launch.opt.DM_OPMODE.1": "底座模式",
   "launch.opt.DM_PICTURE_FIT.fill": "填充",
   "launch.opt.DM_PICTURE_FIT.fit": "适应",
-  "launch.opt.DM_PORTRAIT_EDGE.0": "标准（4:3）",
-  "launch.opt.DM_PORTRAIT_EDGE.1": "顶天立地（越过灵动岛）",
   "launch.opt.DM_PRESENT_INTERVAL.display": "60 fps",
   "launch.opt.DM_PRESENT_INTERVAL.game": "30 fps",
   "launch.opt.DM_PRESENT_UPSCALE.metalfx": "MetalFX",
@@ -2018,6 +2023,7 @@
   "launch.opt.DM_SCREEN_ASPECT.1.43": "iPhone Duo 屏幕（1.43:1）",
   "launch.opt.DM_SCREEN_ASPECT.1.6": "MacBook（16:10）",
   "launch.opt.DM_SCREEN_ASPECT.auto": "匹配屏幕",
+  "launch.opt.DM_SCREEN_ASPECT.portrait-full": "竖框全面屏",
   "launch.opt.DM_TOUCH_SIZE.large": "大",
   "launch.opt.DM_TOUCH_SIZE.medium": "中",
   "launch.opt.DM_TOUCH_SIZE.small": "小",
@@ -2063,8 +2069,6 @@
   "launch.set.DM_PAD_PRESS_TO_JOIN": "按任意键加入",
   "launch.set.DM_PICTURE_FIT": "画面",
   "launch.set.DM_PICTURE_FIT.note": "填充会裁切游戏的 16:9 画面以铺满屏幕。边缘附近的血条、字幕或地图可能被裁掉。不裁切的全屏画面需要为每个游戏单独打补丁。",
-  "launch.set.DM_PORTRAIT_EDGE": "竖屏画框",
-  "launch.set.DM_PORTRAIT_EDGE.note": "在竖屏下将游戏画面一直延伸至屏幕顶部并越过灵动岛。原生全高渲染在下次启动时生效。",
   "launch.set.DM_PRESENT_INTERVAL": "帧率",
   "launch.set.DM_PRESENT_SNAP": "帧缓冲",
   "launch.set.DM_PRESENT_SNAP.note": "显示延迟最多增加一帧。",
@@ -2080,7 +2084,7 @@
   "launch.set.DM_RUMBLE_GAIN": "震动强度",
   "launch.set.DM_RUMBLE_MIN": "震动下限",
   "launch.set.DM_SCREEN_ASPECT": "画面比例",
-  "launch.set.DM_SCREEN_ASPECT.note": "更高的画面比例会渲染更多像素，可能增加 GPU 耗时与发热。",
+  "launch.set.DM_SCREEN_ASPECT.note": "更高的画面比例会渲染更多像素，可能增加 GPU 耗时与发热。选择竖框全面屏时，竖屏画面会延伸至屏幕顶部并越过灵动岛。",
   "launch.set.DM_SHOW_FPS": "帧率显示",
   "launch.set.DM_SW2": "Switch 2 手柄",
   "launch.set.DM_SW2.note": "通过蓝牙使用 Joy-Con 2 和 Pro Controller 2：游戏中按住手柄上的同步键即可配对（在 iPhone 和 iPad 上每次启动后需重新按住）。系统会请求一次蓝牙访问权限。",

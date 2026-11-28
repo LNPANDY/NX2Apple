@@ -8,25 +8,26 @@ Upstream-Status: pending [builds on touch layout patches]
 Reason: Expose touch size and stick settings and localized in-game menu labels
 Issue: LNPANDY/NX2Apple#1110
 ---
- dm/games/settings.tsv                         |    3 +
+ dm/games/settings.tsv                         |    4 +-
  dm/ios/Sources/DmGameMenu.h                   |   39 +
  dm/ios/Sources/GameMenu.swift                 |   80 +-
  dm/ios/Sources/GameMenuCheats.swift           | 1165 +++++++++++++++++
- dm/ios/Sources/front_ios.m                    |  104 ++
+ dm/ios/Sources/front_ios.m                    |   95 ++
  dm/ios/project-framework.yml                  |    1 +
- dm/ios/tests/duo/Sources/DuoHarnessRuntime.h  |   18 +
+ dm/ios/tests/duo/Sources/DuoHarnessRuntime.h  |   19 +
  dm/ios/tests/duo/Sources/DuoRuntimeStubs.m    |  121 ++
  dm/ios/tests/duo/Tests/DuoGameMenuTests.swift |  259 +++-
  .../Tests/DuoHarnessTests-Bridging-Header.h   |    2 +
+ dm/ios/tests/duo/Tests/DuoHarnessTests.m      |    4 +
  dm/ios/tests/duo/project.yml                  |    2 +
- dm/tools/tests/test_launcher_settings.py      |   26 +-
- docs/settings.md                              |    9 +-
- 13 files changed, 1817 insertions(+), 12 deletions(-)
+ dm/tools/tests/test_launcher_settings.py      |   31 +-
+ docs/settings.md                              |   12 +-
+ 14 files changed, 1820 insertions(+), 14 deletions(-)
  create mode 100644 dm/ios/Sources/GameMenuCheats.swift
  create mode 100644 dm/ios/tests/duo/Tests/DuoHarnessTests-Bridging-Header.h
 
 diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
-index 4d9f6e0..e5de969 100644
+index 4d9f6e0..b48a287 100644
 --- a/dm/games/settings.tsv
 +++ b/dm/games/settings.tsv
 @@ -29,6 +29,8 @@ DM_PICTURE_FIT	choice	fit=Fit,fill=Fill	fit	always	Game	Picture	Fill crops the g
@@ -38,11 +39,12 @@ index 4d9f6e0..e5de969 100644
  DM_RUMBLE	toggle	-	1	always	Controls	Game rumble		level=basic
  DM_RUMBLE_GAIN	range	0:3:0.1	1.0	always	Controls	Rumble strength		needs=DM_RUMBLE=1
  DM_RUMBLE_MIN	range	0:0.9:0.05	0	always	Controls	Rumble cutoff
-@@ -37,6 +39,7 @@ DM_SW2	toggle	-	0	always	Controls	Switch 2 controllers	Plays Joy-Con 2 and Pro C
+@@ -36,7 +38,7 @@ DM_PAD_PRESS_TO_JOIN	toggle	-	0	always	Controls	Press a button to join
+ DM_SW2	toggle	-	0	always	Controls	Switch 2 controllers	Plays Joy-Con 2 and Pro Controller 2 over Bluetooth: hold Sync on one during the game to pair it (on iPhone and iPad, after each start). The system asks once for Bluetooth access.
  DM_MIC	toggle	-	0	mac-mic	Controls	Microphone	Lets the game hear your microphone. macOS asks for access when you launch with this enabled.	level=basic
  DM_MIC_GAIN	range	1:8:0.5	1	mac-mic	Controls	Microphone gain		needs=DM_MIC=1
- DM_SCREEN_ASPECT	choice	auto=Match screen?platform:ios,1.6=MacBook (16:10)?platform:mac,1.43=iPhone Duo screen (1.43:1),0=16:9 (Switch)	auto|0	fixups:SCREEN_ASPECT	Game	Picture shape	Taller shapes render more pixels and can increase GPU time and heat.
-+DM_PORTRAIT_EDGE	choice	0=Standard (4:3),1=Full top (past Dynamic Island)	0	platform:ios&fixups:SCREEN_ASPECT	Game	Portrait frame	Extends the portrait picture to the top of the screen past the Dynamic Island. Native full-top rendering takes effect on next launch.
+-DM_SCREEN_ASPECT	choice	auto=Match screen?platform:ios,1.6=MacBook (16:10)?platform:mac,1.43=iPhone Duo screen (1.43:1),0=16:9 (Switch)	auto|0	fixups:SCREEN_ASPECT	Game	Picture shape	Taller shapes render more pixels and can increase GPU time and heat.
++DM_SCREEN_ASPECT	choice	auto=Match screen?platform:ios,portrait-full=Portrait full screen?platform:ios,1.6=MacBook (16:10)?platform:mac,1.43=iPhone Duo screen (1.43:1),0=16:9 (Switch)	auto|0	fixups:SCREEN_ASPECT	Game	Picture shape	Taller shapes render more pixels and can increase GPU time and heat. Portrait full screen extends the portrait picture to the top of the screen past the Dynamic Island.
  DM_PRESENT_SNAP	toggle	-	DM_GAME_PRESENT_SNAP	gfxapi:nvn	Performance	Frame buffering	Up to one frame more display latency.
  DM_PSO_MTL4	toggle	-	DM_GAME_PSO_MTL4|1	gfxapi:nvn	Performance	Metal 4 pipelines	Keeps a pipeline archive; uses more memory.
  DM_PSO_PREBUILD	toggle	-	1	gfxapi:nvn	Performance	Pipeline prebuild	The first start waits a few minutes for it, once.	needs=DM_PSO_MTL4=1
@@ -106,7 +108,7 @@ index 82c284a..7e93bae 100644
  }
  #endif
 diff --git a/dm/ios/Sources/GameMenu.swift b/dm/ios/Sources/GameMenu.swift
-index 16d81d1..df27904 100644
+index 16d81d1..30230f3 100644
 --- a/dm/ios/Sources/GameMenu.swift
 +++ b/dm/ios/Sources/GameMenu.swift
 @@ -7,8 +7,9 @@ import UIKit
@@ -139,7 +141,7 @@ index 16d81d1..df27904 100644
 +    }
 +}
 +
-+private let shellMenuAllowlist: Set<String> = ["DM_OPMODE", "DM_PICTURE_FIT", "DM_ROTATION", "DM_PORTRAIT_EDGE", "DM_SHOW_FPS", "DM_AUDIO_MIX", "DM_METAL_HUD"]
++private let shellMenuAllowlist: Set<String> = ["DM_OPMODE", "DM_PICTURE_FIT", "DM_ROTATION", "DM_SHOW_FPS", "DM_AUDIO_MIX", "DM_METAL_HUD"]
 +
 +private struct ShellMenuPayload: Decodable {
 +    let suiteName: String
@@ -1406,10 +1408,10 @@ index 0000000..2589022
 +    }
 +}
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index ca5075a..fba076b 100644
+index 7cf4be1..0d6c920 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
-@@ -292,6 +292,13 @@ - (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
+@@ -294,6 +294,13 @@ - (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
  - (UIRectEdge)preferredScreenEdgesDeferringSystemGestures { return UIRectEdgeAll; }   // Edge gestures need two swipes, to avoid accidental exits
  - (BOOL)prefersStatusBarHidden { return YES; }
  - (UIInterfaceOrientationMask)supportedInterfaceOrientations { return dm_rotation_vc_mask(); }
@@ -1423,23 +1425,7 @@ index ca5075a..fba076b 100644
  @end
  UIViewController *front_ios_root(void) { return [DmRootVC new]; }
 
-@@ -377,6 +384,15 @@ bool dm_setting_live(const char *env, const char *value) {
-         if (value) { g_root.fill = dm_picture_fill(value); [g_root.view setNeedsLayout]; LOG("front end: picture %s (in-game menu)", g_root.fill ? "Fill" : "Fit"); }
-         return true;
-     }
-+    if (!strcmp(env, "DM_PORTRAIT_EDGE")) {
-+        if (value) {
-+            setenv("DM_PORTRAIT_EDGE", dm_portrait_edge(value) ? "1" : "0", 1);
-+            g_root.portraitEdge = dm_portrait_edge(value);
-+            [g_root.view setNeedsLayout];
-+            LOG("front end: portrait frame %s (in-game menu)", g_root.portraitEdge ? "full top" : "standard 4:3");
-+        }
-+        return true;
-+    }
-     if (!strcmp(env, "DM_OPMODE")) {
-         if (!value) return true;
-         int m = atoi(value) ? 1 : 0;
-@@ -882,6 +898,7 @@ static void quit_changed(hq_phase was, hq_phase now, GCController *holder) {
+@@ -884,6 +891,7 @@ static void quit_changed(hq_phase was, hq_phase now, GCController *holder) {
          if (was == HQ_SETTLE) dm_gamepad_pads_read();   // the game reads the controllers again, as they are now
          break;
      case HQ_QUIT:
@@ -1447,7 +1433,7 @@ index ca5075a..fba076b 100644
          quit_now();
          break;
      }
-@@ -951,3 +968,90 @@ void front_ios_quit_controllers(void) {
+@@ -953,3 +961,90 @@ void front_ios_quit_controllers(void) {
  #endif
      static int said; if (!said++) LOG("front end: the Home button setting is read on iOS 27, the Home hold works where the system lets the press through");
  }
@@ -1551,10 +1537,10 @@ index 7adedfb..4bbd385 100644
        - path: Sources/CloudSaves.m
        - path: Sources/DataBookmark.m
 diff --git a/dm/ios/tests/duo/Sources/DuoHarnessRuntime.h b/dm/ios/tests/duo/Sources/DuoHarnessRuntime.h
-index 9d0d779..cd1b942 100644
+index 9d0d779..d50cd72 100644
 --- a/dm/ios/tests/duo/Sources/DuoHarnessRuntime.h
 +++ b/dm/ios/tests/duo/Sources/DuoHarnessRuntime.h
-@@ -38,4 +38,22 @@ int dm_opmode(void);
+@@ -38,4 +38,23 @@ int dm_opmode(void);
  DuoHarnessState duo_harness_state(void);
  void duo_harness_clear(void);
 
@@ -1575,6 +1561,7 @@ index 9d0d779..cd1b942 100644
 +void duo_harness_scan_set_hits(const dm_scan_hit_t *hits, int count, size_t total);
 +int duo_harness_scan_write_count(void);
 +int duo_harness_scan_append_count(void);
++int duo_harness_portrait_narrow(void);
 +
  FOUNDATION_EXPORT NSString * const DuoHarnessInputDidChangeNotification;
 diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
@@ -1721,7 +1708,7 @@ index dc06315..14398cb 100644
  void dm_audio_suspend(int on) { (void)on; }
  void dm_audio_reset(void) {}
 diff --git a/dm/ios/tests/duo/Tests/DuoGameMenuTests.swift b/dm/ios/tests/duo/Tests/DuoGameMenuTests.swift
-index 1b5a3c4..414083c 100644
+index 1b5a3c4..7dab1c6 100644
 --- a/dm/ios/tests/duo/Tests/DuoGameMenuTests.swift
 +++ b/dm/ios/tests/duo/Tests/DuoGameMenuTests.swift
 @@ -1,9 +1,63 @@
@@ -1806,12 +1793,12 @@ index 1b5a3c4..414083c 100644
 +                       ["Plus de réglages", "Disposition de la manette", "Tap", "Set in env.txt", "%@, set in env.txt"])
 +    }
 +
-+    func testShellMenuAllowsPortraitEdgeChoice() {
-+        let suiteName = "com.nx2apple.tests.portraitedge.\(UUID().uuidString)"
++    func testShellMenuOmitsRestartOnlyPictureShapeChoice() {
++        let suiteName = "com.nx2apple.tests.pictureshape.\(UUID().uuidString)"
 +        let defaults = UserDefaults(suiteName: suiteName)!
 +        defer { defaults.removePersistentDomain(forName: suiteName) }
 +        let json = """
-+        {"suiteName":"\(suiteName)","items":[{"env":"DM_PORTRAIT_EDGE","kind":"choice","label":"Portrait frame","effectiveDefault":"0","options":[["0","Standard (4:3)"],["1","Full top (past Dynamic Island)"]]}]}
++        {"suiteName":"\(suiteName)","items":[{"env":"DM_SCREEN_ASPECT","kind":"choice","label":"Picture shape","effectiveDefault":"auto","options":[["auto","Match screen"],["portrait-full","Portrait full screen"],["1.43","iPhone Duo screen (1.43:1)"],["0","16:9 (Switch)"]]}]}
 +        """
 +        setenv("DM_SHELL_MENU", json, 1)
 +        defer { unsetenv("DM_SHELL_MENU") }
@@ -2011,6 +1998,39 @@ index 0000000..dfa426e
 @@ -0,0 +1,2 @@
 +#import "DuoHarnessRuntime.h"
 +#import "DmGameMenu.h"
+diff --git a/dm/ios/tests/duo/Tests/DuoHarnessTests.m b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
+index 9a71cde..f884405 100644
+--- a/dm/ios/tests/duo/Tests/DuoHarnessTests.m
++++ b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
+@@ -1920,6 +1920,7 @@ - (void)testPortraitFullScreenAspectExtendsPicturePastDynamicIslandAndLatchesSta
+         setenv("DM_SCREEN_ASPECT", "auto", 1);
+         front_ios_resolve_auto_screen_aspect(pmPortrait, pmInsets, 0, NO);
+         XCTAssertEqualObjects(@(getenv("DM_SCREEN_ASPECT")), @"1.333");
++        XCTAssertEqual(duo_harness_portrait_narrow(), 1);
+
+         // 2. DM_SCREEN_ASPECT=portrait-full resolves exact full-top slot ratio (440 / 478 = 0.921) even when window starts landscape.
+         setenv("DM_SCREEN_ASPECT", "portrait-full", 1);
+@@ -1927,17 +1928,20 @@ - (void)testPortraitFullScreenAspectExtendsPicturePastDynamicIslandAndLatchesSta
+         double resolved = atof(getenv("DM_SCREEN_ASPECT"));
+         XCTAssertEqualWithAccuracy(resolved, 440.0 / 478.0, 0.002);
+         XCTAssertGreaterThanOrEqual(resolved, 0.85);
++        XCTAssertEqual(duo_harness_portrait_narrow(), 1);
+
+         // 3. Landscape treats DM_SCREEN_ASPECT=portrait-full like auto (16:9 on phone) and clears narrow portrait flag.
+         setenv("DM_ROTATION", "landscape", 1);
+         setenv("DM_SCREEN_ASPECT", "portrait-full", 1);
+         front_ios_resolve_auto_screen_aspect(CGSizeMake(956, 440), UIEdgeInsetsMake(0, 62, 20, 62), 0, NO);
+         XCTAssertEqualObjects(@(getenv("DM_SCREEN_ASPECT")), @"0");
++        XCTAssertEqual(duo_harness_portrait_narrow(), 0);
+
+         // 4. iPad portrait (744x1133) keeps wide 1920px output (portrait_narrow == 0).
+         setenv("DM_ROTATION", "portrait", 1);
+         setenv("DM_SCREEN_ASPECT", "auto", 1);
+         front_ios_resolve_auto_screen_aspect(CGSizeMake(744, 1133), UIEdgeInsetsMake(24, 0, 20, 0), 0, NO);
++        XCTAssertEqual(duo_harness_portrait_narrow(), 0);
+
+         // 5. Explicit 1.43 and 0 stay unchanged in portrait and keep the standard 4:3 frame below the Dynamic Island.
+         setenv("DM_SCREEN_ASPECT", "1.43", 1);
 diff --git a/dm/ios/tests/duo/project.yml b/dm/ios/tests/duo/project.yml
 index beca33b..ff3fb6e 100644
 --- a/dm/ios/tests/duo/project.yml
@@ -2032,7 +2052,7 @@ index beca33b..ff3fb6e 100644
          CODE_SIGN_STYLE: Automatic
          DEVELOPMENT_TEAM: ""
 diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
-index 59d15d6..d4259e4 100644
+index 59d15d6..a342a97 100644
 --- a/dm/tools/tests/test_launcher_settings.py
 +++ b/dm/tools/tests/test_launcher_settings.py
 @@ -92,6 +92,13 @@ class LauncherSettingsTests(unittest.TestCase):
@@ -2058,37 +2078,43 @@ index 59d15d6..d4259e4 100644
          self.assertIn('DM_RUMBLE', mac); self.assertIn('DM_METAL_HUD', mac)
          self.assertEqual(set(mac) - set(ios), {'DM_FULLSCREEN', 'DM_NVN_ANISO'})   # Mac-only Display mode and NVN texture filtering
          self.assertNotIn('DM_NVN_ANISO', build('0100535012974000', 'vulkan', 'mac'))
-@@ -124,14 +131,25 @@ class LauncherSettingsTests(unittest.TestCase):
+@@ -124,14 +131,32 @@ class LauncherSettingsTests(unittest.TestCase):
      def test_picture_shape_requires_the_rewriter_capability(self):
          games = ('0400486024DEC000', BOTW, '01006F8002326000')
          for gid in games:
 -            self.assertNotIn('DM_SCREEN_ASPECT', build(gid, 'nvn'))
 +            built = build(gid, 'nvn')
 +            self.assertNotIn('DM_SCREEN_ASPECT', built)
-+            self.assertNotIn('DM_PORTRAIT_EDGE', built)
          with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {'GFXAPI': 'nvn', 'SETTINGS_PLATFORM': 'ios'}):
              (Path(tmp) / 'main.fixups.tsv').write_text('# SCREEN_ASPECT\t1\n', encoding='utf-8')
              for gid in games:
                  with self.subTest(gid=gid):
                      rows = settings.build(gid, tmp, Path(tmp) / 'control.nacp')['settings']
 -                    shape = next(row for row in rows if row['env'] == 'DM_SCREEN_ASPECT')
--                    self.assertEqual(shape['default'], 'auto')
 +                    by_env = {row['env']: row for row in rows}
-+                    self.assertEqual(by_env['DM_SCREEN_ASPECT']['default'], 'auto')
-+                    edge = by_env['DM_PORTRAIT_EDGE']
-+                    self.assertEqual(edge['default'], '0')
-+                    self.assertEqual(edge['options'], [['0', 'Standard (4:3)'], ['1', 'Full top (past Dynamic Island)']])
-+                    self.assertNotIn(';', edge['note'])
++                    shape = by_env['DM_SCREEN_ASPECT']
+                     self.assertEqual(shape['default'], 'auto')
++                    self.assertEqual(shape['options'], [
++                        ['auto', 'Match screen'],
++                        ['portrait-full', 'Portrait full screen'],
++                        ['1.43', 'iPhone Duo screen (1.43:1)'],
++                        ['0', '16:9 (Switch)'],
++                    ])
++                    self.assertIn('Dynamic Island', shape['note'])
++                    self.assertNotIn(';', shape['note'])
 +        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {'GFXAPI': 'nvn', 'SETTINGS_PLATFORM': 'mac'}):
 +            (Path(tmp) / 'main.fixups.tsv').write_text('# SCREEN_ASPECT\t1\n', encoding='utf-8')
-+            mac_envs = {row['env'] for row in settings.build(BOTW, tmp, Path(tmp) / 'control.nacp')['settings']}
-+            self.assertIn('DM_SCREEN_ASPECT', mac_envs)
-+            self.assertNotIn('DM_PORTRAIT_EDGE', mac_envs)
++            mac_by_env = {row['env']: row for row in settings.build(BOTW, tmp, Path(tmp) / 'control.nacp')['settings']}
++            self.assertEqual(mac_by_env['DM_SCREEN_ASPECT']['options'], [
++                ['1.6', 'MacBook (16:10)'],
++                ['1.43', 'iPhone Duo screen (1.43:1)'],
++                ['0', '16:9 (Switch)'],
++            ])
 
      def test_malformed_platform_defaults_are_rejected(self):
          for default in ('1|', '|0', '1|0|1'):
 diff --git a/docs/settings.md b/docs/settings.md
-index 6c84a82..832d974 100644
+index 6c84a82..bb4cb3e 100644
 --- a/docs/settings.md
 +++ b/docs/settings.md
 @@ -4,7 +4,7 @@ The screen before the game starts shows the settings the game supports. A settin
@@ -2100,6 +2126,15 @@ index 6c84a82..832d974 100644
  - [Performance](#performance): [Frame buffering](#frame-buffering), [Metal 4 pipelines](#metal-4-pipelines), [Pipeline prebuild](#pipeline-prebuild), [Encode thread](#encode-thread), [Shader prefetch](#shader-prefetch), [Downsample HDR textures](#downsample-hdr-textures), [Hold frames when late](#hold-frames-when-late), [Performance HUD](#performance-hud), [Reset to tested defaults](#reset-to-tested-defaults)
  - [The Mac settings window](#the-mac-settings-window): [Display mode](#display-mode)
  - [In-game menu](#in-game-menu)
+@@ -93,7 +93,7 @@ iPhone, iPad and Mac. **Fit**, the default, shows the game's picture (16:9, or t
+
+ ### Picture shape
+
+-Games whose profile supports it (Breath of the Wild, Animal Crossing: New Horizons). **iPhone Duo screen (1.43:1)** renders a taller picture of the Duo's own shape: the sides of 16:9 with more above and below, and the HUD at the screen's edges. **16:9** is the Switch's picture. The taller picture has about a quarter more pixels, so it runs a little slower and warmer.
++Games whose profile supports it (Breath of the Wild, Animal Crossing: New Horizons, Ocarina of Time). On iPhone and iPad, **Match screen** uses the 4:3 picture slot below the Dynamic Island in portrait and the window's taller shape on iPad or an unfolded iPhone Duo. **Portrait full screen** extends the portrait picture from the top edge of the screen past the Dynamic Island down to the touch controls and follows **Match screen** in landscape. **iPhone Duo screen (1.43:1)** renders a taller picture of the Duo's own shape: the sides of 16:9 with more above and below, and the HUD at the screen's edges. **16:9 (Switch)** keeps the Switch's picture. Taller shapes render more pixels, so they can increase GPU time and heat.
+
+ ### Rotation
+
 @@ -112,6 +112,10 @@ Shows the frames per second at the top left.
 
  A light tap from the phone when you press an on-screen button.
@@ -2111,12 +2146,12 @@ index 6c84a82..832d974 100644
  ### Game rumble
 
  The game's vibration, on the phone or on a connected controller.
-@@ -310,10 +314,13 @@ A line like `DM_PRESENT_SNAP=0` in `Documents/env.txt` (in the Files app, under
+@@ -310,10 +314,12 @@ A line like `DM_PRESENT_SNAP=0` in `Documents/env.txt` (in the Files app, under
  | Cloud saves folder (Mac) | `DM_SAVE_SYNC` | a folder; `icloud`: iCloud Drive › nxnative Saves; `0`: off |
  | Start save backups | `DM_SAVE_BACKUPS` | `0`: off (on by default: keeps up to 10 / 256 MB in `<save>-backups/<date> start`) |
  | Picture | `DM_PICTURE_FIT` | `fit` 16:9 with black bars, `fill` covers the screen (or Mac window), cropped |
-+| Portrait frame (iPhone and iPad) | `DM_PORTRAIT_EDGE` | `0` standard 4:3 slot, `1` full top past the Dynamic Island (on builds with screen-shape stubs) |
- | Picture shape | `DM_SCREEN_ASPECT` | On builds with screen-shape stubs, `auto` the app window's own shape where it is taller than 16:9 (iPad 4:3, iPhone Duo 1.43:1), else 16:9 (iOS only); `1.6` MacBook (16:10, Mac only); `1.43` the iPhone Duo's shape, `0` 16:9 |
+-| Picture shape | `DM_SCREEN_ASPECT` | On builds with screen-shape stubs, `auto` the app window's own shape where it is taller than 16:9 (iPad 4:3, iPhone Duo 1.43:1), else 16:9 (iOS only); `1.6` MacBook (16:10, Mac only); `1.43` the iPhone Duo's shape, `0` 16:9 |
++| Picture shape | `DM_SCREEN_ASPECT` | On builds with screen-shape stubs, `auto` matches the 4:3 portrait slot or a taller iPad / iPhone Duo window and otherwise uses 16:9 (iOS only), `portrait-full` extends the portrait picture past the Dynamic Island to the top of the controls and matches `auto` in landscape (iOS only), `1.6` MacBook 16:10 (Mac only), `1.43` the iPhone Duo's shape, `0` 16:9 |
  | Rotation (iPhone and iPad) | `DM_ROTATION` | `auto` as the device turns, `landscape`, `portrait` |
  | Frame-rate counter | `DM_SHOW_FPS` | `1`, `0` |
  | Touch feedback | `DM_TOUCH_HAPTICS` | `1`, `0` |
