@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""Build the bilingual searchable GitHub Pages compatibility portal for NX2Apple.
+"""Build the bilingual searchable GitHub Pages profile compatibility index for NX2Apple.
 
 Reads GAMES.md, GAMES.zh-CN.md, AppUpdateStore.swift and .upstream-ref using only
 the Python 3.9+ standard library and emits a self-contained Dark Glass static site:
-  - /index.html       (English portal)
-  - /zh/index.html    (Simplified Chinese portal)
+  - /index.html       (English index)
+  - /zh/index.html    (Simplified Chinese index)
   - /games.json       (Structured compatibility feed)
-  - /sitemap.xml      (Canonical URLs for English and Chinese portals)
-  - /robots.txt       (Crawler directives)
+  - /robots.txt       (Crawler disallow directives)
   - /.nojekyll        (Disable Jekyll processing on GitHub Pages)
 """
 from __future__ import annotations
@@ -30,9 +29,9 @@ WIN_DOWNLOAD_URL = f'{REPO_URL}/releases/latest/download/NX2Apple-windows-x64.zi
 RELEASES_URL = f'{REPO_URL}/releases'
 
 TITLE_ID_CELL_RE = re.compile(r'^`([0-9A-Fa-f]{16})`$')
-GALLERY_BLOCK_RE = re.compile(r'<!--\s*gallery:.*?-->.*?<!--\s*end of gallery\s*-->', re.S)
-GALLERY_CELL_RE = re.compile(
-    r'<td\b[^>]*>\s*<img\s+src="([^"]+)"[^>]*>\s*<br>\s*<small>\s*<b>\s*<a\s+href="([^"]+)">(.*?)</a>\s*</b>(?:\s*<br>\s*(.*?))?\s*</small>\s*</td>',
+PROFILE_NOTES_BLOCK_RE = re.compile(r'<!--\s*gallery:.*?-->.*?<!--\s*end of gallery\s*-->', re.S)
+PROFILE_NOTE_LINK_RE = re.compile(
+    r'<small>\s*<b>\s*<a\s+href="([^"]+)">(.*?)</a>\s*</b>(?:\s*<br>\s*(.*?))?\s*</small>',
     re.S | re.I,
 )
 README_ID_RE = re.compile(r'/([0-9A-Fa-f]{16})/README\.md(?:$|[?#])', re.I)
@@ -115,27 +114,25 @@ def read_icon_data_uri(repo_root: Path) -> str:
     return ''
 
 
-def parse_gallery(md_text: str) -> dict[str, dict[str, str]]:
-    """Extract featured gallery entries keyed by 16-char uppercase Title ID."""
-    block_match = GALLERY_BLOCK_RE.search(md_text)
+def parse_upstream_notes(md_text: str) -> dict[str, dict[str, str]]:
+    """Extract text-only upstream profile links and notes keyed by 16-char uppercase Title ID."""
+    block_match = PROFILE_NOTES_BLOCK_RE.search(md_text)
     scope = block_match.group(0) if block_match else md_text
-    gallery: dict[str, dict[str, str]] = {}
-    for img_raw, href_raw, title_raw, note_raw in GALLERY_CELL_RE.findall(scope):
+    notes: dict[str, dict[str, str]] = {}
+    for href_raw, title_raw, note_raw in PROFILE_NOTE_LINK_RE.findall(scope):
         href = safe_http_url(html.unescape(href_raw))
-        img = safe_http_url(html.unescape(img_raw))
         id_match = README_ID_RE.search(href)
         if not id_match:
             continue
         tid = id_match.group(1).upper()
         title_clean = clean_visible_text(HTML_TAG_RE.sub('', html.unescape(title_raw)))
         note_clean = clean_visible_text(HTML_TAG_RE.sub(' ', html.unescape(note_raw or '')))
-        gallery[tid] = {
-            'image_url': img,
+        notes[tid] = {
             'upstream_readme_url': href,
-            'gallery_title': title_clean,
-            'gallery_note_en': note_clean,
+            'profile_title': title_clean,
+            'profile_note_en': note_clean,
         }
-    return gallery
+    return notes
 
 
 def parse_markdown_tables(md_text: str) -> tuple[dict[str, dict[str, str]], dict[str, dict[str, str]]]:
@@ -194,14 +191,14 @@ def derive_ios_support(
     prof_zh_status: str,
     sw2_fork_en: str,
     sw2_fork_zh: str,
-    gallery_note_en: str,
+    profile_note_en: str,
     sw2_up_en: str,
     sw2_up_zh: str,
 ) -> bool:
     """Determine iOS support by checking fork verification before upstream notes."""
     if any(text_confirms_ios(s) for s in (prof_en_status, prof_zh_status, sw2_fork_en, sw2_fork_zh)):
         return True
-    if gallery_note_en and IOS_POS_TARGET_RE.search(gallery_note_en) and not IOS_NEG_RE.search(gallery_note_en):
+    if profile_note_en and IOS_POS_TARGET_RE.search(profile_note_en) and not IOS_NEG_RE.search(profile_note_en):
         return True
     if text_confirms_ios(sw2_up_en) or text_confirms_ios(sw2_up_zh):
         return True
@@ -218,7 +215,7 @@ def derive_tags(record: dict[str, object]) -> list[str]:
             'name_zh',
             'status_en',
             'status_zh',
-            'gallery_note_en',
+            'profile_note_en',
             'sw2_upstream_en',
             'sw2_fork_en',
             'sw2_upstream_zh',
@@ -233,15 +230,13 @@ def derive_tags(record: dict[str, object]) -> list[str]:
         str(record.get('status_zh', '')),
         str(record.get('sw2_fork_en', '')),
         str(record.get('sw2_fork_zh', '')),
-        str(record.get('gallery_note_en', '')),
+        str(record.get('profile_note_en', '')),
         str(record.get('sw2_upstream_en', '')),
         str(record.get('sw2_upstream_zh', '')),
     ):
         tags.append('ios')
     if FPS_RE.search(text_blob):
         tags.append('fps60')
-    if record.get('image_url'):
-        tags.append('featured')
     return tags
 
 
@@ -249,7 +244,7 @@ def is_fork_verified(status_en: str, status_zh: str, sw2_fork_en: str) -> bool:
     blob = f'{status_en} {status_zh} {sw2_fork_en}'.lower()
     return (
         'verified here' in blob
-        or 'verified —' in blob
+        or 'verified \u2014' in blob
         or 'verified -' in blob
         or '本 fork 已验证' in blob
         or '已在 iphone 验证' in blob
@@ -263,14 +258,13 @@ def load_catalog(repo_root: Path) -> dict[str, object]:
     en_text = en_path.read_text(encoding='utf-8')
     zh_text = zh_path.read_text(encoding='utf-8')
 
-    gallery = parse_gallery(en_text)
-    gal_order_map = {tid: idx for idx, tid in enumerate(gallery.keys())}
+    notes_map = parse_upstream_notes(en_text)
     en_sw2, en_prof = parse_markdown_tables(en_text)
     zh_sw2, zh_prof = parse_markdown_tables(zh_text)
 
     ordered_ids: list[str] = list(en_prof.keys())
     seen_ids = set(ordered_ids)
-    for extra_map in (zh_prof, en_sw2, zh_sw2, gallery):
+    for extra_map in (zh_prof, en_sw2, zh_sw2):
         for tid in extra_map:
             if tid not in seen_ids:
                 ordered_ids.append(tid)
@@ -282,9 +276,9 @@ def load_catalog(repo_root: Path) -> dict[str, object]:
         pz = zh_prof.get(tid, {})
         se = en_sw2.get(tid, {})
         sz = zh_sw2.get(tid, {})
-        gal = gallery.get(tid, {})
+        note_info = notes_map.get(tid, {})
 
-        raw_name_en = pe.get('name') or se.get('name') or gal.get('gallery_title') or pz.get('name') or tid
+        raw_name_en = pe.get('name') or se.get('name') or note_info.get('profile_title') or pz.get('name') or tid
         raw_name_zh = pz.get('name') or sz.get('name') or raw_name_en
 
         name_en = clean_visible_text(raw_name_en, chinese=False)
@@ -297,7 +291,7 @@ def load_catalog(repo_root: Path) -> dict[str, object]:
         sw2_fork_en = clean_visible_text(se.get('col4', ''), chinese=False)
         sw2_upstream_zh = clean_visible_text(sz.get('col3', '') or sw2_upstream_en, chinese=True)
         sw2_fork_zh = clean_visible_text(sz.get('col4', '') or sw2_fork_en, chinese=True)
-        gallery_note_en = clean_visible_text(gal.get('gallery_note_en', ''), chinese=False)
+        profile_note_en = clean_visible_text(note_info.get('profile_note_en', ''), chinese=False)
 
         record: dict[str, object] = {
             'id': tid,
@@ -312,19 +306,16 @@ def load_catalog(repo_root: Path) -> dict[str, object]:
             'sw2_fork_en': sw2_fork_en,
             'sw2_upstream_zh': sw2_upstream_zh,
             'sw2_fork_zh': sw2_fork_zh,
-            'image_url': gal.get('image_url', ''),
-            'upstream_readme_url': gal.get('upstream_readme_url', ''),
-            'gallery_note_en': gallery_note_en,
+            'upstream_readme_url': note_info.get('upstream_readme_url', ''),
+            'profile_note_en': profile_note_en,
             'in_sw2': bool(se or sz),
             'verified_fork': is_fork_verified(status_en, status_zh, sw2_fork_en),
         }
-        record['gallery_order'] = gal_order_map.get(tid, 1000000)
         record['tags'] = derive_tags(record)
         games.append(record)
 
     counts = {
         'all': len(games),
-        'featured': sum(1 for g in games if 'featured' in g['tags']),
         'switch2': sum(1 for g in games if 'switch2' in g['tags']),
         'ios': sum(1 for g in games if 'ios' in g['tags']),
         'fps60': sum(1 for g in games if 'fps60' in g['tags']),
@@ -354,121 +345,105 @@ def safe_json_for_script(obj: object) -> str:
 UI_STRINGS = {
     'en': {
         'html_lang': 'en',
-        'page_title': 'NX2Apple Games Compatibility Portal',
-        'meta_desc': 'Searchable compatibility catalog for NX2Apple: {all} Switch and Switch 2 titles running natively on Apple silicon.',
+        'page_title': 'NX2Apple Profile Compatibility Index',
+        'meta_desc': 'Technical compatibility matrix for static binary translation and Metal shader pipelines across {all} indexed profiles on Apple silicon.',
         'brand_sub': 'by nxnative',
-        'nav_featured': 'Gallery',
-        'nav_catalog': 'All Games',
+        'nav_catalog': 'All Profiles',
         'lang_en': 'EN',
         'lang_zh': '中文',
         'star_cta': 'Star on GitHub',
-        'hero_badge': 'v{version} · {all} Games · {switch2} Switch 2',
-        'hero_title_1': 'Switch games,',
-        'hero_title_2': 'native on Apple silicon.',
-        'hero_lead': 'Not an emulator. Native code translation plus Metal shaders, built in a few clicks on Mac or Windows for macOS, iPhone and iPad.',
+        'hero_badge': 'v{version} · {all} Profiles · {switch2} 0400 Series',
+        'hero_title_1': 'Profile Compatibility',
+        'hero_title_2': 'and Build Index.',
+        'hero_lead': 'Technical compatibility matrix for static binary translation and Metal shader pipelines across macOS, iPhone and iPad.',
         'dl_mac': 'Download for macOS (Apple Silicon)',
         'dl_win': 'Download for Windows (x64)',
         'all_releases': 'All releases',
         'repo_home': 'GitHub repository',
-        'safety_note': 'Direct builds from official GitHub Releases. On macOS first launch, right-click and choose Open if Gatekeeper asks. Bring your own console dumps and keys.',
-        'stat_all': 'Game Profiles',
-        'stat_all_sub': 'Full Switch & Switch 2 list',
+        'safety_note': 'Official binary builds from GitHub Releases. On macOS first launch, right-click and choose Open if Gatekeeper asks.',
+        'stat_all': 'Indexed Profiles',
+        'stat_all_sub': '0100 & 0400 title series',
         'stat_ios': 'iPhone & iPad',
         'stat_ios_sub': 'Verified & upstream reports',
-        'stat_sw2': 'Switch 2 Titles',
-        'stat_sw2_sub': 'Folder & NUP, no prod.keys',
+        'stat_sw2': '0400 Series',
+        'stat_sw2_sub': '64-bit 0400 title architecture',
         'stat_fps': '60+ FPS Tested',
         'stat_fps_sub': '60 to 120 fps configurations',
         'stat_hint': 'Filter →',
-        'search_placeholder': 'Search English or Chinese title, Title ID, or notes...',
+        'search_placeholder': 'Search English or Chinese title, Title ID, 0400, or notes...',
         'search_clear': 'Clear',
         'filter_all': 'All',
-        'filter_featured': 'Featured',
-        'filter_switch2': 'Switch 2',
+        'filter_switch2': '0400 Series',
         'filter_ios': 'iPhone & iPad',
         'filter_fps60': '60+ FPS',
-        'showing_count': 'Showing {shown} of {total} titles',
-        'featured_title': 'Featured Showcase',
-        'featured_sub': '{featured} titles with upstream screenshots',
-        'collapse_btn': 'Collapse',
-        'expand_btn': 'Expand',
-        'show_all_gal': 'Show all {featured} screenshots',
-        'show_top_gal': 'Show top 12 highlights',
+        'showing_count': 'Showing {shown} of {total} profiles',
         'update_label': 'Update',
         'status_label': 'Status',
         'upstream_label': 'Upstream',
         'fork_label': 'This fork',
-        'profile_link': 'Engine notes',
+        'profile_link': 'Upstream notes',
         'copy_title': 'Click to copy Title ID',
         'copied_toast': 'Copied {tid}',
-        'badge_sw2': 'Switch 2',
+        'badge_sw2': '0400 Series',
         'badge_ios': 'iPhone & iPad',
         'badge_fps': '60+ FPS',
         'badge_verified': 'Verified',
-        'empty_title': 'No matching games found',
+        'empty_title': 'No matching profiles found',
         'empty_sub': 'Try a shorter English or Chinese title, a 16-digit Title ID, or clear active filters.',
         'empty_reset': 'Reset filters',
         'footer_source': 'Data synced from GAMES.md and GAMES.zh-CN.md · Engine pin',
-        'footer_notice': 'Static zero-tracker site · No game files or keys are hosted here',
+        'footer_notice': 'Independent open-source build frontend. No game files, firmware or cryptographic keys are distributed or hosted.',
     },
     'zh': {
         'html_lang': 'zh-CN',
-        'page_title': 'NX2Apple 游戏兼容性门户',
-        'meta_desc': 'NX2Apple 可搜索游戏兼容库：覆盖 {all} 款 Switch 与 Switch 2 游戏，原生运行于 Apple 芯片。',
+        'page_title': 'NX2Apple 构建配置兼容性索引',
+        'meta_desc': '面向 Apple 芯片的静态指令转译与 Metal 着色器管线技术兼容性索引，收录 {all} 个实测配置条目。',
         'brand_sub': '基于 nxnative',
-        'nav_featured': '精选图库',
-        'nav_catalog': '全部游戏',
+        'nav_catalog': '全部配置',
         'lang_en': 'EN',
         'lang_zh': '中文',
         'star_cta': 'Star 支持项目',
-        'hero_badge': 'v{version} · {all} 款游戏 · {switch2} 款 Switch 2',
-        'hero_title_1': 'Switch 游戏，',
-        'hero_title_2': '原生运行于 Apple 芯片。',
-        'hero_lead': '非模拟器开销。通过静态指令转译与 Metal 着色器管线，在 Mac 或 Windows 启动器中点几下即可构建至 Mac、iPhone 与 iPad。',
+        'hero_badge': 'v{version} · {all} 个配置 · {switch2} 个 0400 架构',
+        'hero_title_1': '构建配置与',
+        'hero_title_2': '兼容性技术索引。',
+        'hero_lead': '面向 Apple 芯片的静态指令转译与 Metal 着色器管线实测记录，支持按中英文名称与 Title ID 检索。',
         'dl_mac': '下载 macOS 版（Apple 芯片）',
         'dl_win': '下载 Windows 版（x64）',
         'all_releases': '查看全部发行版',
         'repo_home': 'GitHub 仓库主页',
-        'safety_note': '安装包直连 GitHub 官方 Releases。macOS 首次打开如遇未付费签名提示，请右键选择「打开」即可。本站点与启动器均不提供任何游戏本体与密钥。',
-        'stat_all': '已收录 Profile',
-        'stat_all_sub': '全部 Switch 与 Switch 2 游戏',
+        'safety_note': '安装包直连 GitHub 官方 Releases。macOS 首次打开如遇未付费签名提示，请右键选择「打开」即可。',
+        'stat_all': '已收录配置',
+        'stat_all_sub': '覆盖 0100 与 0400 系列配置',
         'stat_ios': 'iPhone / iPad 已测',
         'stat_ios_sub': '本 fork 验证与上游可玩报告',
-        'stat_sw2': 'Switch 2 架构',
-        'stat_sw2_sub': '文件夹或 .nup 免密钥构建',
+        'stat_sw2': '0400 架构',
+        'stat_sw2_sub': '0400 标题架构配置',
         'stat_fps': '60+ FPS 实测',
         'stat_fps_sub': '含 60 至 120 帧配置记录',
         'stat_hint': '筛选 →',
-        'search_placeholder': '搜索中文名、英文原名、Title ID 或实测关键词...',
+        'search_placeholder': '搜索中文名、英文原名、Title ID、0400 或实测关键词...',
         'search_clear': '清空',
         'filter_all': '全部',
-        'filter_featured': '精选实图',
-        'filter_switch2': 'Switch 2',
+        'filter_switch2': '0400 架构',
         'filter_ios': 'iPhone / iPad',
         'filter_fps60': '60+ FPS',
-        'showing_count': '当前显示 {shown} / {total} 款游戏',
-        'featured_title': '精选实机图库',
-        'featured_sub': '共 {featured} 款含上游实机截图的游戏',
-        'collapse_btn': '收起',
-        'expand_btn': '展开',
-        'show_all_gal': '展开全部 {featured} 张图',
-        'show_top_gal': '仅展示前 12 张精选',
-        'update_label': '所需更新包',
+        'showing_count': '当前显示 {shown} / {total} 个条目',
+        'update_label': '所需版本',
         'status_label': '状态',
         'upstream_label': '上游实测',
         'fork_label': '本 fork 实测',
-        'profile_link': '上游档案',
+        'profile_link': '上游技术文档',
         'copy_title': '点击复制 Title ID',
         'copied_toast': '已复制 {tid}',
-        'badge_sw2': 'Switch 2',
+        'badge_sw2': '0400 架构',
         'badge_ios': 'iPhone / iPad',
         'badge_fps': '60+ FPS',
         'badge_verified': '本 fork 已验证',
-        'empty_title': '未找到匹配的游戏',
+        'empty_title': '未找到匹配的配置条目',
         'empty_sub': '试试输入更短的中英文名、16 位十六进制 Title ID，或清除当前筛选条件。',
         'empty_reset': '重置全部筛选',
         'footer_source': '数据同步自 GAMES.md 与 GAMES.zh-CN.md · 引擎固定点',
-        'footer_notice': '纯静态零追踪页面 · 不托管或分发任何游戏文件与密钥',
+        'footer_notice': '独立开源构建前端 · 不分发或托管任何游戏文件、固件与加密密钥',
     },
 }
 
@@ -720,7 +695,7 @@ button { font: inherit; color: inherit; cursor: pointer; background: none; borde
 .pill.active .pill-cnt { background: rgba(0, 0, 0, 0.15); color: var(--cream-on); }
 .result-meta { font-size: 12.5px; font-weight: 600; color: var(--text-secondary); }
 
-/* Featured Gallery */
+/* Catalog section header */
 .section-head {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   flex-wrap: wrap; margin: 22px 0 14px;
@@ -728,35 +703,6 @@ button { font: inherit; color: inherit; cursor: pointer; background: none; borde
 .section-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .section-title h2 { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
 .section-title span { font-size: 13px; color: var(--text-secondary); }
-.section-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.ghost-btn {
-  padding: 6px 12px; border-radius: 10px; font-size: 12px; font-weight: 700;
-  background: rgba(255, 255, 255, 0.06); border: 1px solid var(--border); color: var(--text-secondary);
-}
-.ghost-btn:hover { color: var(--text); border-color: var(--border-strong); }
-
-.gallery-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px;
-}
-.gallery-grid.collapsed { display: none; }
-.gal-card {
-  position: relative; border-radius: 14px; overflow: hidden;
-  background: var(--surface-solid); border: 1px solid var(--border);
-  display: flex; flex-direction: column;
-  cursor: pointer;
-  transition: transform 160ms ease, border-color 160ms ease;
-}
-.gal-card:hover { transform: translateY(-2px); border-color: rgba(255, 240, 214, 0.35); }
-.gal-card.is-hidden { display: none; }
-.gal-media { position: relative; aspect-ratio: 16 / 9; background: #141416; overflow: hidden; }
-.gal-media img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.gal-media.img-failed { display: grid; place-items: center; background: linear-gradient(145deg, #1d1d21, #121214); }
-.gal-media.img-failed::after { content: attr(data-monogram); font-size: 22px; font-weight: 800; color: rgba(255, 240, 214, 0.35); }
-.gal-body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 4px; flex: 1; }
-.gal-title { font-size: 13.5px; font-weight: 700; color: var(--text); line-height: 1.3; }
-.gal-note { font-size: 11.5px; color: var(--text-secondary); line-height: 1.4; }
-.gal-foot { margin-top: auto; padding-top: 6px; display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 11px; color: var(--text-tertiary); }
-.gal-foot code { font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace; color: var(--cream); }
 
 /* Main catalog grid */
 .catalog-section { padding-bottom: 44px; }
@@ -773,14 +719,12 @@ button { font: inherit; color: inherit; cursor: pointer; background: none; borde
 
 .card-top { display: flex; align-items: flex-start; gap: 12px; }
 .card-thumb {
-  width: 56px; height: 38px; border-radius: 8px; flex-shrink: 0; overflow: hidden;
-  background: linear-gradient(155deg, rgba(255, 240, 214, 0.12), rgba(255, 255, 255, 0.03));
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  display: grid; place-items: center; font-weight: 800; font-size: 13px; color: var(--cream);
+  width: 42px; height: 42px; border-radius: 11px; flex-shrink: 0;
+  background: linear-gradient(155deg, rgba(255, 240, 214, 0.14), rgba(255, 255, 255, 0.03));
+  border: 1px solid rgba(255, 240, 214, 0.18);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  display: grid; place-items: center; font-weight: 800; font-size: 13.5px; letter-spacing: 0.03em; color: var(--cream);
 }
-.card-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.card-thumb.img-failed img { display: none; }
-.card-thumb.img-failed::after { content: attr(data-monogram); }
 .card-titles { min-width: 0; flex: 1; }
 .card-titles h3 { font-size: 15.5px; font-weight: 700; line-height: 1.3; word-break: break-word; }
 .card-sub { font-size: 12px; color: var(--text-tertiary); margin-top: 2px; word-break: break-word; }
@@ -880,7 +824,6 @@ footer {
   .controls-dock { position: static; padding: 12px 0; }
   .search-box { flex: 1 1 100%; width: 100%; }
   .catalog-grid { grid-template-columns: minmax(0, 1fr); }
-  .gallery-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
   .kbd-hint { display: none; }
 }
 """
@@ -904,21 +847,15 @@ def build_js(lang: str, copied_template: str, showing_template: str) -> str:
   const filterPills = Array.from(document.querySelectorAll('.pill[data-filter]'))
   const statCards = Array.from(document.querySelectorAll('.stat-card[data-filter]'))
   const catalogCards = Array.from(document.querySelectorAll('.game-card[data-id]'))
-  const galleryCards = Array.from(document.querySelectorAll('.gal-card[data-id]'))
   const resultMeta = document.getElementById('result-meta')
   const emptyState = document.getElementById('empty-state')
   const emptyReset = document.getElementById('empty-reset')
   const langEn = document.getElementById('lang-switch-en')
   const langZh = document.getElementById('lang-switch-zh')
-  const galleryGrid = document.getElementById('gallery-grid')
-  const collapseBtn = document.getElementById('gallery-collapse-btn')
-  const expandGalBtn = document.getElementById('gallery-expand-btn')
   const toastEl = document.getElementById('toast')
   const starCountEl = document.getElementById('gh-stars')
 
   let activeFilter = 'all'
-  let showAllGallery = false
-  let galleryCollapsed = false
   let toastTimer = 0
 
   function norm(s) {{
@@ -989,10 +926,12 @@ def build_js(lang: str, copied_template: str, showing_template: str) -> str:
 
   function matchesQuery(g, rawQ, normQ) {{
     if (!rawQ) return true
+    const seriesHint = g.tags && g.tags.includes('switch2') ? '0400 series 0400 架构 switch 2' : ''
     const hayRaw = [
       g.id, g.name_en, g.name_zh, g.update_en, g.update_zh,
-      g.status_en, g.status_zh, g.gallery_note_en,
+      g.status_en, g.status_zh, g.profile_note_en,
       g.sw2_upstream_en, g.sw2_fork_en, g.sw2_upstream_zh, g.sw2_fork_zh,
+      seriesHint,
       ...(g.raw_aliases || [])
     ].join(' ')
     if (hayRaw.toLowerCase().includes(rawQ.toLowerCase())) return true
@@ -1031,22 +970,6 @@ def build_js(lang: str, copied_template: str, showing_template: str) -> str:
       }}
     }}
 
-    let galShown = 0
-    for (const gc of galleryCards) {{
-      const g = byId[gc.dataset.id]
-      if (!g) continue
-      const tagOk = activeFilter === 'all' || (g.tags && g.tags.includes(activeFilter))
-      const qOk = matchesQuery(g, rawQ, normQ)
-      const limitOk = showAllGallery || rawQ.length > 0 || activeFilter !== 'all' || galShown < 12
-      const vis = tagOk && qOk && limitOk
-      gc.classList.toggle('is-hidden', !vis)
-      if (tagOk && qOk) galShown += 1
-    }}
-
-    if (expandGalBtn) {{
-      expandGalBtn.hidden = rawQ.length > 0 || activeFilter !== 'all' || galleryCollapsed
-      expandGalBtn.textContent = showAllGallery ? expandGalBtn.dataset.less : expandGalBtn.dataset.more
-    }}
     if (resultMeta) {{
       resultMeta.textContent = SHOWING_TPL.replace('{{shown}}', String(shown)).replace('{{total}}', String(GAMES.length))
     }}
@@ -1077,20 +1000,6 @@ def build_js(lang: str, copied_template: str, showing_template: str) -> str:
       applyState()
     }})
   }}
-  if (collapseBtn && galleryGrid) {{
-    collapseBtn.addEventListener('click', () => {{
-      galleryCollapsed = !galleryCollapsed
-      galleryGrid.classList.toggle('collapsed', galleryCollapsed)
-      collapseBtn.textContent = galleryCollapsed ? collapseBtn.dataset.expand : collapseBtn.dataset.collapse
-      applyState()
-    }})
-  }}
-  if (expandGalBtn) {{
-    expandGalBtn.addEventListener('click', () => {{
-      showAllGallery = !showAllGallery
-      applyState()
-    }})
-  }}
 
   document.addEventListener('click', (ev) => {{
     const copyBtn = ev.target.closest('.tid-btn[data-copy]')
@@ -1100,17 +1009,6 @@ def build_js(lang: str, copied_template: str, showing_template: str) -> str:
         navigator.clipboard.writeText(tid).catch(() => {{}})
       }}
       showToast(COPIED_TPL.replace('{{tid}}', tid))
-      return
-    }}
-    const jumpCard = ev.target.closest('.gal-card[data-id]')
-    if (jumpCard && !ev.target.closest('a')) {{
-      if (searchInput) {{
-        searchInput.value = jumpCard.dataset.id
-        activeFilter = 'all'
-        applyState()
-        const cat = document.getElementById('catalog')
-        if (cat) cat.scrollIntoView({{ behavior: 'smooth', block: 'start' }})
-      }}
     }}
   }})
 
@@ -1127,7 +1025,7 @@ def build_js(lang: str, copied_template: str, showing_template: str) -> str:
   const initParams = new URLSearchParams(window.location.search)
   const initQ = initParams.get('q') || ''
   const initFilter = initParams.get('filter') || 'all'
-  const validFilters = new Set(['all', 'featured', 'switch2', 'ios', 'fps60'])
+  const validFilters = new Set(['all', 'switch2', 'ios', 'fps60'])
   if (searchInput && initQ) searchInput.value = initQ
   if (validFilters.has(initFilter)) activeFilter = initFilter
   applyState()
@@ -1152,42 +1050,6 @@ def monogram_for(name: str) -> str:
     return (''.join(letters[:2]) or 'NX').upper()
 
 
-def render_featured_cards(games: list[dict[str, object]], lang: str, strings: dict[str, str]) -> str:
-    parts: list[str] = []
-    featured_games = sorted(
-        (g for g in games if safe_http_url(str(g.get('image_url', '')))),
-        key=lambda item: int(item.get('gallery_order', 1000000)),
-    )
-    for idx, g in enumerate(featured_games):
-        img = safe_http_url(str(g.get('image_url', '')))
-        tid = str(g['id'])
-        title = no_orphan_title(str(g['name_zh'] if lang == 'zh' else g['name_en']))
-        note = str(g.get('gallery_note_en', ''))
-        readme_url = safe_http_url(str(g.get('upstream_readme_url', '')))
-        hidden_cls = ' is-hidden' if idx >= 12 else ''
-        mono = html.escape(monogram_for(title), quote=True)
-        img_tag = (
-            f'<img src="{html.escape(img, quote=True)}" alt="{html.escape(title, quote=True)}" '
-            f'loading="lazy" decoding="async" onerror="this.parentNode.classList.add(\'img-failed\')">'
-        )
-        note_html = f'<div class="gal-note">{html.escape(note)}</div>' if note else ''
-        link_html = (
-            f'<a class="ext-link" href="{html.escape(readme_url, quote=True)}" target="_blank" rel="noopener noreferrer">{html.escape(strings["profile_link"])} ↗</a>'
-            if readme_url
-            else ''
-        )
-        parts.append(
-            f'<article class="gal-card{hidden_cls}" data-id="{html.escape(tid, quote=True)}">'
-            f'<div class="gal-media" data-monogram="{mono}">{img_tag}</div>'
-            f'<div class="gal-body">'
-            f'<div class="gal-title">{html.escape(title)}</div>'
-            f'{note_html}'
-            f'<div class="gal-foot"><code>{html.escape(tid)}</code>{link_html}</div>'
-            f'</div></article>'
-        )
-    return '\n'.join(parts)
-
-
 def same_title(a: str, b: str) -> bool:
     norm_a = re.sub(r'[\s()（）]+', '', a).lower()
     norm_b = re.sub(r'[\s()（）]+', '', b).lower()
@@ -1205,20 +1067,11 @@ def render_game_cards(games: list[dict[str, object]], lang: str, strings: dict[s
         status_val = str(g['status_zh'] if lang == 'zh' else g['status_en'])
         sw2_up = str(g['sw2_upstream_zh'] if lang == 'zh' else g['sw2_upstream_en'])
         sw2_fork = str(g['sw2_fork_zh'] if lang == 'zh' else g['sw2_fork_en'])
-        gal_note = str(g.get('gallery_note_en', ''))
+        profile_note = str(g.get('profile_note_en', ''))
         tags: list[str] = list(g['tags'])
-        img = safe_http_url(str(g.get('image_url', '')))
         readme_url = safe_http_url(str(g.get('upstream_readme_url', '')))
 
         mono = html.escape(monogram_for(primary), quote=True)
-        if img:
-            thumb_html = (
-                f'<img src="{html.escape(img, quote=True)}" alt="" loading="lazy" decoding="async" '
-                f'onerror="this.parentNode.classList.add(\'img-failed\')">'
-            )
-        else:
-            thumb_html = mono
-
         sub_html = f'<div class="card-sub title-sub">{html.escape(secondary)}</div>' if secondary and not same_title(primary, secondary) else ''
 
         badge_parts: list[str] = []
@@ -1248,8 +1101,8 @@ def render_game_cards(games: list[dict[str, object]], lang: str, strings: dict[s
                 f'<div class="note-row sw2-box"><span class="note-label">{html.escape(strings["fork_label"])}</span>'
                 f'<span>{html.escape(sw2_fork)}</span></div>'
             )
-        if gal_note and not sw2_up:
-            notes.append(f'<div class="note-row"><span>{html.escape(gal_note)}</span></div>')
+        if profile_note and not sw2_up:
+            notes.append(f'<div class="note-row"><span>{html.escape(profile_note)}</span></div>')
 
         foot_left = (
             f'<a class="ext-link" href="{html.escape(readme_url, quote=True)}" target="_blank" rel="noopener noreferrer">{html.escape(strings["profile_link"])} ↗</a>'
@@ -1261,7 +1114,7 @@ def render_game_cards(games: list[dict[str, object]], lang: str, strings: dict[s
         parts.append(
             f'<article class="game-card" data-id="{html.escape(tid, quote=True)}">'
             f'<div class="card-top">'
-            f'<div class="card-thumb" data-monogram="{mono}">{thumb_html}</div>'
+            f'<div class="card-thumb" aria-hidden="true">{mono}</div>'
             f'<div class="card-titles"><h3 class="title-primary">{html.escape(primary)}</h3>{sub_html}</div>'
             f'</div>'
             f'{badges_html}'
@@ -1295,8 +1148,6 @@ def render_page(catalog: dict[str, object], lang: str, base_url: str, icon_uri: 
     hero_badge = strings['hero_badge'].format(version=version, all=counts['all'], switch2=counts['switch2'])
     showing_tpl = strings['showing_count']
     showing_init = showing_tpl.format(shown=counts['all'], total=counts['all'])
-    featured_sub = strings['featured_sub'].format(featured=counts['featured'])
-    show_all_gal = strings['show_all_gal'].format(featured=counts['featured'])
 
     favicon_tag = f'<link rel="icon" type="image/png" href="{html.escape(icon_uri, quote=True)}">' if icon_uri else ''
     brand_img = (
@@ -1310,10 +1161,8 @@ def render_page(catalog: dict[str, object], lang: str, base_url: str, icon_uri: 
     info_svg = '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>'
     search_svg = '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M10.68 11.74a6 6 0 0 1-7.922-8.982 6 6 0 0 1 8.982 7.922l3.04 3.04a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215ZM11.5 7a4.499 4.499 0 1 0-8.997 0A4.499 4.499 0 0 0 11.5 7Z"></path></svg>'
 
-    featured_html = render_featured_cards(games, lang, strings)
     catalog_html = render_game_cards(games, lang, strings)
-    public_games = [{k: v for k, v in g.items() if k != 'gallery_order'} for g in games]
-    data_json = safe_json_for_script(public_games)
+    data_json = safe_json_for_script(games)
     css = build_css()
     js = build_js(lang, strings['copied_toast'], showing_tpl)
 
@@ -1325,6 +1174,8 @@ def render_page(catalog: dict[str, object], lang: str, base_url: str, icon_uri: 
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive, nosnippet">
+<meta name="googlebot" content="noindex, nofollow, noarchive, nosnippet">
 <title>{html.escape(strings['page_title'])}</title>
 <meta name="description" content="{html.escape(meta_desc, quote=True)}">
 <meta property="og:title" content="{html.escape(strings['page_title'], quote=True)}">
@@ -1346,7 +1197,6 @@ def render_page(catalog: dict[str, object], lang: str, base_url: str, icon_uri: 
       <span class="brand-text"><b>NX2Apple</b><span>{html.escape(strings['brand_sub'])}</span></span>
     </a>
     <nav class="top-actions" aria-label="Primary">
-      <a class="nav-link" href="#featured-section">{html.escape(strings['nav_featured'])}</a>
       <a class="nav-link" href="#catalog">{html.escape(strings['nav_catalog'])}</a>
       <div class="lang-switch">
         <a id="lang-switch-en" class="lang-btn{' active' if lang == 'en' else ''}" href="{html.escape(en_href, quote=True)}">{html.escape(strings['lang_en'])}</a>
@@ -1427,29 +1277,12 @@ def render_page(catalog: dict[str, object], lang: str, base_url: str, icon_uri: 
       <div class="filter-bar">
         <div class="filter-pills">
           <button type="button" class="pill active" data-filter="all">{html.escape(strings['filter_all'])} <span class="pill-cnt">{counts['all']}</span></button>
-          <button type="button" class="pill" data-filter="featured">{html.escape(strings['filter_featured'])} <span class="pill-cnt">{counts['featured']}</span></button>
-          <button type="button" class="pill" data-filter="switch2">{html.escape(strings['filter_switch2'])} <span class="pill-cnt">{counts['switch2']}</span></button>
           <button type="button" class="pill" data-filter="ios">{html.escape(strings['filter_ios'])} <span class="pill-cnt">{counts['ios']}</span></button>
           <button type="button" class="pill" data-filter="fps60">{html.escape(strings['filter_fps60'])} <span class="pill-cnt">{counts['fps60']}</span></button>
+          <button type="button" class="pill" data-filter="switch2">{html.escape(strings['filter_switch2'])} <span class="pill-cnt">{counts['switch2']}</span></button>
         </div>
         <div id="result-meta" class="result-meta">{html.escape(showing_init)}</div>
       </div>
-    </div>
-  </section>
-
-  <section id="featured-section" class="wrap">
-    <div class="section-head">
-      <div class="section-title">
-        <h2>{html.escape(strings['featured_title'])}</h2>
-        <span>{html.escape(featured_sub)}</span>
-      </div>
-      <div class="section-actions">
-        <button id="gallery-expand-btn" type="button" class="ghost-btn" data-more="{html.escape(show_all_gal, quote=True)}" data-less="{html.escape(strings['show_top_gal'], quote=True)}">{html.escape(show_all_gal)}</button>
-        <button id="gallery-collapse-btn" type="button" class="ghost-btn" data-collapse="{html.escape(strings['collapse_btn'], quote=True)}" data-expand="{html.escape(strings['expand_btn'], quote=True)}">{html.escape(strings['collapse_btn'])}</button>
-      </div>
-    </div>
-    <div id="gallery-grid" class="gallery-grid">
-      {featured_html}
     </div>
   </section>
 
@@ -1486,25 +1319,8 @@ def render_page(catalog: dict[str, object], lang: str, base_url: str, icon_uri: 
 """
 
 
-def render_sitemap(base_url: str, generated_at: str) -> str:
-    base = base_url.rstrip('/')
-    lastmod = generated_at[:10]
-    urls = [f'{base}/', f'{base}/zh/']
-    items = '\n'.join(
-        f'  <url>\n    <loc>{html.escape(u)}</loc>\n    <lastmod>{lastmod}</lastmod>\n  </url>'
-        for u in urls
-    )
-    return (
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
-        f'{items}\n'
-        '</urlset>\n'
-    )
-
-
-def render_robots(base_url: str) -> str:
-    base = base_url.rstrip('/')
-    return f'User-agent: *\nAllow: /\nSitemap: {base}/sitemap.xml\n'
+def render_robots() -> str:
+    return 'User-agent: *\nDisallow: /\n'
 
 
 def build_site(repo_root: Path, out_dir: Path, base_url: str = DEFAULT_BASE_URL) -> dict[str, object]:
@@ -1517,15 +1333,11 @@ def build_site(repo_root: Path, out_dir: Path, base_url: str = DEFAULT_BASE_URL)
 
     (out_dir / 'index.html').write_text(render_page(catalog, 'en', base_url, icon_uri), encoding='utf-8')
     (zh_dir / 'index.html').write_text(render_page(catalog, 'zh', base_url, icon_uri), encoding='utf-8')
-    public_catalog = {
-        **catalog,
-        'games': [{k: v for k, v in g.items() if k != 'gallery_order'} for g in catalog['games']],  # type: ignore[index]
-    }
-    (out_dir / 'games.json').write_text(json.dumps(public_catalog, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-    (out_dir / 'sitemap.xml').write_text(
-        render_sitemap(base_url, str(catalog['generated_at'])), encoding='utf-8'
-    )
-    (out_dir / 'robots.txt').write_text(render_robots(base_url), encoding='utf-8')
+    (out_dir / 'games.json').write_text(json.dumps(catalog, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    sitemap_path = out_dir / 'sitemap.xml'
+    if sitemap_path.exists():
+        sitemap_path.unlink()
+    (out_dir / 'robots.txt').write_text(render_robots(), encoding='utf-8')
     (out_dir / '.nojekyll').write_text('', encoding='utf-8')
     return catalog
 
@@ -1547,14 +1359,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         '--base-url',
         default=DEFAULT_BASE_URL,
-        help='Canonical base URL for sitemap and meta links.',
+        help='Canonical base URL for meta links.',
     )
     args = parser.parse_args(argv)
     catalog = build_site(args.repo_root.resolve(), args.out.resolve(), args.base_url)
     counts = catalog['counts']
     print(
         f"Built pages site in {args.out}: v{catalog['version']}, "
-        f"{counts['all']} games ({counts['switch2']} Switch 2, {counts['ios']} iOS, {counts['fps60']} 60+ FPS, {counts['featured']} featured)"
+        f"{counts['all']} profiles ({counts['switch2']} 0400 series, {counts['ios']} iOS, {counts['fps60']} 60+ FPS)"
     )
     return 0
 

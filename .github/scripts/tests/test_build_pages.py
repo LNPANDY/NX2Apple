@@ -18,16 +18,18 @@ if str(SCRIPTS_DIR) not in sys.path:
 import build_pages as bp  # noqa: E402
 
 FORBIDDEN_SEMICOLONS = (chr(59), chr(0xFF1B), chr(0xFE54), chr(0x037E))
+FORBIDDEN_IMAGE_URL_RE = re.compile(r'https?://[^\s"\'<>]+\.(?:jpg|jpeg|png|webp)(?:\b|[?#])', re.I)
 
 
 class _VisibleTextExtractor(HTMLParser):
-    """Extract rendered visible text and meta descriptions from generated HTML."""
+    """Extract rendered visible text and meta tags from generated HTML."""
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self._skip_depth = 0
         self.text_parts: list[str] = []
         self.meta_contents: list[str] = []
+        self.meta_map: dict[str, str] = {}
         self.links: list[str] = []
         self.images: list[str] = []
 
@@ -38,7 +40,11 @@ class _VisibleTextExtractor(HTMLParser):
             self._skip_depth += 1
             return
         if tag_l == 'meta' and attr_map.get('content'):
-            if attr_map.get('name') == 'description' or (attr_map.get('property') or '').startswith('og:'):
+            name = (attr_map.get('name') or '').lower()
+            prop = (attr_map.get('property') or '').lower()
+            if name:
+                self.meta_map[name] = attr_map['content'] or ''
+            if name == 'description' or prop.startswith('og:'):
                 self.meta_contents.append(attr_map['content'] or '')
         if tag_l == 'a' and attr_map.get('href'):
             self.links.append(attr_map['href'] or '')
@@ -79,20 +85,31 @@ class BuildPagesRealRepoTests(unittest.TestCase):
         self.assertEqual(counts['all'], 261)
         self.assertEqual(counts['switch2'], 22)
         self.assertEqual(counts['ios'], 50)
-        self.assertEqual(counts['featured'], 146)
         self.assertEqual(counts['fps60'], 35)
+        self.assertNotIn('featured', counts)
 
-        for rel in ('index.html', 'zh/index.html', 'games.json', 'sitemap.xml', 'robots.txt', '.nojekyll'):
+        for rel in ('index.html', 'zh/index.html', 'games.json', 'robots.txt', '.nojekyll'):
             self.assertTrue((self.out / rel).is_file(), f'Missing {rel}')
+        self.assertFalse((self.out / 'sitemap.xml').exists(), 'sitemap.xml must not be generated')
 
-        games_json = json.loads((self.out / 'games.json').read_text(encoding='utf-8'))
+        games_raw = (self.out / 'games.json').read_text(encoding='utf-8')
+        games_json = json.loads(games_raw)
         self.assertEqual(games_json['counts']['all'], 261)
         self.assertEqual(len(games_json['games']), 261)
         self.assertEqual(games_json['version'], bp.read_app_version(REPO_ROOT))
         self.assertEqual(games_json['engine_pin'], bp.read_upstream_ref(REPO_ROOT))
 
+        self.assertNotIn('docs/images/', games_raw)
+        self.assertNotIn('raw.githubusercontent.com', games_raw)
+        self.assertNotIn('prod.keys', games_raw.lower())
+        self.assertNotIn('title.keys', games_raw.lower())
+        self.assertIsNone(FORBIDDEN_IMAGE_URL_RE.search(games_raw))
+
         by_id = {g['id']: g for g in games_json['games']}
         self.assertEqual(len(by_id), 261)
+        for g in games_json['games']:
+            self.assertNotIn('image_url', g)
+            self.assertNotIn('featured', g['tags'])
         self.assertIn('ios', by_id['04007EF01F8AE000']['tags'])
         self.assertIn('fps60', by_id['04007EF01F8AE000']['tags'])
         self.assertIn('ios', by_id['040074A01BF12000']['tags'])
@@ -101,16 +118,35 @@ class BuildPagesRealRepoTests(unittest.TestCase):
         self.assertNotIn('ios', by_id['010003F003A34000']['tags'])
         self.assertNotIn('fps60', by_id['0400486024DEC000']['tags'])
 
-    def test_required_links_and_zero_semicolons_in_visible_text(self) -> None:
+    def test_compliance_hardening_and_zero_semicolons(self) -> None:
         for rel in ('index.html', 'zh/index.html'):
             with self.subTest(page=rel):
                 raw = (self.out / rel).read_text(encoding='utf-8')
                 info = _extract_html_info(raw)
                 visible = ' '.join(info.text_parts)
+
+                self.assertEqual(info.meta_map.get('robots'), 'noindex, nofollow, noarchive, nosnippet')
+                self.assertEqual(info.meta_map.get('googlebot'), 'noindex, nofollow, noarchive, nosnippet')
+
+                self.assertNotIn('docs/images/', raw)
+                self.assertNotIn('raw.githubusercontent.com', raw)
+                self.assertNotIn('featured-section', raw)
+                self.assertNotIn('gallery-grid', raw)
+                self.assertIsNone(FORBIDDEN_IMAGE_URL_RE.search(raw))
+                for img_src in info.images:
+                    self.assertTrue(img_src.startswith('data:image/png'), f'Unexpected external image: {img_src}')
+
+                lower_raw = raw.lower()
+                self.assertNotIn('prod.keys', lower_raw)
+                self.assertNotIn('title.keys', lower_raw)
+                self.assertIsNone(re.search(r'\bnsp\b', visible, re.I))
+                self.assertIsNone(re.search(r'\bxci\b', visible, re.I))
+
                 for bad in FORBIDDEN_SEMICOLONS:
                     self.assertNotIn(bad, visible, f'Found semicolon {bad!r} in visible text of {rel}')
                     for meta in info.meta_contents:
                         self.assertNotIn(bad, meta, f'Found semicolon {bad!r} in meta of {rel}')
+
                 self.assertIn(bp.MAC_DOWNLOAD_URL, info.links)
                 self.assertIn(bp.WIN_DOWNLOAD_URL, info.links)
                 self.assertIn(bp.REPO_URL, info.links)
@@ -119,21 +155,21 @@ class BuildPagesRealRepoTests(unittest.TestCase):
 
         zh_info = _extract_html_info((self.out / 'zh/index.html').read_text(encoding='utf-8'))
         zh_visible = ' '.join(zh_info.text_parts)
+        self.assertIn('NX2Apple 构建配置兼容性索引', zh_visible)
         self.assertIn('塞尔达传说 旷野之息', zh_visible)
         self.assertIn('下载 macOS 版（Apple 芯片）', zh_visible)
         self.assertIn('下载 Windows 版（x64）', zh_visible)
+        self.assertIn('0400 架构', zh_visible)
 
         en_info = _extract_html_info((self.out / 'index.html').read_text(encoding='utf-8'))
         en_visible = ' '.join(en_info.text_parts)
+        self.assertIn('NX2Apple Profile Compatibility Index', en_visible)
         self.assertIn('Download for macOS (Apple Silicon)', en_visible)
         self.assertIn('Download for Windows (x64)', en_visible)
-
-        sitemap = (self.out / 'sitemap.xml').read_text(encoding='utf-8')
-        self.assertIn('<loc>https://lnpandy.github.io/NX2Apple/</loc>', sitemap)
-        self.assertIn('<loc>https://lnpandy.github.io/NX2Apple/zh/</loc>', sitemap)
+        self.assertIn('0400 Series', en_visible)
 
         robots = (self.out / 'robots.txt').read_text(encoding='utf-8')
-        self.assertIn('Sitemap: https://lnpandy.github.io/NX2Apple/sitemap.xml', robots)
+        self.assertEqual(robots, 'User-agent: *\nDisallow: /\n')
 
     def test_python_comments_and_ui_strings_have_no_semicolons(self) -> None:
         for py_path in (SCRIPTS_DIR / 'build_pages.py', Path(__file__).resolve()):
@@ -185,7 +221,7 @@ class BuildPagesFixtureAndSecurityTests(unittest.TestCase):
 |---|---|---|---|
 | {evil_name} | `0100111122220000` | 1.0.0 (v65536) | {evil_note} |
 | Switch 2 Mac Only | `0400111122220000` | v65536 | Profile present, not verified on a phone |
-| Switch 2 iPhone OK | `0400333344440000` | v131072 | **Verified** — plays on an iPhone at 60 fps |
+| Switch 2 iPhone OK | `0400333344440000` | v131072 | **Verified** \u2014 plays on an iPhone at 60 fps |
 """
 
         zh_md = f"""# 游戏
@@ -203,12 +239,12 @@ class BuildPagesFixtureAndSecurityTests(unittest.TestCase):
 |---|---|---|---|
 | 中文测试游戏 | `0100111122220000` | 1.0.0 (v65536) | 有 profile，未在手机上验证 |
 | Switch 2 仅 Mac | `0400111122220000` | v65536 | 有 profile，未在手机上验证 |
-| Switch 2 iPhone 可玩 | `0400333344440000` | v131072 | **已在 iPhone 验证** —— 60 fps 可玩 |
+| Switch 2 iPhone 可玩 | `0400333344440000` | v131072 | **已在 iPhone 验证** \u2014\u2014 60 fps 可玩 |
 """
         (root / 'GAMES.md').write_text(en_md, encoding='utf-8')
         (root / 'GAMES.zh-CN.md').write_text(zh_md, encoding='utf-8')
 
-    def test_xss_escaping_and_dangerous_url_rejection(self) -> None:
+    def test_xss_escaping_and_image_stripping(self) -> None:
         with tempfile.TemporaryDirectory(prefix='nx-pages-xss-') as tmp:
             root = Path(tmp) / 'repo'
             out = Path(tmp) / 'out'
@@ -222,12 +258,15 @@ class BuildPagesFixtureAndSecurityTests(unittest.TestCase):
             self.assertIn('switch2', by_id['0400333344440000']['tags'])
             self.assertIn('ios', by_id['0400333344440000']['tags'])
             self.assertIn('fps60', by_id['0400333344440000']['tags'])
+            for g in catalog['games']:
+                self.assertNotIn('image_url', g)
 
             for rel in ('index.html', 'zh/index.html'):
                 raw = (out / rel).read_text(encoding='utf-8')
                 self.assertNotIn('<script>alert(1)</script>', raw)
                 self.assertNotIn('<img src=x onerror=alert(3)>', raw)
                 self.assertNotIn('javascript:alert', raw)
+                self.assertNotIn('sample.jpg', raw)
                 info = _extract_html_info(raw)
                 visible = ' '.join(info.text_parts)
                 for bad in FORBIDDEN_SEMICOLONS:
@@ -250,6 +289,7 @@ class BuildPagesFixtureAndSecurityTests(unittest.TestCase):
         self.assertNotIn('actions/configure-pages', build_block)
         self.assertIn('include-hidden-files: true', build_block)
         self.assertIn("github.event_name != 'pull_request'", build_block)
+        self.assertIn("assert not (site / 'sitemap.xml').exists()", build_block)
         self.assertIn('pages: write', deploy_block)
         self.assertIn('id-token: write', deploy_block)
         self.assertIn("github.event_name != 'pull_request'", deploy_block)

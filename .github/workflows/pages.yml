@@ -1,4 +1,4 @@
-# Build and deploy the bilingual searchable GitHub Pages compatibility portal.
+# Build and deploy the bilingual searchable GitHub Pages profile compatibility index.
 #
 # Pull requests run the build and unit-test checks only (with contents: read and no deploy/configure-pages step, so PR
 # checks pass even before GitHub Pages is enabled in repository settings). Pushes to main and published releases
@@ -62,15 +62,16 @@ jobs:
           import os
 
           site = Path(os.environ['RUNNER_TEMP']) / 'pages-site'
-          for rel in ('index.html', 'zh/index.html', 'games.json', 'sitemap.xml', 'robots.txt', '.nojekyll'):
+          for rel in ('index.html', 'zh/index.html', 'games.json', 'robots.txt', '.nojekyll'):
               p = site / rel
               assert p.exists(), f'Missing generated file: {rel}'
               if rel != '.nojekyll':
                   assert p.stat().st_size > 0, f'Empty generated file: {rel}'
+          assert not (site / 'sitemap.xml').exists(), 'Unexpected sitemap.xml'
           data = json.loads((site / 'games.json').read_text(encoding='utf-8'))
           assert data['counts']['all'] > 0
           assert data['counts']['switch2'] > 0
-          print(f"Verified {data['counts']['all']} games ({data['counts']['switch2']} Switch 2)")
+          print(f"Verified {data['counts']['all']} profiles ({data['counts']['switch2']} 0400 series)")
           PY
       - name: Upload Pages artifact
         if: ${{ github.event_name != 'pull_request' }}
