@@ -1632,6 +1632,7 @@
   "ios.ui.coverLoadFailed": "Den här bilden kunde inte öppnas. Välj ett annat foto.",
   "ios.ui.dataFolder.removeConfirmMessage": "Spel som använder den här delade mappen hittar inte sina data förrän du väljer en mapp igen. Dina filer på enheten tas inte bort.",
   "ios.ui.dataFolder.removeConfirmTitle": "Ta bort mappen för speldata?",
+  "ios.ui.dataUpdateExplanation": "Shaders i spelets data saknas eller passar inte den här versionen av appen. Bygg spelet igen och kopiera sedan den nya romfs.img till den här enheten.",
   "ios.ui.dataUpdateNeeded": "Data behöver uppdateras",
   "ios.ui.decrease": "Minska",
   "ios.ui.deleteGame": "Radera spelet",

@@ -486,7 +486,8 @@ extension GameState {
     }
     var explanation: String {
         switch self {
-        case .playable, .needsDataUpdate: ""
+        case .playable: ""
+        case .needsDataUpdate: ShellStrings.text("The shaders in this game's data are missing or do not match this version of the app. Build the game again, then copy its new romfs.img to this device.")
         case .needsGameData: ""
         case .joiningGameData(_, let doneSize, let totalSize):
             ShellStrings.text("Joining split data files on this device (\(doneSize) of \(totalSize)). Play unlocks automatically when finished.")

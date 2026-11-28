@@ -31745,6 +31745,70 @@
         }
       }
     },
+    "The shaders in this game's data are missing or do not match this version of the app. Build the game again, then copy its new romfs.img to this device.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Shader in den Spieldaten fehlen oder passen nicht zu dieser App-Version. Erstelle das Spiel neu und kopiere dann die neue romfs.img auf dieses Gerät."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The shaders in this game's data are missing or do not match this version of the app. Build the game again, then copy its new romfs.img to this device."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faltan los shaders en los datos del juego o no coinciden con esta versión de la app. Compila el juego de nuevo y copia su nuevo romfs.img a este dispositivo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les shaders des données du jeu manquent ou ne correspondent pas à cette version de l'app. Recompilez le jeu, puis copiez son nouveau romfs.img sur cet appareil."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli shader nei dati del gioco mancano o non corrispondono a questa versione dell'app. Ricostruisci il gioco, poi copia il nuovo romfs.img su questo dispositivo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームデータのシェーダーがないか、このバージョンのアプリと一致しません。ゲームをもう一度ビルドし、新しい romfs.img をこのデバイスにコピーしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임 데이터의 셰이더가 없거나 이 앱 버전과 맞지 않습니다. 게임을 다시 빌드한 뒤 새 romfs.img를 이 기기로 복사하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os shaders nos dados do jogo estão ausentes ou não correspondem a esta versão do app. Compile o jogo de novo e copie o novo romfs.img para este dispositivo."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shaders i spelets data saknas eller passar inte den här versionen av appen. Bygg spelet igen och kopiera sedan den nya romfs.img till den här enheten."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游戏数据中的着色器缺失，或与此版本的 App 不匹配。请重新构建游戏，然后把新的 romfs.img 复制到此设备。"
+          }
+        }
+      }
+    },
     "The size of the on-screen controls. Controls move toward medium when a size does not fit the screen.": {
       "localizations": {
         "de": {

@@ -1631,6 +1631,7 @@
   "ios.ui.coverLoadFailed": "この画像を開けませんでした。別の写真を選んでください。",
   "ios.ui.dataFolder.removeConfirmMessage": "この共有フォルダを使うゲームは、フォルダを再選択するまでデータを見つけられなくなります。端末上のファイルは削除されません。",
   "ios.ui.dataFolder.removeConfirmTitle": "ゲームデータフォルダを削除しますか？",
+  "ios.ui.dataUpdateExplanation": "ゲームデータのシェーダーがないか、このバージョンのアプリと一致しません。ゲームをもう一度ビルドし、新しい romfs.img をこのデバイスにコピーしてください。",
   "ios.ui.dataUpdateNeeded": "データのアップデートが必要です",
   "ios.ui.decrease": "減らす",
   "ios.ui.deleteGame": "ゲームを削除",
