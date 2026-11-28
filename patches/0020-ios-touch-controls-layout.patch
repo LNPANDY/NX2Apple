@@ -9,6 +9,7 @@ Reason: Let players resize and reposition touch controls with editor and gamepla
 Issue: LNPANDY/NX2Apple#347
 ---
  dm/games/01006F8002326000/patches.py          |  63 ++-
+ dm/games/01007EF00011E000/patches.py          |  40 +-
  dm/host/loader.c                              |  23 +-
  dm/host/tests/t_nro.c                         |  54 ++-
  dm/ios/Sources/DmGamepad.m                    | 283 ++++++-----
@@ -19,11 +20,13 @@ Issue: LNPANDY/NX2Apple#347
  dm/ios/tests/pad_geometry/UIKit/UIKit.h       |  20 +
  .../tests/pad_geometry/pad_geometry_check.m   | 402 +++++++++++++++
  dm/ios/tests/test_pad_geometry.py             |  37 ++
- 11 files changed, 1594 insertions(+), 179 deletions(-)
+ dm/tools/tests/test_botw_screen_shape.py      | 240 +++++++++
+ 13 files changed, 1866 insertions(+), 187 deletions(-)
  create mode 100644 dm/ios/Sources/DmPadGeometry.h
  create mode 100644 dm/ios/tests/pad_geometry/UIKit/UIKit.h
  create mode 100644 dm/ios/tests/pad_geometry/pad_geometry_check.m
  create mode 100644 dm/ios/tests/test_pad_geometry.py
+ create mode 100644 dm/tools/tests/test_botw_screen_shape.py
 
 diff --git a/dm/games/01006F8002326000/patches.py b/dm/games/01006F8002326000/patches.py
 index 9a3f629..8584e5e 100644
@@ -140,6 +143,69 @@ index 9a3f629..8584e5e 100644
          site(at, struct.pack('<I', orig).hex())
          start = here(); emit(orig)
          emit(ADRP(16, here(), STATE))
+diff --git a/dm/games/01007EF00011E000/patches.py b/dm/games/01007EF00011E000/patches.py
+index 5e462ac..dd5fed0 100644
+--- a/dm/games/01007EF00011E000/patches.py
++++ b/dm/games/01007EF00011E000/patches.py
+@@ -112,9 +112,11 @@ def frame_step(ctx):
+     # Screen shape: a screen taller than 16:9 (the iPhone Duo's, about 1.43:1) gets a picture of its own shape instead of a stretched
+     # or cut one. The game's sizes are constants: the output size static [main+0x1e43dc0] (1920x1080; set in nnMain and by its getter main+0x1261880) that sizes the
+     # framework's window textures, the layout size static [main+0x1e43dd0] (1280x720; nnMain, getter main+0x12618dc), and the display mode switch main+0x1266074, which
+-    # sets the display size and viewport for docked (1920x1080) and handheld (1280x720, and the 720.0 of its scaled case). Each height becomes the host's when it set one
+-    # (state +0x48 u32 output height, +0x4c u32 layout height, +0x50 float layout height; loader.c from DM_SCREEN_ASPECT; 0 = the game's own). The widths stay, so the
+-    # 3D views (1600 wide docked, scaled from the output size) grow in height too. x16 is free at every site: nnMain's sites follow a call through the PLT
++    # sets the display size, 3D base/output widths ([x19+0x1210/0x1214]) and viewport for docked (1920x1080, 1600 base) and handheld (1280x720, 1280 base, and the 720.0 of its
++    # scaled case). On wide taller screens (state +0x44 ow == 1920), widths stay 1920/1600 (docked) and 1280/1280 (handheld) while heights become oh (+0x48) / lh (+0x4c).
++    # On narrow portrait phone windows (ow == 1280), the output width drops to 1280 x lh (e.g. 1280x1376 at 0.921, keeping swapchain and G-Buffer within fixed guest heaps),
++    # docked 3D renders at 1280 wide (1280.0 / 1280.0) and handheld 3D scales to 1024 wide (1024.0 / 1280.0 = 0.80, preserving the stock 1280/1600 handheld-to-docked ratio).
++    # x16 / x17 are free at every site: nnMain's sites follow a call through the PLT.
+     def taller(site, orig, load, apply, why):
+         fs_site(site, orig)
+         start = here(); emit(struct.unpack('<I', bytes.fromhex(orig))[0])   # the original instruction
+@@ -123,16 +125,38 @@ def frame_step(ctx):
+             emit(w)
+         emit(B(here(), site + 4))
+         fs_put(site, [B(site, start)], why)
++    def aspect_stub(site, orig, body, why, orig_first=True):
++        fs_site(site, orig)
++        start = here()
++        if orig_first: emit(struct.unpack('<I', bytes.fromhex(orig))[0])
++        emit(ADRP(16, here(), FS_STATE_OFF))
++        for w in body: emit(w)
++        emit(B(here(), site + 4))
++        fs_put(site, [B(site, start)], why)
+     OUT, LAY, LAYF = 0xb9404a10, 0xb9404e10, 0xb9405210   # ldr w16,[x16,#0x48] / #0x4c / #0x50
+     HI9, HI8, W4, W9 = 0xb3607e09, 0xb3607e08, 0x2a1003e4, 0x2a1003e9   # bfi x9 / x8,x16,#32,#32 (the pair's height); mov w4,w16; mov w9,w16
++    # Narrow-aware 1920x1080 -> (1280, lh) when ow==1280 else (1920, oh)
++    NARROW_PAIR_X9 = (0xb9404a11, 0x34000131, 0xb9404611, 0x7114023f, 0x54000081, 0x2a1103e9, 0xb9404e11, 0x14000002, 0xb9404a11, 0xb3607e29)
++    NARROW_PAIR_X8 = (0xb9404a11, 0x34000131, 0xb9404611, 0x7114023f, 0x54000081, 0x2a1103e8, 0xb9404e11, 0x14000002, 0xb9404a11, 0xb3607e28)
++    NARROW_H_W4 = (0xb9404a11, 0x34000111, 0xb9404611, 0x7114023f, 0x54000061, 0xb9404e11, 0x14000002, 0xb9404a11, 0x2a1103e4)
++    NARROW_W_W3 = (0xb9404a11, 0x340000b1, 0xb9404611, 0x7114023f, 0x54000041, 0x2a1103e3)
++    DOCKED_FLOATS_1280 = (0xb9404a11, 0x340000d1, 0xb9404611, 0x7114023f, 0x54000061, 0xd2a89408, 0xf2e89408, 0xf9090a68)
++    HANDHELD_FLOATS_1024 = (0xb9404a11, 0x340000b1, 0xb9404611, 0x7114023f, 0x54000041, 0xf2e89008, 0xf9090a68)
++    HANDHELD_SCALED_BASE_1024 = (0xb9404a11, 0x340000b1, 0xb9404611, 0x7114023f, 0x54000041, 0x52a89008, 0xb9121668)
++    for site, orig, body, orig_first, why in (
++            (0xc61ef4, '0987c0f2', NARROW_PAIR_X9, True, 'output size static, nnMain: 1920x1080 → (ow, lh) in narrow portrait else (1920, oh)'),
++            (0xc61f28, '0987c0f2', NARROW_PAIR_X9, True, 'output size static, nnMain (second path)'),
++            (0x12618c4, '0987c0f2', NARROW_PAIR_X9, True, 'output size static, its getter'),
++            (0x12660cc, '680a09f9', DOCKED_FLOATS_1280, False, 'docked 3D output/base widths (1920.0, 1600.0) → (1280.0, 1280.0) in narrow portrait'),
++            (0x12660d4, '0887c0f2', NARROW_PAIR_X8, True, 'docked display size 1920x1080 → (ow, lh) in narrow portrait else (1920, oh)'),
++            (0x12660f0, '04878052', NARROW_H_W4, True, 'docked viewport height 1080 → lh in narrow portrait else oh'),
++            (0x1266104, '03f08052', NARROW_W_W3, True, 'docked viewport width 1920 → ow in narrow portrait'),
++            (0x126611c, '680a09f9', HANDHELD_FLOATS_1024, False, 'handheld 3D base width 1280.0 → 1024.0 in narrow portrait (preserving 0.80 docked ratio)'),
++            (0x1266148, '681612b9', HANDHELD_SCALED_BASE_1024, False, 'handheld scaled 3D base width 1280.0 → 1024.0 in narrow portrait')):
++        aspect_stub(site, orig, body, why, orig_first=orig_first)
+     for site, orig, load, apply, why in (
+-            (0xc61ef4, '0987c0f2', OUT, HI9, 'output size static, nnMain: 1920x1080 → the host\'s height'),
+-            (0xc61f28, '0987c0f2', OUT, HI9, 'output size static, nnMain (second path)'),
+-            (0x12618c4, '0987c0f2', OUT, HI9, 'output size static, its getter'),
+             (0xc61f5c, '085ac0f2', LAY, HI8, 'layout size static, nnMain: 1280x720 → the host\'s layout height'),
+             (0x1261920, '095ac0f2', LAY, HI9, 'layout size static, its getter'),
+-            (0x12660d4, '0887c0f2', OUT, HI8, 'docked display size 1920x1080'),
+-            (0x12660f0, '04878052', OUT, W4, 'docked viewport height 1080'),
+             (0x1266124, '085ac0f2', LAY, HI8, 'handheld display size 1280x720'),
+             (0x1266188, '045a8052', LAY, W4, 'handheld viewport height 720'),
+             (0x1266134, '8986a852', LAYF, W9, 'scaled display height 720.0')):
 diff --git a/dm/host/loader.c b/dm/host/loader.c
 index 0c07cf1..4122ad0 100644
 --- a/dm/host/loader.c
@@ -2206,4 +2272,250 @@ index 0000000..44d0344
 +
 +
 +if __name__ == "__main__":
++    unittest.main()
+diff --git a/dm/tools/tests/test_botw_screen_shape.py b/dm/tools/tests/test_botw_screen_shape.py
+new file mode 100644
+index 0000000..13e9dba
+--- /dev/null
++++ b/dm/tools/tests/test_botw_screen_shape.py
+@@ -0,0 +1,240 @@
++"""Breath of the Wild (01007EF00011E000) narrow-portrait screen-shape stubs (dm/games/01007EF00011E000/patches.py):
++assembled as the rewriter places them and executed natively on an arm64 Mac against a state page across 16:9 (oh=0),
++wide taller (ow=1920, oh=1344, lh=896), unset-ow taller (ow=0, oh=1344, lh=896), narrow portrait-full (ow=1280,
++oh=2064, lh=1376), and narrow 4:3 (ow=1280, oh=1440, lh=960). Verifies all 9 output/docked/handheld sites keep 16:9
++and wide behaviour intact while capping narrow portrait output width at 1280x(lh) and preserving the 5:4 (0.80 width,
++0.64 pixel) handheld-to-docked ratio (1280 -> 1024). No game files needed."""
++import ctypes
++import importlib.util
++import platform
++import struct
++import sys
++import types
++import unittest
++from pathlib import Path
++
++REPO = Path(__file__).resolve().parents[3]
++sys.path.insert(0, str(REPO / 'dm/tools'))
++from nso_asm import B   # noqa: E402
++
++NATIVE = sys.platform == 'darwin' and platform.machine() == 'arm64'
++AREA = 0x1800000
++TRAMP = 0x1900000
++CODE_SIZE = 0x1a00000
++RET = 0xd65f03c0
++
++# Trampoline: x0 -> uint64_t regs[6] = {target, x19, x3, x4, x8, x9}; calls target (x20 holds &regs[0]), saves x3/x4/x8/x9 back.
++TRAMPOLINE = (
++    0xa9bd7bfd,  # stp x29, x30, [sp, #-0x30]!
++    0xa90153f3,  # stp x19, x20, [sp, #0x10]
++    0xaa0003f4,  # mov x20, x0
++    0xf9400693,  # ldr x19, [x20, #8]
++    0xf9400a83,  # ldr x3,  [x20, #0x10]
++    0xf9400e84,  # ldr x4,  [x20, #0x18]
++    0xf9401288,  # ldr x8,  [x20, #0x20]
++    0xf9401689,  # ldr x9,  [x20, #0x28]
++    0xf9400280,  # ldr x0,  [x20]
++    0xd63f0000,  # blr x0
++    0xf9000a83,  # str x3,  [x20, #0x10]
++    0xf9000e84,  # str x4,  [x20, #0x18]
++    0xf9001288,  # str x8,  [x20, #0x20]
++    0xf9001689,  # str x9,  [x20, #0x28]
++    0xa94153f3,  # ldp x19, x20, [sp, #0x10]
++    0xa8c37bfd,  # ldp x29, x30, [sp], #0x30
++    0xd65f03c0,  # ret
++)
++
++ASPECT_SITES = {
++    0xc61ef4: '0987c0f2',
++    0xc61f28: '0987c0f2',
++    0x12618c4: '0987c0f2',
++    0x12660cc: '680a09f9',
++    0x12660d4: '0887c0f2',
++    0x12660f0: '04878052',
++    0x1266104: '03f08052',
++    0x126611c: '680a09f9',
++    0x1266148: '681612b9',
++}
++
++
++def f32(x):
++    return struct.unpack('<I', struct.pack('<f', x))[0]
++
++
++def from_f32(bits):
++    return struct.unpack('<f', struct.pack('<I', bits & 0xffffffff))[0]
++
++
++def pair32(lo, hi):
++    return ((hi & 0xffffffff) << 32) | (lo & 0xffffffff)
++
++
++def load_patches():
++    spec = importlib.util.spec_from_file_location('botw_patches', REPO / 'dm/games/01007EF00011E000/patches.py')
++    assert spec is not None and spec.loader is not None
++    m = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(m)
++    return m
++
++
++class BotwScreenShapeMetadata(unittest.TestCase):
++    def test_all_nine_narrow_portrait_sites_are_registered(self):
++        m = load_patches()
++        pos = [AREA]
++        sites = {}
++        puts = {}
++        caps = set()
++        ctx = types.SimpleNamespace(
++            here=lambda: pos[0],
++            emit=lambda _w: pos.__setitem__(0, pos[0] + 4),
++            site=sites.__setitem__,
++            put=lambda off, words, why: puts.__setitem__(off, (words, why)),
++            state=0x2000000,
++            render_scale=0,
++            base=0,
++            others={},
++            capabilities=caps,
++        )
++        m.frame_step(ctx)
++        self.assertIn('SCREEN_ASPECT', caps)
++        for off, orig in ASPECT_SITES.items():
++            self.assertEqual(sites.get(off), orig, f'site {off:#x}')
++            self.assertIn(off, puts, f'put {off:#x}')
++            words, why = puts[off]
++            self.assertEqual(len(words), 1, f'{off:#x}: {why}')
++            self.assertNotEqual(words[0], struct.unpack('<I', bytes.fromhex(orig))[0], f'{off:#x} not patched')
++
++
++@unittest.skipUnless(NATIVE, 'runs arm64 code natively: an arm64 Mac only')
++class Arm64BotwScreenShape(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        libc = cls.libc = ctypes.CDLL(None)
++        libc.mmap.restype = ctypes.c_void_p
++        libc.mmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_long]
++        libc.munmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
++        prot_all, private_anon, jit = 7, 0x1002, 0x800
++        cls.code = libc.mmap(None, CODE_SIZE, prot_all, private_anon | jit, -1, 0)
++        cls.page = libc.mmap(ctypes.c_void_p(cls.code + CODE_SIZE), 0x4000, 3, private_anon, -1, 0)
++        cls.obj = libc.mmap(None, 0x4000, 3, private_anon, -1, 0)
++        bad = {None, ctypes.c_void_p(-1).value}
++        assert cls.code not in bad and cls.page not in bad and cls.obj not in bad
++
++        area_buf = bytearray()
++        pos = [AREA]
++        sites = {}
++        puts = {}
++
++        def emit(w):
++            area_buf.extend(struct.pack('<I', w))
++            pos[0] += 4
++
++        ctx = types.SimpleNamespace(
++            here=lambda: pos[0],
++            emit=emit,
++            site=sites.__setitem__,
++            put=lambda off, words, why: puts.__setitem__(off, words),
++            state=cls.page - cls.code,
++            render_scale=0,
++            base=0,
++            others={},
++            capabilities=set(),
++        )
++        load_patches().frame_step(ctx)
++        cls.puts = puts
++
++        libc.pthread_jit_write_protect_np(0)
++        area_bytes = bytes(area_buf)
++        ctypes.memmove(cls.code + AREA, area_bytes, len(area_bytes))
++        tramp_bytes = struct.pack(f'<{len(TRAMPOLINE)}I', *TRAMPOLINE)
++        ctypes.memmove(cls.code + TRAMP, tramp_bytes, len(tramp_bytes))
++        for off in ASPECT_SITES:
++            words = puts[off]
++            assert len(words) == 1
++            start = off + (((words[0] & 0x3ffffff) ^ 0x2000000) - 0x2000000) * 4
++            assert words == [B(off, start)]
++            patch_pair = struct.pack('<2I', words[0], RET)
++            ctypes.memmove(cls.code + off, patch_pair, 8)
++        libc.pthread_jit_write_protect_np(1)
++
++        libc.sys_icache_invalidate(ctypes.c_void_p(cls.code + AREA), ctypes.c_size_t(len(area_bytes)))
++        libc.sys_icache_invalidate(ctypes.c_void_p(cls.code + TRAMP), ctypes.c_size_t(len(tramp_bytes)))
++        for off in ASPECT_SITES:
++            libc.sys_icache_invalidate(ctypes.c_void_p(cls.code + off), ctypes.c_size_t(8))
++        cls.call = ctypes.CFUNCTYPE(None, ctypes.c_void_p)(cls.code + TRAMP)
++
++    @classmethod
++    def tearDownClass(cls):
++        cls.libc.munmap(ctypes.c_void_p(cls.code), CODE_SIZE)
++        cls.libc.munmap(ctypes.c_void_p(cls.page), 0x4000)
++        cls.libc.munmap(ctypes.c_void_p(cls.obj), 0x4000)
++
++    def set_state(self, ow, oh, lh):
++        ctypes.memset(self.page, 0, 0x200)
++        ctypes.c_uint32.from_address(self.page + 0x44).value = ow
++        ctypes.c_uint32.from_address(self.page + 0x48).value = oh
++        ctypes.c_uint32.from_address(self.page + 0x4c).value = lh
++        ctypes.c_float.from_address(self.page + 0x50).value = float(lh)
++
++    def run_site(self, site, *, x3=0xdeadbeef, x4=0xdeadbeef, x8=0, x9=0):
++        ctypes.memset(self.obj + 0x1200, 0, 0x40)
++        regs = (ctypes.c_uint64 * 6)(self.code + site, self.obj, x3, x4, x8, x9)
++        self.call(ctypes.addressof(regs))
++        return {
++            'x3': regs[2],
++            'x4': regs[3],
++            'x8': regs[4],
++            'x9': regs[5],
++            'out_f': from_f32(ctypes.c_uint32.from_address(self.obj + 0x1210).value),
++            'base_f': from_f32(ctypes.c_uint32.from_address(self.obj + 0x1214).value),
++        }
++
++    def test_all_nine_sites_across_aspect_modes(self):
++        cases = (
++            # (name, ow, oh, lh, exp_out_w, exp_out_h, exp_docked_base, exp_handheld_base)
++            ('16:9 (oh=0)', 0, 0, 0, 1920, 1080, 1600.0, 1280.0),
++            ('wide 1.43 (ow=1920)', 1920, 1344, 896, 1920, 1344, 1600.0, 1280.0),
++            ('wide unset ow (ow=0)', 0, 1344, 896, 1920, 1344, 1600.0, 1280.0),
++            ('narrow portrait-full (ow=1280)', 1280, 2064, 1376, 1280, 1376, 1280.0, 1024.0),
++            ('narrow 4:3 (ow=1280)', 1280, 1440, 960, 1280, 960, 1280.0, 1024.0),
++        )
++        for name, ow, oh, lh, exp_w, exp_h, exp_docked_base, exp_hh_base in cases:
++            with self.subTest(mode=name):
++                self.set_state(ow, oh, lh)
++                exp_pair = pair32(exp_w, exp_h)
++
++                # 1-3: static output size sites (x9)
++                for site in (0xc61ef4, 0xc61f28, 0x12618c4):
++                    res = self.run_site(site, x9=1920)
++                    self.assertEqual(res['x9'], exp_pair, f'{name} @ {site:#x}')
++
++                # 4: docked 3D output/base widths ([x19+0x1210/0x1214])
++                res = self.run_site(0x12660cc, x8=pair32(f32(1920.0), f32(1600.0)))
++                self.assertEqual((res['out_f'], res['base_f']), (float(exp_w), exp_docked_base), f'{name} @ 0x12660cc')
++
++                # 5: docked display size (x8)
++                res = self.run_site(0x12660d4, x8=1920)
++                self.assertEqual(res['x8'], exp_pair, f'{name} @ 0x12660d4')
++
++                # 6: docked viewport height (w4)
++                res = self.run_site(0x12660f0)
++                self.assertEqual(res['x4'] & 0xffffffff, exp_h, f'{name} @ 0x12660f0')
++
++                # 7: docked viewport width (w3)
++                res = self.run_site(0x1266104)
++                self.assertEqual(res['x3'] & 0xffffffff, exp_w, f'{name} @ 0x1266104')
++
++                # 8: handheld 3D output/base widths ([x19+0x1210/0x1214])
++                res = self.run_site(0x126611c, x8=pair32(f32(1280.0), f32(1280.0)))
++                self.assertEqual((res['out_f'], res['base_f']), (1280.0, exp_hh_base), f'{name} @ 0x126611c')
++
++                # 9: handheld scaled 3D base width ([x19+0x1214])
++                res = self.run_site(0x1266148, x8=f32(1280.0))
++                self.assertEqual(res['base_f'], exp_hh_base, f'{name} @ 0x1266148')
++
++                # 5:4 (0.80 width) handheld-to-docked ratio preserved across narrow and wide modes
++                self.assertAlmostEqual(exp_hh_base / exp_docked_base, 0.80, places=6)
++
++
++if __name__ == '__main__':
 +    unittest.main()
