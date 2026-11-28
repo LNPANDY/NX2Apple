@@ -35,7 +35,7 @@ package enum SupportedGames {
     package static let noteLimit = 320
 
     /// Every profile under `<engineRoot>/dm/games`, by name. A folder that is not a profile (no `title_id`, no `name`) is left out.
-    /// When `includeMacNativeGames` is true, any missing title among the 12 MacNativeGames-supported games is appended cleanly.
+    /// When `includeMacNativeGames` is true, any missing title among the 13 MacNativeGames-supported games is appended cleanly.
     package static func list(engineRoot: String, includeMacNativeGames: Bool = false) -> [SupportedGame] {
         var loaded: [SupportedGame] = []
         if !engineRoot.isEmpty {
@@ -137,9 +137,16 @@ package enum SupportedGames {
             version: nil,
             notes: "Supported by MacNativeGames for macOS native builds."
         ),
+        SupportedGame(
+            titleID: "010074F013262000",
+            name: "Xenoblade Chronicles 3",
+            edition: .switch1,
+            version: nil,
+            notes: "Supported by MacNativeGames for macOS native builds."
+        ),
     ]
 
-    /// Ensures all 12 MacNativeGames-supported titles appear in `games` without duplicating existing profiles.
+    /// Ensures all 13 MacNativeGames-supported titles appear in `games` without duplicating existing profiles.
     package static func withMacNativeGames(_ games: [SupportedGame]) -> [SupportedGame] {
         var existingIDs = Set(games.map { $0.titleID.uppercased() })
         var out = games

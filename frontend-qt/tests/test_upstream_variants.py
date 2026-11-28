@@ -50,6 +50,8 @@ class UpstreamVariantTests(unittest.TestCase):
         self.assertEqual(us.tuned_engines_for_title_id('0400486024dec000'), ('kidwithsword', 'macnativegames'))
         self.assertEqual(us.tuned_engines_for_title_id('0400C3F00006E000'), ('nolagkart',))
         self.assertEqual(us.tuned_engines_for_title_id('01007EF00011E000'), ('macnativegames',))
+        # Xenoblade Chronicles 3, the same list as the Mac launcher's MacNativeGamesBuilder.perGameTitleIDs
+        self.assertEqual(us.tuned_engines_for_title_id('010074f013262000'), ('macnativegames',))
         self.assertEqual(us.tuned_engines_for_title_id('0100152000022000'), ())
         self.assertEqual(us.tuned_engines_for_title_id('bad'), ())
 

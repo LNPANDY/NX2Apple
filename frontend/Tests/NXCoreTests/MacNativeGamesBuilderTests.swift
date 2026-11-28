@@ -32,7 +32,7 @@ final class MacNativeGamesBuilderTests: XCTestCase {
         XCTAssertFalse(MacNativeGamesBuilder.isUsableTree(incompleteTree.path))
     }
 
-    func testRouteAndSupportsTitleIDStrictlyEnforceTwelveSupportedGames() throws {
+    func testRouteAndSupportsTitleIDStrictlyEnforceThirteenSupportedGames() throws {
         let tree = try makeFakeMNGTree()
 
         XCTAssertFalse(MacNativeGamesBuilder.supportsTitleID(nil))
@@ -48,7 +48,7 @@ final class MacNativeGamesBuilderTests: XCTestCase {
             "040074A01BF12000",
             "0400A3A01EE4C000",
         ]
-        let perGameSeven: [(String, MacNativeGamesBuilder.PerGamePort)] = [
+        let perGameEight: [(String, MacNativeGamesBuilder.PerGamePort)] = [
             ("010093801237C000", .dread),
             ("01002DA013484000", .ss),
             ("010048900CF64000", .worldend),
@@ -56,10 +56,11 @@ final class MacNativeGamesBuilderTests: XCTestCase {
             ("01006F8002326000", .acnh),
             ("01008CF01BAAC000", .eow),
             ("0100000000010000", .odyssey),
+            ("010074F013262000", .xc3),
         ]
-        let allTwelve = Set(unifiedFive + perGameSeven.map(\.0))
-        XCTAssertEqual(MacNativeGamesBuilder.supportedTitleIDs.count, 12)
-        XCTAssertEqual(MacNativeGamesBuilder.supportedTitleIDs, allTwelve)
+        let allThirteen = Set(unifiedFive + perGameEight.map(\.0))
+        XCTAssertEqual(MacNativeGamesBuilder.supportedTitleIDs.count, 13)
+        XCTAssertEqual(MacNativeGamesBuilder.supportedTitleIDs, allThirteen)
 
         for tid in unifiedFive {
             XCTAssertTrue(MacNativeGamesBuilder.supportsTitleID(tid.lowercased()), "\(tid) lowercase should be supported")
@@ -69,7 +70,7 @@ final class MacNativeGamesBuilderTests: XCTestCase {
                 "\(tid) should route to unifiedBuildApp"
             )
         }
-        for (tid, port) in perGameSeven {
+        for (tid, port) in perGameEight {
             XCTAssertTrue(MacNativeGamesBuilder.supportsTitleID(tid.lowercased()), "\(tid) lowercase should be supported")
             XCTAssertEqual(
                 MacNativeGamesBuilder.route(forTitleID: tid, in: tree),
@@ -82,13 +83,13 @@ final class MacNativeGamesBuilderTests: XCTestCase {
             )
         }
 
-        // Titles outside the 12 official MNG ports must remain blocked.
+        // Titles outside the 13 official MNG ports must remain blocked.
         for blocked in ["0100152000022000", "010015100B514000", "01006A800016E000", "040077201BE50000"] {
             XCTAssertFalse(MacNativeGamesBuilder.supportsTitleID(blocked))
             XCTAssertNil(MacNativeGamesBuilder.route(forTitleID: blocked, in: tree))
         }
 
-        // Dynamic games/*/game.json entries must NOT bypass the 12-title allowlist.
+        // Dynamic games/*/game.json entries must NOT bypass the 13-title allowlist.
         let customDir = URL(fileURLWithPath: tree).appendingPathComponent("games/custom")
         try FileManager.default.createDirectory(at: customDir, withIntermediateDirectories: true)
         let gameJSON = """
@@ -130,7 +131,7 @@ final class MacNativeGamesBuilderTests: XCTestCase {
             XCTAssertEqual(args.contains("--update"), port.supportsUpdate, "\(port.rawValue) --update mismatch")
             XCTAssertEqual(args.contains("--dlc"), port.supportsDLC, "\(port.rawValue) --dlc mismatch")
             XCTAssertEqual(args.contains("--shared-fonts"), port.supportsSharedFonts, "\(port.rawValue) --shared-fonts mismatch")
-            if port == .acnh {
+            if port.supportsDLC {
                 XCTAssertEqual(args.filter { $0 == "--dlc" }.count, 2)
             }
         }
@@ -266,7 +267,51 @@ final class MacNativeGamesBuilderTests: XCTestCase {
         XCTAssertEqual(MacNativeGamesBuilder.lastError(in: logNormal), "finished step 2")
     }
 
-    func testEngineUpstreamBundleTitleIDsAndMacGameBundleRecognitionForAllTwelve() throws {
+    // Xenoblade Chronicles 3 (games/xc3/build.py, MacNativeGames#2269): the update and every add-on the player picked, each
+    // once, in order, and never an empty path, a path inside the game input, or an add-on of an unencrypted input.
+    func testXC3PassesTheUpdateAndEachAddOnOnce() {
+        func args(game: String = "/games/XC3/base.nsp", unencrypted: Bool = false, update: String = "/games/XC3/update.nsp",
+                  dlcs: [String]) -> [String] {
+            MacNativeGamesBuilder.arguments(route: .perGameScript(.xc3), tree: "/opt/mng", gameInput: game, keysPath: "/keys/prod.keys",
+                                            isUnencryptedInput: unencrypted, updatePath: update, dlcPaths: dlcs,
+                                            outputAppPath: "/out/Xenoblade Chronicles 3.app", workDir: "/Volumes/Drive/Builds/010074F013262000_mng_build")
+        }
+        let dlcs = ["/games/XC3/dlc/Expansion Pass 1.nsp", "/games/XC3/dlc/Expansion Pass 2.nsp",
+                    "/games/XC3/dlc/Expansion Pass 3.nsp", "/games/XC3/dlc/Future Redeemed.nsp"]
+        XCTAssertEqual(args(dlcs: dlcs), [
+            "/opt/mng/games/xc3/build.py", "/games/XC3/base.nsp", "-k", "/keys/prod.keys",
+            "--update", "/games/XC3/update.nsp",
+            "--dlc", dlcs[0], "--dlc", dlcs[1], "--dlc", dlcs[2], "--dlc", dlcs[3],
+            "--work", "/Volumes/Drive/Builds/010074F013262000_mng_build", "-o", "/out/Xenoblade Chronicles 3.app",
+        ], "paths with spaces stay one argument each, in the order the player picked")
+
+        // Without add-ons or an update: the base game only (1.0.0)
+        let bare = args(update: "", dlcs: [])
+        XCTAssertFalse(bare.contains("--dlc"))
+        XCTAssertFalse(bare.contains("--update"))
+
+        // Empty add-on slots are skipped
+        XCTAssertEqual(args(dlcs: ["", dlcs[0], "  ".trimmingCharacters(in: .whitespaces)]).filter { $0 == "--dlc" }.count, 1)
+
+        // An add-on that is the game input itself, or inside a game folder, is not passed again (trailing slash too)
+        let folder = args(game: "/games/XC3/", update: "/games/XC3/update.nsp",
+                          dlcs: ["/games/XC3/dlc/Future Redeemed.nsp", "/games/XC3-extra/dlc.nsp", "/games/XC3"])
+        XCTAssertEqual(folder.filter { $0 == "--dlc" }.count, 1)
+        XCTAssertTrue(folder.contains("/games/XC3-extra/dlc.nsp"), "a sibling folder whose name starts the same is not inside")
+        XCTAssertFalse(folder.contains("--update"), "an update inside the game folder is not passed again")
+
+        // An unencrypted input carries its own add-ons: no -k, --update or --dlc
+        let dump = args(game: "/games/xc3_dump", unencrypted: true, dlcs: dlcs)
+        XCTAssertFalse(dump.contains("-k"))
+        XCTAssertFalse(dump.contains("--update"))
+        XCTAssertFalse(dump.contains("--dlc"))
+
+        // Optional shared fonts are passed when given, and never asked for (the game has its own)
+        XCTAssertNil(MacNativeGamesBuilder.PerGamePort.xc3.autoSharedFontsManifestRelativePath)
+        XCTAssertEqual(MacNativeGamesBuilder.route(forTitleID: "010074f013262000"), .perGameScript(.xc3))
+    }
+
+    func testEngineUpstreamBundleTitleIDsAndMacGameBundleRecognitionForAllThirteen() throws {
         let ids = EngineUpstream.macNativeGamesBundleTitleIDs
         let expected: [String: String] = [
             "org.macnativegames.totk": "0100F2C0115B6000",
@@ -284,6 +329,7 @@ final class MacNativeGamesBuilderTests: XCTestCase {
             "org.macnativegames.acnh": "01006F8002326000",
             "org.macnativegames.eow": "01008CF01BAAC000",
             "org.macnativegames.odyssey": "0100000000010000",
+            "org.macnativegames.xc3": "010074F013262000",
         ]
         for (bundleID, tid) in expected {
             XCTAssertEqual(ids[bundleID], tid, "Missing bundle mapping for \(bundleID)")
@@ -296,6 +342,7 @@ final class MacNativeGamesBuilderTests: XCTestCase {
             ("org.macnativegames.acnh", "01006F8002326000"),
             ("org.macnativegames.eow", "01008CF01BAAC000"),
             ("org.macnativegames.odyssey", "0100000000010000"),
+            ("org.macnativegames.xc3", "010074F013262000"),
         ] {
             let appURL = temporary.appendingPathComponent("\(bundleID).app")
             try FileManager.default.createDirectory(at: appURL.appendingPathComponent("Contents/MacOS"), withIntermediateDirectories: true)
