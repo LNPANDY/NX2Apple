@@ -118,7 +118,15 @@ class BuildPagesRealRepoTests(unittest.TestCase):
                 self.assertIn('01007EF00011E000', visible)
 
         zh_info = _extract_html_info((self.out / 'zh/index.html').read_text(encoding='utf-8'))
-        self.assertIn('塞尔达传说 旷野之息', ' '.join(zh_info.text_parts))
+        zh_visible = ' '.join(zh_info.text_parts)
+        self.assertIn('塞尔达传说 旷野之息', zh_visible)
+        self.assertIn('下载 macOS 版（Apple 芯片）', zh_visible)
+        self.assertIn('下载 Windows 版（x64）', zh_visible)
+
+        en_info = _extract_html_info((self.out / 'index.html').read_text(encoding='utf-8'))
+        en_visible = ' '.join(en_info.text_parts)
+        self.assertIn('Download for macOS (Apple Silicon)', en_visible)
+        self.assertIn('Download for Windows (x64)', en_visible)
 
         sitemap = (self.out / 'sitemap.xml').read_text(encoding='utf-8')
         self.assertIn('<loc>https://lnpandy.github.io/NX2Apple/</loc>', sitemap)
