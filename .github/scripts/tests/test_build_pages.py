@@ -152,7 +152,7 @@ class BuildPagesFixtureAndSecurityTests(unittest.TestCase):
     def _write_fixture_repo(self, root: Path, *, xss_payload: bool = False) -> None:
         (root / 'frontend/Sources/NXModel').mkdir(parents=True)
         (root / 'frontend/Sources/NXModel/AppUpdateStore.swift').write_text(
-            'package static let appVersion = "9.9.9"\n',
+            'package static ' + 'let appVersion = "9.9.9"\n',
             encoding='utf-8',
         )
         (root / '.upstream-ref').write_text('a' * 40 + '\n', encoding='utf-8')
