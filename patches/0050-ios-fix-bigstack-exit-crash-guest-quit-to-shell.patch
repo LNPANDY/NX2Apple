@@ -1,4 +1,4 @@
-From f3a65481b5c9c2ba4b9714edcee7cef423c8eb1e Mon Sep 17 00:00:00 2001
+From 104be5cf8ebe6371dec6c2d1767a5f8c0425e4e6 Mon Sep 17 00:00:00 2001
 From: LNPANDY <lnp-andy@hotmail.com>
 Date: Sat, 14 Nov 2026 03:46:00 +0800
 Subject: [PATCH] ios: fix bigstack exit crash, guest quit to shell, and - + +
@@ -21,16 +21,18 @@ Issue: LNPANDY/NX2Apple#1314
  dm/host/home_quit.h             |   5 +
  dm/host/tests/Makefile          |   2 +-
  dm/host/tests/t_audio.c         | 307 +++++++++++++++++++++++-
+ dm/host/tests/t_audio_device.c  |  12 +-
  dm/host/tests/t_audio_spsc.c    | 109 ++++++++-
  dm/host/tests/t_audren_layout.c |   1 +
  dm/host/tests/t_audren_work.c   |   1 +
  dm/host/tests/t_bigstack.c      |  29 +++
  dm/host/tests/t_home_quit.c     |   9 +
+ dm/host/tests/t_output_stream.c |   8 +-
  dm/ios/Sources/DmGamepad.m      | 122 +++++++++-
  dm/ios/Sources/front_ios.m      |  47 +++-
  dm/ios/framework/ShellGlue.h    |   1 +
  dm/ios/framework/ShellGlue.m    |   4 +
- 20 files changed, 1168 insertions(+), 130 deletions(-)
+ 22 files changed, 1180 insertions(+), 138 deletions(-)
 
 diff --git a/dm/gfx/gl/hle_gl.m b/dm/gfx/gl/hle_gl.m
 index fede774..ddf558b 100644
@@ -1573,6 +1575,32 @@ index 6d56d57..1ec15fc 100644
  }
 -
 -void dm_audio_device_changed(void) {}   // renderer notification delivery is checked by t_audren_work
+diff --git a/dm/host/tests/t_audio_device.c b/dm/host/tests/t_audio_device.c
+index 5142683..5f8e82d 100644
+--- a/dm/host/tests/t_audio_device.c
++++ b/dm/host/tests/t_audio_device.c
+@@ -47,15 +47,15 @@ static OSStatus mock_route_remove(AudioObjectID id, const AudioObjectPropertyAdd
+ }
+ #define AudioObjectAddPropertyListener mock_route_add
+ #define AudioObjectRemovePropertyListener mock_route_remove
+-static int mock_once(pthread_once_t *, void (*)(void));
+-#define pthread_once mock_once
++static int mock_pthread_create(pthread_t *, const pthread_attr_t *, void *(*)(void *), void *);
++#define pthread_create mock_pthread_create
+ #include "../hle_audio.c"
+-#undef pthread_once
++#undef pthread_create
+ __thread _Atomic int dm_host_work;   // defined by the graphics host in a full build
+ 
+-// The fixture steps the watchdog itself. Keep the route listener's normal initialization.
+-static int mock_once(pthread_once_t *once, void (*init)(void)) {
+-    return init == au_watchdog_start ? 0 : pthread_once(once, init);
++// The fixture steps the watchdog itself. Keep the route listener and other helper threads running normally.
++static int mock_pthread_create(pthread_t *t, const pthread_attr_t *attr, void *(*fn)(void *), void *arg) {
++    return fn == au_watchdog ? 1 : pthread_create(t, attr, fn, arg);
+ }
+ 
+ static struct {
 diff --git a/dm/host/tests/t_audio_spsc.c b/dm/host/tests/t_audio_spsc.c
 index 9607611..1e9eda1 100644
 --- a/dm/host/tests/t_audio_spsc.c
@@ -1807,6 +1835,27 @@ index b904d9b..6431357 100644
      printf("t_home_quit: %d checks, %d failed\n", checks, fails);
      return fails != 0;
  }
+diff --git a/dm/host/tests/t_output_stream.c b/dm/host/tests/t_output_stream.c
+index 6a8d531..027369e 100644
+--- a/dm/host/tests/t_output_stream.c
++++ b/dm/host/tests/t_output_stream.c
+@@ -45,10 +45,14 @@ int main(void) {
+     for (int i = 0; i < FRAMES; i++) { pcm[2 * i] = (float)i / FRAMES; pcm[2 * i + 1] = i == 1 ? 2.0f : -0.5f; }
+     if (h_os_Write(stream, pcm, FRAMES) != FRAMES) FAIL("write");
+     if (h_os_Free(stream) != CAP - FRAMES) FAIL("free after one write: %d", h_os_Free(stream));
+-    ostream *o = os_of(stream); aout *a = ao(o->key);
++    ostream *o = ostream_acquire(stream); if (!o) FAIL("acquire");
++    aout *a = ao(o->key);
+     oblock *k = (oblock *)a->q[0];
+-    if (k->b.size != FRAMES * 2 * 2 || k->pcm[0] != 0 || k->pcm[1] != -16383 || k->pcm[3] != 32767 || k->pcm[2 * 480] != (int16_t)(0.5f * 32767.0f))
++    if (k->b.size != FRAMES * 2 * 2 || k->pcm[0] != 0 || k->pcm[1] != -16383 || k->pcm[3] != 32767 || k->pcm[2 * 480] != (int16_t)(0.5f * 32767.0f)) {
++        ostream_release(o);
+         FAIL("block layout: size %llu, %d %d %d %d", (unsigned long long)k->b.size, k->pcm[0], k->pcm[1], k->pcm[3], k->pcm[960]);
++    }
++    ostream_release(o);
+     for (int i = 1; i < CAP / FRAMES; i++) if (h_os_Write(stream, pcm, FRAMES) != FRAMES) FAIL("write %d", i);
+     if (h_os_Free(stream) != 0 || h_os_Write(stream, pcm, FRAMES) != 0) FAIL("a full stream took more frames");
+ 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
 index 6d967a6..91658b7 100644
 --- a/dm/ios/Sources/DmGamepad.m
@@ -1991,10 +2040,10 @@ index 6d967a6..91658b7 100644
          [self wakeMenu];
      }
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index ce4d977..b8b8e7b 100644
+index 832e18f..7842fe1 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
-@@ -382,6 +382,12 @@ void front_picture_shape(int w, int h) {   // front.h: the views take the presen
+@@ -385,6 +385,12 @@ void front_picture_shape(int w, int h) {   // front.h: the views take the presen
      });
  }
  
@@ -2007,7 +2056,7 @@ index ce4d977..b8b8e7b 100644
  // The settings the in-game menu offers (GameMenu.swift, from the gamepad's menu button), each taking effect while the game runs; the launcher's other settings need the next start.
  // value NULL: only whether env is one of them; otherwise apply it (GameMenu.swift has saved it and put it in the environment). Console mode changes as on a Switch put in or taken out of its
  // dock (the operation mode change notification); while a TV shows the picture the game stays docked, and the choice applies when the TV is unplugged
-@@ -410,6 +416,16 @@ bool dm_setting_live(const char *env, const char *value) {
+@@ -422,6 +428,16 @@ bool dm_setting_live(const char *env, const char *value) {
          }
          return true;
      }
@@ -2024,7 +2073,7 @@ index ce4d977..b8b8e7b 100644
      return false;
  }
  @implementation DmTVSceneDelegate
-@@ -760,8 +776,10 @@ static void save_sync_background(void) {
+@@ -772,8 +788,10 @@ static void save_sync_background(void) {
  }
  
  static _Atomic int g_quitting;
@@ -2036,7 +2085,7 @@ index ce4d977..b8b8e7b 100644
      switch (ev) {
          case 0: quit_close(); dm_movie_active(0); dm_gamepad_inactive(); dm_focus_set(2); break;
          case 1:
-@@ -781,12 +799,23 @@ void front_ios_focus_event(int ev) {
+@@ -793,12 +811,23 @@ void front_ios_focus_event(int ev) {
              front_ios_audio_apply(); dm_gamepad_active(); dm_focus_set(1); dm_movie_active(1);
              dm_prewarm_upload_schedule();
              break;
@@ -2061,7 +2110,7 @@ index ce4d977..b8b8e7b 100644
  // while it is held). A tap on Quit or A quits, a tap on Cancel or outside the card, B or a new press of Home closes it. While it is open the game is told it lost
  // the focus, as the Switch's HOME menu does, and gets no touch or controller input.
  // Quitting ends the process: one game runs per process (dm_profile() and the host's early loading run once, the shell's ShellMain.m), so the engine cannot hand
-@@ -841,7 +870,7 @@ static void quit_buttons(int *home, int *a, int *b, GCController *__strong *hold
+@@ -853,7 +882,7 @@ static void quit_buttons(int *home, int *a, int *b, GCController *__strong *hold
      *home = *a = *b = 0;
      for (GCController *c in GCController.controllers) {
          GCExtendedGamepad *g = c.extendedGamepad; if (!g) continue;
@@ -2070,7 +2119,7 @@ index ce4d977..b8b8e7b 100644
          *a |= g.buttonA.isPressed; *b |= g.buttonB.isPressed;
      }
  }
-@@ -909,9 +938,21 @@ static void front_ios_teardown(void) {
+@@ -921,9 +950,21 @@ static void front_ios_teardown(void) {
      }
      g_layer = nil;
      g_rotation_was[0] = 0;

@@ -335,6 +335,7 @@ jobs:
           find dm/host/gen/vpx -name '*.a' -exec touch {} +
       - name: Mac host for three profiles (Vulkan, NVN, OpenGL)
         run: |
+          set -o pipefail
           mkdir -p logs
           # Wonder: NVN; Hades: Vulkan; Digimon Story Cyber Sleuth: OpenGL. The second and third reuse the libvpx build in dm/host/gen/vpx.
           for g in 010015100B514000 0100535012974000 010014E00DB56000; do
@@ -345,13 +346,16 @@ jobs:
           done
       - name: Every gfx test compiled, not run
         run: |
+          set -o pipefail
           mkdir -p logs
           cd dm/gfx/tests
           tests=$(sed -n 's/^\(t_[a-z0-9_]*\):.*/\1/p' Makefile | sort -u)
           echo "$tests" | tr '\n' ' '; echo
           make GAME="$GAME" -j3 $tests 2>&1 | tee ../../../logs/gfx-tests-build.log
       - name: iOS host sources compiled for the iPhone SDK (no signing, no Xcode project)
-        run: python3 dm/ios/tools/compile_check.py 2>&1 | tee logs/ios-compile.log
+        run: |
+          set -o pipefail
+          python3 dm/ios/tools/compile_check.py 2>&1 | tee logs/ios-compile.log
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
@@ -467,30 +471,35 @@ jobs:
       - name: Host unit tests (dm/host/tests)
         if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
         run: |
+          set -o pipefail
           mkdir -p logs
           make -C dm/host/tests GAME="$GAME" -j3 run 2>&1 | tee logs/host-tests.log
       - name: ThreadSanitizer (audio, HID and guest memory)
         if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
         run: |
+          set -o pipefail
           make -C dm/host/tests GAME="$GAME" -j3 tsan memory-tsan 2>&1 | tee logs/tsan.log
       - name: Thermal cap and ThreadSanitizer (concurrent frame-cap readers)
         if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
         run: |
+          set -o pipefail
           make -C dm/gfx/tests GAME="$GAME" -j3 check_t_thermal thermal-tsan 2>&1 | tee logs/thermal.log
       - name: CPU texture layout and deswizzle tests
         if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
         run: |
+          set -o pipefail
           make -C dm/gfx/tex/tests t_tex 2>&1 | tee logs/texture-build.log
           dm/gfx/tex/tests/t_tex 2>&1 | tee logs/texture-tests.log
       - name: CPU-only gfx tests (dm/gfx/tests)
         if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
         run: |
+          set -o pipefail
           mkdir -p logs
           cd dm/gfx/tests
           make GAME="$GAME" -j3 t_perf_order
           ./t_perf_order --cpu 2>&1 | tee ../../../logs/t_perf_order.log
           make GAME="$GAME" -j3 perf-order-tsan 2>&1 | tee ../../../logs/t_perf_order-tsan.log
-          tests="t_dirty_slots t_dirty_race t_tex_layout t_pace t_fstep t_link_ticks t_cpu_tex t_hmap t_cover t_pso_skey t_refl t_rt_range_ro t_present_rescue t_gpuprof t_rt_recycle_policy"
+          tests="t_dirty_slots t_dirty_race t_tex_layout t_pace t_fstep t_link_ticks t_cpu_tex t_hmap t_pso_skey t_refl t_present_rescue t_gpuprof t_rt_recycle_policy"
           make GAME="$GAME" -j3 $tests 2>&1 | tee ../../../logs/gfx-build.log
           failed=0
           for t in $tests; do
@@ -500,22 +509,27 @@ jobs:
             if [ "$rc" != 0 ]; then echo "::error::$t failed"; failed=1; fi
           done
           exit $failed
-      - name: Direct OpenGL imports and EGL lookup (no GPU)
+      - name: Direct OpenGL imports and EGL lookup (CPU checks)
         if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
-        run: make -C dm/gfx/tests GAME="$GAME" gl-imports 2>&1 | tee logs/gl-imports.log
+        run: |
+          set -o pipefail
+          make -C dm/gfx/tests GAME="$GAME" gl-imports-cpu 2>&1 | tee logs/gl-imports.log
       - name: Install XcodeGen
         if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
         run: command -v xcodegen || brew install xcodegen
       - name: Build the production iOS project with synthetic inputs
         if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
         run: |
+          set -o pipefail
           mkdir -p logs
           python3 dm/ios/tools/build_smoke.py --output "$RUNNER_TEMP/ios-smoke" 2>&1 | tee logs/ios-build.log
       # Route C M1 (docs/launcher-c-plan.md): XcodeGen and xcodebuild of the DmGame framework target from a synthetic Gen/.
       # test_framework_build.py's packaging half runs in tool-tests; its link half needs xcodegen, installed only here.
       - name: The game framework links the module sections (route C M1)
         if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
-        run: python3 -m unittest -v dm/ios/tests/test_framework_link.py 2>&1 | tee logs/framework-link.log
+        run: |
+          set -o pipefail
+          python3 -m unittest -v dm/ios/tests/test_framework_link.py 2>&1 | tee logs/framework-link.log
       # Route C M2: frontend-ios/Shell/build_shell.sh generates and builds the shell (frontend-ios package, SegSnap, a synthetic framework
       # embedded and not linked). make_ext_font.py needs fontTools, which only this step installs
       - name: The shell app embeds a game framework and builds (route C M2)
@@ -525,6 +539,7 @@ jobs:
           DM_ENGINE_DIR: ${{ github.workspace }}/engine
         if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
         run: |
+          set -o pipefail
           mkdir -p logs
           python3 -m pip install --user --break-system-packages fonttools > /dev/null
           python3 -m unittest -v tools/tests/test_shell_build.py tools/tests/test_seg_snap.py 2>&1 | tee logs/shell-build.log

@@ -1,4 +1,4 @@
-From 0f9b75618525556f54a993e42f5a813f93fff075 Mon Sep 17 00:00:00 2001
+From 351a7b0b970bb7065ae59d59a7fce640642e0621 Mon Sep 17 00:00:00 2001
 From: LNPANDY <lnp-andy@hotmail.com>
 Date: Sat, 28 Nov 2026 00:32:59 +0800
 Subject: [PATCH] gfx: iOS memory convergence, mip skip, MetalFX 30-to-60, and
@@ -13,7 +13,7 @@ Issue: none
  dm/games/settings.tsv                     |   4 +
  dm/gfx/metal/mtl_backend.m                |  10 +
  dm/gfx/msl/fgmv.metal                     | 213 ++++++
- dm/gfx/nvn/nvn_framegen.inc               | 866 ++++++++++++++++++++++
+ dm/gfx/nvn/nvn_framegen.inc               | 872 ++++++++++++++++++++++
  dm/gfx/nvn/nvn_mip_skip.h                 | 177 +++++
  dm/gfx/nvn/nvn_mtl.m                      | 458 ++++++++++--
  dm/gfx/nvn/nvn_owner.h                    |   3 +
@@ -28,7 +28,7 @@ Issue: none
  dm/gfx/tests/t_serial_owner.m             |  30 +
  dm/ios/tests/launcher_storage_check.swift |   2 +-
  dm/tools/tests/test_launcher_settings.py  |  14 +-
- 18 files changed, 2874 insertions(+), 88 deletions(-)
+ 18 files changed, 2880 insertions(+), 88 deletions(-)
  create mode 100644 dm/gfx/msl/fgmv.metal
  create mode 100644 dm/gfx/nvn/nvn_framegen.inc
  create mode 100644 dm/gfx/nvn/nvn_mip_skip.h
@@ -39,7 +39,7 @@ Issue: none
  create mode 100644 dm/gfx/tests/t_rt_recycle_policy.c
 
 diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
-index 04341f7..93270b5 100644
+index 58b8f2d..3da6081 100644
 --- a/dm/games/settings.tsv
 +++ b/dm/games/settings.tsv
 @@ -15,8 +15,12 @@
@@ -305,10 +305,10 @@ index 0000000..7f84607
 +}
 diff --git a/dm/gfx/nvn/nvn_framegen.inc b/dm/gfx/nvn/nvn_framegen.inc
 new file mode 100644
-index 0000000..42d838f
+index 0000000..003cc4a
 --- /dev/null
 +++ b/dm/gfx/nvn/nvn_framegen.inc
-@@ -0,0 +1,866 @@
+@@ -0,0 +1,872 @@
 +// Frame generation (DM_FRAMEGEN): MetalFX frame interpolation (MTL4FXFrameInterpolator) with 3-pass 1/8 motion estimation and HUD preservation (dm/gfx/msl/fgmv.metal),
 +// adaptive pixel budget scaling, and DisplayLink half-period scheduling.
 +#ifdef FG_FWD
@@ -332,6 +332,7 @@ index 0000000..42d838f
 +#elif defined(FG_PQ_FWD)
 +
 +static void fg_on_enqueue(uint64_t ss, int slot, pq_item *it, uint64_t tk);
++static int fg_has_owed(double tick_time);
 +static int fg_service_owed(double tick_time, id<CAMetalDrawable> drawable, double target_ts);
 +static void fg_on_pop(pq_item *it, uint64_t ticket, uint64_t first);
 +static int fg_present_begin(const pq_item *it, tex_t *gt);
@@ -1037,9 +1038,14 @@ index 0000000..42d838f
 +    if (dt > 0.004 && dt < 0.1) g_fg_tick = g_fg_tick > 0 ? g_fg_tick * 0.9 + dt * 0.1 : dt;
 +}
 +
++// Called with g_pq_mu held; returns 1 when an owed own-picture present is due on this tick.
++static int fg_has_owed(double tick_time) {
++    return g_fg_owed && tick_time >= g_fg_owe_at - 0.002;
++}
++
 +// Called with g_pq_mu held; returns 1 (with g_pq_mu unlocked) when an owed own-picture present was handled on this tick.
 +static int fg_service_owed(double tick_time, id<CAMetalDrawable> drawable, double target_ts) {
-+    if (!(g_fg_owed && tick_time >= g_fg_owe_at - 0.002)) return 0;
++    if (!fg_has_owed(tick_time)) return 0;
 +    int newer = tick_time >= g_link_hold_until - 0.002 && g_pq_read != g_pq_in;
 +    g_fg_owed = 0;
 +    if (!newer && g_dm_present_link && !g_rescue_mode && !atomic_load(&g_present_suspended)) {
@@ -1359,7 +1365,7 @@ index 0000000..c636fba
 +
 +#endif
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 0a82376..7caeb0e 100644
+index 0a82376..bf302a4 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
 @@ -20,6 +20,7 @@
@@ -2084,7 +2090,7 @@ index 0a82376..7caeb0e 100644
      pthread_mutex_lock(&g_pq_mu);
      // Checked again: the queue lock was released to publish the tick, and rescue or a mode change can take the queue away from this callback in that interval.
      if (!g_dm_present_link || g_rescue_mode || atomic_load(&g_covered)) { pthread_mutex_unlock(&g_pq_mu); return; }
-+    if (!atomic_load(&g_present_suspended) && fg_service_owed(tick_time, update.drawable, update.targetPresentationTimestamp)) return;
++    if (!atomic_load(&g_present_suspended) && fg_has_owed(tick_time) && fg_service_owed(tick_time, update.drawable, update.targetPresentationTimestamp)) return;
      // Keep a multi-tick frame on screen until its hold ends, even if the next frame is already queued.
      const int hold = g_link_hold_until > 0 && tick_time < g_link_hold_until - 0.002;
      // The late latch (nvn_link_latch.h): wait briefly for the woken acquire's present (g_pq_mu is released while waiting, so present_enqueue can queue it; a present that
@@ -3681,7 +3687,7 @@ index bc4ba41..f6385c0 100644
          mm.values["DM_FULLSCREEN"] = "1"; mm.apply()
          expect(String(cString: getenv("DM_FULLSCREEN")) == "1" && d.string(forKey: "launcher.DM_FULLSCREEN") == "1", "Fullscreen goes into the environment and is saved")
 diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
-index a2ac62f..56ad333 100644
+index 1028435..c56b19c 100644
 --- a/dm/tools/tests/test_launcher_settings.py
 +++ b/dm/tools/tests/test_launcher_settings.py
 @@ -83,6 +83,18 @@ class LauncherSettingsTests(unittest.TestCase):
@@ -3703,7 +3709,7 @@ index a2ac62f..56ad333 100644
  
      def test_hdr_texture_downsample_is_for_games_that_decode_bc_on_the_cpu_on_the_iphone(self):   # DM_BC6H_RGB9E5, #544
          totk = build('0100F2C0115B6000', 'nvn')   # tex_bc_cpu on in its profile
-@@ -155,7 +167,7 @@ class LauncherSettingsTests(unittest.TestCase):
+@@ -166,7 +178,7 @@ class LauncherSettingsTests(unittest.TestCase):
              listed = settings.build(BOTW, tmp, Path(tmp) / 'control.nacp')
          rows = {s['env']: s for s in listed['settings']}
          self.assertEqual(listed['schema'], 1)

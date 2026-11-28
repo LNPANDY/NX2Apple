@@ -1,4 +1,4 @@
-From 7d45fa2b4c10f245b659a8e941c6041818359268 Mon Sep 17 00:00:00 2001
+From 1f278bac215eb98ded4938f1aa39f6ed48345344 Mon Sep 17 00:00:00 2001
 From: LNPANDY <lnp-andy@hotmail.com>
 Date: Sat, 28 Nov 2026 00:32:59 +0800
 Subject: [PATCH] controllers: radial deadzones, Mac followups, prefs domain,
@@ -13,10 +13,10 @@ Issue: none
  dm/host/hle_hid.c                 |  73 +++++++++++++---
  dm/host/input_preferences_mac.h   |   2 +-
  dm/host/tests/Makefile            |   5 +-
- dm/host/tests/t_controllers_mac.m |  38 ++++++++-
+ dm/host/tests/t_controllers_mac.m |  42 ++++++++-
  dm/host/tests/t_hid.c             |  81 ++++++++++++++++++
  dm/host/tests/t_stick_deadzone.c  | 136 +++++++++++++++++++++++++++++-
- 6 files changed, 315 insertions(+), 20 deletions(-)
+ 6 files changed, 319 insertions(+), 20 deletions(-)
 
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
 index 0d2b493..f340124 100644
@@ -182,10 +182,28 @@ index 96d6ff4..c569e4f 100644
  	$(CLANG) -O1 -Wall -Werror -o $@ t_pad_motion.c
  $(B)/t_pad_map: t_pad_map.c ../pad_map.h ../steam_input.h ../dm_input.h | $(B)
 diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
-index 047edb5..66b33e2 100644
+index 047edb5..3e5cbdb 100644
 --- a/dm/host/tests/t_controllers_mac.m
 +++ b/dm/host/tests/t_controllers_mac.m
-@@ -333,6 +333,11 @@ static void test_nintendo_labels(void) {
+@@ -25,6 +25,8 @@ static CFArrayRef test_hid_elements(IOHIDDeviceRef device,CFDictionaryRef match,
+ static uint32_t test_element_size(IOHIDElementRef e) { return [((__bridge NSDictionary *)e)[@"bits"] unsignedIntValue]; }
+ static uint32_t test_element_count(IOHIDElementRef e) { return [((__bridge NSDictionary *)e)[@"count"] unsignedIntValue]; }
+ static Boolean test_element_array(IOHIDElementRef e) { return [((__bridge NSDictionary *)e)[@"array"] boolValue]; }
++static IOHIDElementRef test_element_parent(IOHIDElementRef e) { return (__bridge IOHIDElementRef)((__bridge NSDictionary *)e)[@"parent"]; }
++static Boolean test_element_relative(IOHIDElementRef e) { return [((__bridge NSDictionary *)e)[@"relative"] boolValue]; }
+ static io_service_t test_hid_service(IOHIDDeviceRef device) {
+     return [((__bridge NSDictionary *)device)[@"registry"] unsignedIntValue];
+ }
+@@ -114,6 +116,8 @@ + (BOOL)testSupportsHIDDevice:(IOHIDDeviceRef)device { return [((__bridge NSDict
+ #define IOHIDElementGetReportSize test_element_size
+ #define IOHIDElementGetReportCount test_element_count
+ #define IOHIDElementIsArray test_element_array
++#define IOHIDElementGetParent test_element_parent
++#define IOHIDElementIsRelative test_element_relative
+ #define IOHIDDeviceGetProperty test_hid_property
+ #define IOHIDDeviceGetService test_hid_service
+ #define IORegistryEntryGetRegistryEntryID test_registry_id
+@@ -333,6 +337,11 @@ static void test_nintendo_labels(void) {
      controller_disconnect(d); [g_devices removeObject:d]; controller_pro_changed();
      g_slots = (pad_slots){0};
  }
@@ -197,7 +215,7 @@ index 047edb5..66b33e2 100644
  static void test_native_motion_integration(void) {
      for (int merged = 0; merged < 2; merged++) {
          g_merge = merged; g_slots = (pad_slots){0};
-@@ -346,14 +351,12 @@ static void test_native_motion_integration(void) {
+@@ -346,14 +355,12 @@ static void test_native_motion_integration(void) {
          assert(d->slot == player && m.sensorsActive && m.valueChangedHandler);
          assert(g_pro_pair[PRO_MODEL_PRO].controllers == 1 && g_pro_pair[PRO_MODEL_PRO].slot == player);
          native_motion_player = -1; native_motion_samples = 0;
@@ -214,7 +232,7 @@ index 047edb5..66b33e2 100644
          assert(native_motion_player == player && native_motion_samples);
          controller_disconnect(d); assert(!m.valueChangedHandler && !m.sensorsActive && g_pro_pair[PRO_MODEL_PRO].slot == -1);
          [g_devices removeObject:d]; controller_pro_changed(); assert(g_pro_pair[PRO_MODEL_PRO].controllers == 0);
-@@ -953,6 +956,32 @@ static void test_generic_unknown_identity(void) {
+@@ -953,6 +960,32 @@ static void test_generic_unknown_identity(void) {
      hidpad_removed(NULL,kIOReturnSuccess,NULL,(__bridge IOHIDDeviceRef)puck); hid_fixture_finish();
      puts("Generic HID missing identity and deferred admission recover without duplicate raw routes: OK");
  }
@@ -247,7 +265,7 @@ index 047edb5..66b33e2 100644
  int main(int argc, char **argv) {
      @autoreleasepool {
          g_devices = [NSMutableArray array]; g_maps = [NSMutableDictionary dictionary];
-@@ -981,6 +1010,7 @@ int main(int argc, char **argv) {
+@@ -981,6 +1014,7 @@ int main(int argc, char **argv) {
          test_home_quit_routing();
          test_generic_hid_ownership();
          test_generic_unknown_identity();
