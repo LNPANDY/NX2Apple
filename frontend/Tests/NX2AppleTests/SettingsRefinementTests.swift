@@ -15,7 +15,7 @@ import XCTest
         let stores = LauncherStores(defaults: TestDefaults.make("settings.busy"))
         let updates = AppUpdateStore(localizer: stores.localizer, runner: SystemProcessRunner(), releases: WaitingRelease(), defaults: TestDefaults.make("settings.busy.updater"))
         let focus = PadFocus()
-        let host = NSHostingView(rootView: AppCard(updates: updates, buildRunning: false, notify: .constant(true), notifyAvailable: true,
+        let host = NSHostingView(rootView: AppCard(updates: updates, buildRunning: false, notify: .constant(true), notifyAvailable: true, noticeSounds: .constant(true),
             returnAfterPlay: .constant(true), preflightAfterBuild: .constant(true), onRunSetup: nil,
             uninstallPlan: { Uninstall.plan(home: "/tmp/unused-settings-test", gamesFolder: "", outputFolder: "", checkouts: [], defaultsDomain: nil) }, part: .updates)
             .environmentObject(stores.localizer).environmentObject(focus).padScope("main", focus))

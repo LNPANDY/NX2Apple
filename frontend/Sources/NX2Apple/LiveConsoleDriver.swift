@@ -98,6 +98,7 @@ struct ConsolePadSnapshot: Equatable {
     private let launchGracePeriod: TimeInterval
     var toastTask: Task<Void, Never>?
     var notices = ConsoleNoticeQueue()
+    var playNoticeSound: (NoticeSounds.Event, Bool) -> Void = { NoticeSounds.play($0, startingGame: $1) }
     private var clock: Timer?
     /// Real controllers by id, for Identify and player assignment.
     var devices: [String: GCController] = [:]
@@ -687,7 +688,12 @@ struct ConsolePadSnapshot: Equatable {
         let first = connected ? announced.insert(id).inserted : announced.remove(id) != nil
         controllerListChanged(connectedName: connected ? name : nil, disconnectedName: connected ? nil : name, including: including, excluding: excluding)
         guard first else { Self.hidLog.debug("repeated \(connected ? "connect" : "disconnect") for \(id, privacy: .public) ignored"); return false }
-        guard connected else { showToast(String(format: t("console.disconnected"), name), kind: "controller"); return true }
+        guard connected else {
+            playNoticeSound(.controllerDisconnected, state.startingGame != nil)
+            showToast(String(format: t("console.disconnected"), name), kind: "controller")
+            return true
+        }
+        playNoticeSound(.controllerConnected, state.startingGame != nil)
         if let player = state.padMerge ? 1 : state.controllers.first(where: { $0.id == id })?.player {
             showToast(String(format: t("console.connected"), name, player), kind: "controller")
         } else { showToast(t("console.noFreePlayer"), glyph: ConsoleGlyphs.current().glyph(for: .menu), kind: "controller") }
