@@ -1,0 +1,98 @@
+# Build and deploy the bilingual searchable GitHub Pages compatibility portal.
+#
+# Pull requests run the build and unit-test checks only (with contents: read and no configure-pages call, so PR
+# checks pass even before GitHub Pages is enabled in repository settings). Pushes to main and published releases
+# deploy the built artifact to GitHub Pages.
+name: Pages portal
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'GAMES.md'
+      - 'GAMES.zh-CN.md'
+      - '.upstream-ref'
+      - 'frontend/Sources/NXModel/AppUpdateStore.swift'
+      - '.github/scripts/build_pages.py'
+      - '.github/workflows/pages.yml'
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'GAMES.md'
+      - 'GAMES.zh-CN.md'
+      - '.upstream-ref'
+      - 'frontend/Sources/NXModel/AppUpdateStore.swift'
+      - '.github/scripts/build_pages.py'
+      - '.github/scripts/tests/test_build_pages.py'
+      - '.github/workflows/pages.yml'
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || 'github-pages-deploy' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: Build Pages portal
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+      - name: Run generator tests
+        run: python -m unittest discover -s .github/scripts/tests -p test_build_pages.py -v
+      - name: Build static portal
+        run: python .github/scripts/build_pages.py --out "${{ runner.temp }}/pages-site"
+      - name: Verify generated site outputs
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import os
+
+          site = Path(os.environ['RUNNER_TEMP']) / 'pages-site'
+          for rel in ('index.html', 'zh/index.html', 'games.json', 'sitemap.xml', 'robots.txt', '.nojekyll'):
+              p = site / rel
+              assert p.exists(), f'Missing generated file: {rel}'
+              if rel != '.nojekyll':
+                  assert p.stat().st_size > 0, f'Empty generated file: {rel}'
+          data = json.loads((site / 'games.json').read_text(encoding='utf-8'))
+          assert data['counts']['all'] > 0
+          assert data['counts']['switch2'] > 0
+          print(f"Verified {data['counts']['all']} games ({data['counts']['switch2']} Switch 2)")
+          PY
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: ${{ runner.temp }}/pages-site
+
+  deploy:
+    name: Deploy Pages portal
+    needs: build
+    if: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.event_name == 'release') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Setup Pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+        with:
+          enablement: false
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
