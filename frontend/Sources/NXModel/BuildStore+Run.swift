@@ -391,7 +391,8 @@ extension BuildStore {
             if RepoLayout.supportsFallbackIcon(capabilityDir) { args += macFallbackIconArguments(tidHex) }
         } else {
             // Only the game's framework: the one shared app is made and signed after the script (installShell)
-            args += ShellInstall.buildArguments(workDir: workDir, team: exportsShell ? "" : devices.signingTeam)
+            args += ShellInstall.buildArguments(workDir: workDir, team: exportsShell ? "" : devices.signingTeam,
+                                                gpu: exportsShell ? nil : DeviceGPU.target(udid: devices.installDevice))
         }
         let fetchCheatsEnabled = (queuedAutoFetchCheats ?? autoFetchCheats) && RepoLayout.supportsFetchCheats(capabilityDir)
         if fetchCheatsEnabled {

@@ -189,7 +189,7 @@ import NXModel
                              "DM_TEAM_ID": "T", "DM_XCODE_DERIVED_DATA": root + "/derived-data", "FONT_PY": "/py",
                              "PATH": "/opt/homebrew/bin:/usr/bin", "HOME": "/h", "USER": "u", "LANG": "en_US.UTF-8"])
         let build = ["/x", "xcodebuild", "-project", root + "/project/DmShell.xcodeproj", "-scheme", "DmShell", "-configuration", "Release",
-                     "-destination", "id=D", "-derivedDataPath", root + "/derived-data", "-allowProvisioningUpdates", "DEVELOPMENT_TEAM=T"]
+                     "-destination", "id=D", "-derivedDataPath", root + "/derived-data", "-allowProvisioningUpdates", "-allowProvisioningDeviceRegistration", "DEVELOPMENT_TEAM=T"]
         XCTAssertEqual(ShellInstall.buildCommand(xcrun: "/x", root: root, device: "D", team: "T", bundleID: "org.nxnative.shell"),
                        build + ["PRODUCT_BUNDLE_IDENTIFIER=org.nxnative.shell", "build"])
         XCTAssertEqual(ShellInstall.buildCommand(xcrun: "/x", root: root, device: "D", team: "T", bundleID: ShellLibrary.teamVariant(team: "T")),
