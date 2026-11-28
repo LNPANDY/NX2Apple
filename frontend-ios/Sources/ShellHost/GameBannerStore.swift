@@ -172,12 +172,43 @@ public enum GameBannerStore {
         return target
     }
 
-    /// Single-point 720p banner fallback URL for any valid 16-hex Switch title ID.
-    public static func nlibBannerURL(for titleID: String) -> URL? {
+    /// Single-point banner fallback URL for any valid 16-hex Switch title ID.
+    ///
+    /// nlib serves `720p` and `1080p` only: `1440p`, `2160p` and `original` answer 400.
+    /// 1080p is the highest tier it offers (1920x1080, ~568 KB for a full-bleed banner),
+    /// so that is the default; pass `720p` to fall back when a 1080p fetch fails.
+    public static func nlibBannerURL(for titleID: String, quality: String = "1080p") -> URL? {
         guard let safe = sanitizedTitleID(titleID), KnownGameBanners.isValidTitleID(safe) else {
             return nil
         }
-        return URL(string: "https://api.nlib.cc/nx/\(safe)/banner/720p")
+        return URL(string: "https://api.nlib.cc/nx/\(safe)/banner/\(quality)")
+    }
+
+    /// Rewrites the eShop's downscaled artwork URL into the full-size, full-bleed one.
+    ///
+    /// `assets.nintendo.com/image/upload/...` is a Cloudinary transform path, measured on
+    /// v1.5.0-rc4 (2026-11):
+    ///
+    /// | transform                        | result      | letterbox |
+    /// |----------------------------------|-------------|-----------|
+    /// | `ar_16:9,c_lpad,w_930/b_white`   | 930x523     | white bars |
+    /// | `ar_16:9,c_lpad,w_2560/b_white`  | 2560x1440   | white bars |
+    /// | `ar_16:9,c_fill,w_2560`          | 2560x1440   | none       |
+    ///
+    /// So `c_lpad` (pad) becomes `c_fill` (crop to fill) and `b_white` (the padding colour)
+    /// is dropped: without both, the fetched banner carries a white frame on all four sides,
+    /// which is the one thing a full-bleed backdrop cannot hide.
+    ///
+    /// Anything not on `assets.nintendo.com` (the `img-eshop.cdn.nintendo.net` fallback, for
+    /// one) has no transform path and is returned unchanged.
+    static func upgradedArtworkURL(_ raw: URL) -> URL {
+        let text = raw.absoluteString
+        guard text.contains("assets.nintendo.com/image/upload") else { return raw }
+
+        var out = text.replacingOccurrences(of: "c_lpad", with: "c_fill")
+        out = out.replacingOccurrences(of: #"w_\d+"#, with: "w_2560", options: .regularExpression)
+        out = out.replacingOccurrences(of: "/b_white/", with: "/")
+        return URL(string: out) ?? raw
     }
 
     /// Regional Nintendo eShop redirect URL (`US`, `HK`) for any valid 16-hex Switch title ID.
@@ -203,8 +234,13 @@ public enum GameBannerStore {
         if let known = KnownGameBanners.url(for: entry.id) {
             urls.append(known)
         }
-        if let nlib = nlibBannerURL(for: entry.id), !urls.contains(nlib) {
-            urls.append(nlib)
+        if let nlib1080 = nlibBannerURL(for: entry.id, quality: "1080p"), !urls.contains(nlib1080) {
+            urls.append(nlib1080)
+        }
+        // nlib's 1080p tier is not advertised by the service: keep 720p behind it, so a
+        // 1080p refusal still ends with a banner instead of no banner.
+        if let nlib720 = nlibBannerURL(for: entry.id, quality: "720p"), !urls.contains(nlib720) {
+            urls.append(nlib720)
         }
         return urls
     }
@@ -313,9 +349,12 @@ public enum GameBannerStore {
                   pageResp.data.count <= maxStoreHTMLBytes else { continue }
 
             let html = String(decoding: pageResp.data, as: UTF8.self)
-            guard let imageURL = extractNintendoStoreBannerURL(from: html),
-                  KnownGameBanners.isAllowedURL(imageURL) else { continue }
+            guard let thumbnailURL = extractNintendoStoreBannerURL(from: html),
+                  KnownGameBanners.isAllowedURL(thumbnailURL) else { continue }
 
+            // The store page hands out a downscaled thumbnail; the same asset serves the full
+            // 2560x1440 key art when the transform path is rewritten (see upgradedArtworkURL).
+            let imageURL = upgradedArtworkURL(thumbnailURL)
             var imgReq = URLRequest(url: imageURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: remoteTimeout)
             imgReq.httpMethod = "GET"
             imgReq.setValue(browserUserAgent, forHTTPHeaderField: "User-Agent")
