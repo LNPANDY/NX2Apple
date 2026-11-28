@@ -1,0 +1,119 @@
+# Build and deploy the bilingual searchable GitHub Pages compatibility portal.
+#
+# Pull requests run the build and unit-test checks only (with contents: read and no deploy/configure-pages step, so PR
+# checks pass even before GitHub Pages is enabled in repository settings). Pushes to main and published releases
+# check whether GitHub Pages is configured for GitHub Actions and deploy when ready.
+name: Pages portal
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'GAMES.md'
+      - 'GAMES.zh-CN.md'
+      - '.upstream-ref'
+      - 'frontend/Sources/NXModel/AppUpdateStore.swift'
+      - '.github/scripts/build_pages.py'
+      - '.github/workflows/pages.yml'
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'GAMES.md'
+      - 'GAMES.zh-CN.md'
+      - '.upstream-ref'
+      - 'frontend/Sources/NXModel/AppUpdateStore.swift'
+      - '.github/scripts/build_pages.py'
+      - '.github/scripts/tests/test_build_pages.py'
+      - '.github/workflows/pages.yml'
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: Build Pages portal
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+      - name: Run generator tests
+        run: python -m unittest discover -s .github/scripts/tests -p test_build_pages.py -v
+      - name: Build static portal
+        run: python .github/scripts/build_pages.py --out "${{ runner.temp }}/pages-site"
+      - name: Verify generated site outputs
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import os
+
+          site = Path(os.environ['RUNNER_TEMP']) / 'pages-site'
+          for rel in ('index.html', 'zh/index.html', 'games.json', 'sitemap.xml', 'robots.txt', '.nojekyll'):
+              p = site / rel
+              assert p.exists(), f'Missing generated file: {rel}'
+              if rel != '.nojekyll':
+                  assert p.stat().st_size > 0, f'Empty generated file: {rel}'
+          data = json.loads((site / 'games.json').read_text(encoding='utf-8'))
+          assert data['counts']['all'] > 0
+          assert data['counts']['switch2'] > 0
+          print(f"Verified {data['counts']['all']} games ({data['counts']['switch2']} Switch 2)")
+          PY
+      - name: Upload Pages artifact
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: ${{ runner.temp }}/pages-site
+          include-hidden-files: true
+
+  deploy:
+    name: Deploy Pages portal
+    needs: build
+    if: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.event_name == 'release') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check whether GitHub Pages uses GitHub Actions
+        id: pages_check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          build_type=$(gh api "repos/${{ github.repository }}/pages" --jq '.build_type // ""' 2>/dev/null || true)
+          if [ "$build_type" = "workflow" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::GitHub Pages is not enabled with GitHub Actions yet. Set Source to GitHub Actions under Settings > Pages to publish."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Setup Pages
+        if: ${{ steps.pages_check.outputs.ready == 'true' }}
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+        with:
+          enablement: false
+      - name: Deploy to GitHub Pages
+        id: deployment
+        if: ${{ steps.pages_check.outputs.ready == 'true' }}
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
