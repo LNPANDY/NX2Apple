@@ -100,13 +100,20 @@ jobs:
       - name: Publish the extractor for the bundled Windows engine
         shell: bash
         run: |
+          set -euo pipefail
           # Use the patched sources that produced engine-tree. Keep obj/ and other build
           # intermediates outside engine/ so only the published output goes into the Windows zip.
           out=engine-tree/dm/tools/nx_extract_bin
           cp frontend-qt/nx_extract/packages.lock.json engine/dm/tools/nx_extract/
           dotnet publish engine/dm/tools/nx_extract -c Release --self-contained false -p:PublishAot=false -p:RestoreLockedMode=true --artifacts-path "$RUNNER_TEMP/nx_extract_artifacts" -o "$out"
           cp frontend-qt/nx_extract/LibHac-LICENSE.txt "$out/"
-          "$out/nx_extract.exe" --source-sha
+          EXP_NX_SHA=$(python -c "import hashlib, pathlib; p = pathlib.Path('engine-tree/dm/tools/nx_extract'); print(hashlib.sha256(b''.join((p / f).read_bytes() for f in ('Program.cs', 'nx_extract.csproj'))).hexdigest()[:16])" | tr -d '\r\n')
+          GOT_NX_SHA=$("$out/nx_extract.exe" --source-sha | tr -d '\r\n')
+          echo "nx_extract --source-sha: $GOT_NX_SHA (expected $EXP_NX_SHA)"
+          if [ -z "$GOT_NX_SHA" ] || [ "$GOT_NX_SHA" = "unknown" ] || ! [[ "$GOT_NX_SHA" =~ ^[0-9a-f]{16}$ ]] || [ "$GOT_NX_SHA" != "$EXP_NX_SHA" ]; then
+            echo "::error::nx_extract.exe --source-sha mismatch: got '$GOT_NX_SHA', expected '$EXP_NX_SHA'" >&2
+            exit 1
+          fi
 
           # Open a synthetic empty PFS0 through LibHac before packaging.
           touch empty.keys
@@ -116,9 +123,54 @@ jobs:
           # The engine tree ships a macOS Mach-O dmsh_xlate NativeAOT binary in dm/gfx/tools/dmsh_xlate_bin/.
           # Publish the managed Windows assemblies alongside it so shim.py's `dotnet dmsh_xlate.dll` runs
           # on Windows while tool_lock.py still sees the committed Mach-O binary's sha16 fingerprint.
-          dotnet publish engine/dm/gfx/tools/dmsh_xlate -c Release --self-contained false -p:PublishAot=false -p:SatelliteResourceLanguages=en --artifacts-path "$RUNNER_TEMP/dmsh_xlate_artifacts" -o "$RUNNER_TEMP/dmsh_xlate_out"
+          XLATE_SHA=$(python engine-tree/dm/gfx/tools/dmsh_chain.py --xlate-source-sha | tr -d '\r\n')
+          ENGINE_XLATE_SHA=$(python engine/dm/gfx/tools/dmsh_chain.py --xlate-source-sha | tr -d '\r\n')
+          LOCK_XLATE_SHA=$(python -c "import pathlib; rows = dict(l.rstrip('\r\n').split('\t', 1) for l in pathlib.Path('engine-tree/dm/gfx/tools/dmsh_chain.lock').read_text(encoding='utf-8').splitlines() if '\t' in l and not l.startswith('#')); print(rows.get('xlate_source', ''))" | tr -d '\r\n')
+          if [ -z "$XLATE_SHA" ] || [ "$XLATE_SHA" = "unknown" ] || ! [[ "$XLATE_SHA" =~ ^[0-9a-f]{16}$ ]]; then
+            echo "::error::Invalid xlate_source sha from dmsh_chain.py: '$XLATE_SHA'" >&2
+            exit 1
+          fi
+          if [ "$XLATE_SHA" != "$LOCK_XLATE_SHA" ]; then
+            echo "::error::engine-tree dmsh_chain.py --xlate-source-sha ('$XLATE_SHA') != dmsh_chain.lock xlate_source ('$LOCK_XLATE_SHA')" >&2
+            exit 1
+          fi
+          if [ "$ENGINE_XLATE_SHA" != "$XLATE_SHA" ]; then
+            echo "::error::engine/ dmsh_chain.py --xlate-source-sha ('$ENGINE_XLATE_SHA') != engine-tree ('$XLATE_SHA')" >&2
+            exit 1
+          fi
+          dotnet publish engine/dm/gfx/tools/dmsh_xlate -c Release --self-contained false -p:PublishAot=false -p:SatelliteResourceLanguages=en "-p:XlateSourceSha=$XLATE_SHA" --artifacts-path "$RUNNER_TEMP/dmsh_xlate_artifacts" -o "$RUNNER_TEMP/dmsh_xlate_out"
           cp "$RUNNER_TEMP/dmsh_xlate_out"/*.dll "$RUNNER_TEMP/dmsh_xlate_out"/*.json "$RUNNER_TEMP/dmsh_xlate_out"/*.exe engine-tree/dm/gfx/tools/dmsh_xlate_bin/
-          dotnet engine-tree/dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate.dll --source-sha
+          GOT_XLATE_SHA=$(dotnet engine-tree/dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate.dll --source-sha | tr -d '\r\n')
+          echo "dmsh_xlate.dll --source-sha: $GOT_XLATE_SHA (expected $XLATE_SHA, lock $LOCK_XLATE_SHA)"
+          if [ -z "$GOT_XLATE_SHA" ] || [ "$GOT_XLATE_SHA" = "unknown" ] || [ "$GOT_XLATE_SHA" != "$XLATE_SHA" ] || [ "$GOT_XLATE_SHA" != "$LOCK_XLATE_SHA" ]; then
+            echo "::error::dmsh_xlate.dll --source-sha mismatch: got '$GOT_XLATE_SHA', expected '$XLATE_SHA', lock '$LOCK_XLATE_SHA'" >&2
+            exit 1
+          fi
+
+          # End-to-end tool_lock guard: verify tool_lock.py accepts the packaged dmsh_xlate.dll + dmsh_chain.py + dmsh_chain.lock.
+          python - <<'PY'
+          import subprocess, sys
+          from pathlib import Path
+          tools_dir = Path('engine-tree/dm/gfx/tools').resolve()
+          sys.path.insert(0, str(tools_dir))
+          import dmsh_chain, tool_lock
+          orig_run = subprocess.run
+          dll = str(tools_dir / 'dmsh_xlate_bin' / 'dmsh_xlate.dll')
+          def shim_run(cmd, *args, **kwargs):
+              if isinstance(cmd, (list, tuple)) and cmd and Path(cmd[0]).name == 'dmsh_xlate':
+                  cmd = ['dotnet', dll, *cmd[1:]]
+              return orig_run(cmd, *args, **kwargs)
+          tool_lock.subprocess.run = shim_run
+          chain_sha = dmsh_chain.xlate_source_sha()
+          lock_rows = dict(l.rstrip('\r\n').split('\t', 1) for l in Path(dmsh_chain.LOCK).read_text(encoding='utf-8').splitlines() if '\t' in l and not l.startswith('#'))
+          lock_sha = lock_rows.get('xlate_source', '')
+          embedded_sha = tool_lock.xlate_embedded()
+          assert chain_sha and chain_sha != 'unknown', f'bad chain_sha: {chain_sha!r}'
+          assert embedded_sha == chain_sha == lock_sha, f'tri-party mismatch: embedded={embedded_sha!r}, chain={chain_sha!r}, lock={lock_sha!r}'
+          bad = [b for b in tool_lock.check_tools(check_metal=False) if not b.startswith('spirv-cross: ')]
+          assert not bad, f'tool_lock.check_tools failed: {bad}'
+          print(f'tool_lock xlate_source guard OK: {embedded_sha}')
+          PY
 
       - name: Build Windows shader tools for the bundled engine
         shell: bash

@@ -859,23 +859,59 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             return dll_next
         import hashlib, tempfile
         from pathlib import Path
-        proj = Path(bin_path).resolve().parents[1] / 'dmsh_xlate'
+        tools_dir = Path(bin_path).resolve().parents[1]
+        proj = tools_dir / 'dmsh_xlate'
         if not (proj / 'dmsh_xlate.csproj').is_file():
             return dll_next
+
+        def _xlate_source_sha():
+            chain_py = tools_dir / 'dmsh_chain.py'
+            if chain_py.is_file():
+                py_exe = os.environ.get('NSPB_PYTHON') or sys.executable
+                try:
+                    r = _run([py_exe, str(chain_py), '--xlate-source-sha'],
+                             capture_output=True, text=True,
+                             env={**os.environ, 'NSPB_SHIM_OFF': '1'},
+                             check=False, **tc.no_window())
+                    out = (r.stdout or '').strip() if r.returncode == 0 else ''
+                    if out and out != 'unknown':
+                        return out
+                except (OSError, subprocess.SubprocessError):
+                    pass
+            lock = tools_dir / 'dmsh_chain.lock'
+            if lock.is_file():
+                try:
+                    for ln in lock.read_text(encoding='utf-8').splitlines():
+                        if '\t' not in ln or ln.startswith('#'):
+                            continue
+                        k, v = ln.split('\t', 1)
+                        if k == 'xlate_source':
+                            v = v.strip()
+                            if v and v != 'unknown':
+                                return v
+                except OSError:
+                    pass
+            return ''
+
+        xlate_sha = _xlate_source_sha()
         h = hashlib.sha256(Path(bin_path).read_bytes())
         for f in sorted([*proj.glob('*.cs'), *proj.glob('*.csproj')], key=lambda p: p.name):
             h.update(f.name.encode('utf-8') + b'\0' + f.read_bytes() + b'\0')
+        if xlate_sha:
+            h.update(b'xlate_source\0' + xlate_sha.encode('utf-8') + b'\0')
         cache_dir = tc.tools_dir() / f'dmsh_xlate-{h.hexdigest()[:16]}'
         cached = cache_dir / 'dmsh_xlate.dll'
         if cached.is_file():
             return str(cached)
         with tempfile.TemporaryDirectory(prefix='dmsh_xlate_') as td, \
                 tempfile.TemporaryDirectory(prefix='dmsh_xlate_art_') as art:
-            _run([dotnet, 'publish', str(proj), '-c', 'Release', '--self-contained', 'false',
-                  '-p:PublishAot=false', '-p:SatelliteResourceLanguages=en',
-                  *tc.csc_tool_args(),   # the SDK's csc.exe apphost cannot start on every Windows
-                  '--artifacts-path', art, '-o', td, '-v', 'quiet', '-nologo'],
-                 check=True, **tc.no_window())
+            pub_args = [dotnet, 'publish', str(proj), '-c', 'Release', '--self-contained', 'false',
+                        '-p:PublishAot=false', '-p:SatelliteResourceLanguages=en']
+            if xlate_sha:
+                pub_args.append(f'-p:XlateSourceSha={xlate_sha}')
+            pub_args.extend([*tc.csc_tool_args(),   # the SDK's csc.exe apphost cannot start on every Windows
+                             '--artifacts-path', art, '-o', td, '-v', 'quiet', '-nologo'])
+            _run(pub_args, check=True, **tc.no_window())
             shutil.rmtree(cache_dir, ignore_errors=True)
             try:
                 shutil.copytree(td, cache_dir)

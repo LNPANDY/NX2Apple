@@ -2679,6 +2679,136 @@ class WindowsBuildFixesTest(unittest.TestCase):
             self.assertEqual(_dmsh_xlate_dll(str(xlate_bin), 'dotnet', tc), str(bundled_dll))
             self.assertEqual(publish_cmds, [])
 
+    def test_dmsh_xlate_dll_passes_xlate_source_sha_tracks_ryujinx_and_falls_back_to_lock(self) -> None:
+        import ast
+        real_chain_py = QT.parent / 'engine' / 'dm' / 'gfx' / 'tools' / 'dmsh_chain.py'
+        self.assertTrue(real_chain_py.is_file(), f'missing synced {real_chain_py}')
+        tree = ast.parse(shim._SITECUSTOMIZE_SRC)
+        fn_node = next(
+            n for n in ast.walk(tree)
+            if isinstance(n, ast.FunctionDef) and n.name == '_dmsh_xlate_dll'
+        )
+        mod_ast = ast.Module(body=[fn_node], type_ignores=[])
+        real_run = subprocess.run
+        seen_cmds: list[list[str]] = []
+
+        def fake_run(cmd, **kw):
+            s_cmd = [str(c) for c in cmd]
+            seen_cmds.append(s_cmd)
+            if Path(s_cmd[0]).name == 'dotnet':
+                out_dir = Path(s_cmd[s_cmd.index('-o') + 1])
+                (out_dir / 'dmsh_xlate.dll').write_bytes(b'DLL')
+                return subprocess.CompletedProcess(s_cmd, 0, '', '')
+            return real_run(s_cmd, **kw)
+
+        ns = {'os': os, 'sys': sys, 'shutil': shutil, 'subprocess': subprocess, '_run': fake_run}
+        exec(compile(mod_ast, '<shim>', 'exec'), ns)
+        _dmsh_xlate_dll = ns['_dmsh_xlate_dll']
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            tools_root = root / 'tools_cache'
+            src_repo = root / 'engine'
+            xlate_bin = src_repo / 'dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate'
+            xlate_bin.parent.mkdir(parents=True)
+            xlate_bin.write_bytes(b'\xcf\xfa\xed\xfe')
+            xlate_proj = src_repo / 'dm/gfx/tools/dmsh_xlate'
+            xlate_proj.mkdir(parents=True)
+            (xlate_proj / 'dmsh_xlate.csproj').write_text('<Project/>', encoding='utf-8')
+            (xlate_proj / 'Program.cs').write_text('// xlate v1', encoding='utf-8')
+
+            chain_py = src_repo / 'dm/gfx/tools/dmsh_chain.py'
+            shutil.copy2(real_chain_py, chain_py)
+            ryu_shader = src_repo / 'dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Translator.cs'
+            ryu_shader.parent.mkdir(parents=True)
+            ryu_shader.write_text('// ryu v1', encoding='utf-8')
+
+            sha_v1 = subprocess.check_output(
+                [sys.executable, str(chain_py), '--xlate-source-sha'], text=True
+            ).strip()
+            self.assertRegex(sha_v1, r'^[0-9a-f]{16}$')
+
+            with mock.patch.object(tc, 'tools_dir', return_value=tools_root):
+                dll1 = _dmsh_xlate_dll(str(xlate_bin), 'dotnet', tc)
+                publish_v1 = [c for c in seen_cmds if Path(c[0]).name == 'dotnet']
+                self.assertEqual(len(publish_v1), 1)
+                self.assertIn(f'-p:XlateSourceSha={sha_v1}', publish_v1[0])
+
+                # Second call hits cache without another dotnet publish.
+                dll1_again = _dmsh_xlate_dll(str(xlate_bin), 'dotnet', tc)
+                self.assertEqual(dll1_again, dll1)
+                self.assertEqual(len([c for c in seen_cmds if Path(c[0]).name == 'dotnet']), 1)
+
+                # Changing dm/third_party/ryujinx changes xlate_source_sha, cache dir, and triggers rebuild.
+                ryu_shader.write_text('// ryu v2', encoding='utf-8')
+                sha_v2 = subprocess.check_output(
+                    [sys.executable, str(chain_py), '--xlate-source-sha'], text=True
+                ).strip()
+                self.assertNotEqual(sha_v2, sha_v1)
+                seen_cmds.clear()
+                dll2 = _dmsh_xlate_dll(str(xlate_bin), 'dotnet', tc)
+                self.assertNotEqual(Path(dll2).parent.name, Path(dll1).parent.name)
+                publish_v2 = [c for c in seen_cmds if Path(c[0]).name == 'dotnet']
+                self.assertEqual(len(publish_v2), 1)
+                self.assertIn(f'-p:XlateSourceSha={sha_v2}', publish_v2[0])
+
+                # Falling back to dmsh_chain.lock when dmsh_chain.py is absent.
+                chain_py.unlink()
+                lock_file = src_repo / 'dm/gfx/tools/dmsh_chain.lock'
+                lock_file.write_bytes(b'# lock\r\nxlate_source\tdeadbeef01234567\r\n')
+                seen_cmds.clear()
+                dll_lock = _dmsh_xlate_dll(str(xlate_bin), 'dotnet', tc)
+                publish_lock = [c for c in seen_cmds if Path(c[0]).name == 'dotnet']
+                self.assertEqual(len(publish_lock), 1)
+                self.assertIn('-p:XlateSourceSha=deadbeef01234567', publish_lock[0])
+                self.assertNotEqual(Path(dll_lock).parent.name, Path(dll2).parent.name)
+
+                # Falling back to dmsh_chain.lock when dmsh_chain.py exits non-zero.
+                chain_py.write_text('import sys; sys.exit(2)\n', encoding='utf-8')
+                lock_file.write_text('xlate_source\tcafebabe89abcdef\n', encoding='utf-8')
+                seen_cmds.clear()
+                dll_fail = _dmsh_xlate_dll(str(xlate_bin), 'dotnet', tc)
+                publish_fail = [c for c in seen_cmds if Path(c[0]).name == 'dotnet']
+                self.assertEqual(len(publish_fail), 1)
+                self.assertIn('-p:XlateSourceSha=cafebabe89abcdef', publish_fail[0])
+                self.assertNotEqual(Path(dll_fail).parent.name, Path(dll_lock).parent.name)
+
+                # Bundled dll_next returns immediately with zero subprocess overhead.
+                bundled_dll = Path(str(xlate_bin) + '.dll')
+                bundled_dll.write_bytes(b'BUNDLED')
+                seen_cmds.clear()
+                self.assertEqual(_dmsh_xlate_dll(str(xlate_bin), 'dotnet', tc), str(bundled_dll))
+                self.assertEqual(seen_cmds, [])
+
+    def test_build_qt_workflow_injects_and_verifies_xlate_source_sha(self) -> None:
+        import re
+        wf_path = QT.parent / '.github' / 'workflows' / 'build-qt.yml'
+        wf = wf_path.read_text(encoding='utf-8')
+        publish_lines = [ln.strip() for ln in wf.splitlines() if 'dotnet publish ' in ln]
+        self.assertEqual(len(publish_lines), 2, f'unexpected dotnet publish count: {publish_lines}')
+
+        xlate_pub = [ln for ln in publish_lines if 'dm/gfx/tools/dmsh_xlate' in ln]
+        self.assertEqual(len(xlate_pub), 1)
+        self.assertIn('-p:XlateSourceSha=', xlate_pub[0])
+
+        self.assertIn('engine-tree/dm/gfx/tools/dmsh_chain.py --xlate-source-sha', wf)
+        self.assertIn('engine-tree/dm/gfx/tools/dmsh_chain.lock', wf)
+        self.assertRegex(
+            wf,
+            re.compile(r'GOT_XLATE_SHA=\$\(dotnet engine-tree/dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate\.dll --source-sha'),
+        )
+        self.assertRegex(
+            wf,
+            re.compile(r'if \[ -z "\$GOT_XLATE_SHA" \].*"\$GOT_XLATE_SHA" = "unknown".*"\$GOT_XLATE_SHA" != "\$XLATE_SHA".*"\$GOT_XLATE_SHA" != "\$LOCK_XLATE_SHA".*?exit 1', re.S),
+        )
+        self.assertIn('tool_lock.xlate_embedded()', wf)
+        self.assertIn('dmsh_chain.xlate_source_sha()', wf)
+        self.assertIn('tool_lock.check_tools(', wf)
+        self.assertRegex(
+            wf,
+            re.compile(r'GOT_NX_SHA=\$\("\$out/nx_extract\.exe" --source-sha.*?if \[ -z "\$GOT_NX_SHA" \].*?"\$GOT_NX_SHA" = "unknown".*?exit 1', re.S),
+        )
+
     def test_driver_region_skip_stamps_rewrite_id_and_capture_jit_reuses_image(self) -> None:
         from nspb_qt.win import driver
         repo = QT.parent / 'engine'
