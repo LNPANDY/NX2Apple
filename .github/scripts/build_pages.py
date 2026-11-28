@@ -67,10 +67,16 @@ def clean_visible_text(text: str, *, chinese: bool = False) -> str:
 
 
 def strip_markdown_inline(text: str) -> str:
-    """Convert inline markdown bold and code spans to plain readable text."""
-    out = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+    """Convert inline markdown links, bold and code spans to plain readable text."""
+    out = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
+    out = re.sub(r'\*\*(.+?)\*\*', r'\1', out)
     out = re.sub(r'`([^`]+)`', r'\1', out)
     return out.strip()
+
+
+def no_orphan_title(text: str) -> str:
+    """Bind Switch 2 with a non-breaking space so titles never orphan a trailing digit."""
+    return text.replace('Switch 2', 'Switch\u00a02')
 
 
 def safe_http_url(url: str) -> str:
@@ -737,6 +743,7 @@ button { font: inherit; color: inherit; cursor: pointer; background: none; borde
   position: relative; border-radius: 14px; overflow: hidden;
   background: var(--surface-solid); border: 1px solid var(--border);
   display: flex; flex-direction: column;
+  cursor: pointer;
   transition: transform 160ms ease, border-color 160ms ease;
 }
 .gal-card:hover { transform: translateY(-2px); border-color: rgba(255, 240, 214, 0.35); }
@@ -926,31 +933,36 @@ def build_js(lang: str, copied_template: str, showing_template: str) -> str:
     toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1800)
   }}
 
+  function noOrphan(s) {{
+    return String(s || '').replace(/Switch 2/g, 'Switch\\u00a02')
+  }}
+
   function setHighlight(el, rawText, query) {{
     if (!el) return
+    const text = noOrphan(rawText)
     el.textContent = ''
     const q = query.trim()
     if (!q) {{
-      el.textContent = rawText
+      el.textContent = text
       return
     }}
-    const lower = rawText.toLowerCase()
+    const lower = text.toLowerCase()
     const ql = q.toLowerCase()
     let pos = 0
     let idx = lower.indexOf(ql, pos)
     if (idx === -1) {{
-      el.textContent = rawText
+      el.textContent = text
       return
     }}
     while (idx !== -1) {{
-      if (idx > pos) el.appendChild(document.createTextNode(rawText.slice(pos, idx)))
+      if (idx > pos) el.appendChild(document.createTextNode(text.slice(pos, idx)))
       const mark = document.createElement('mark')
-      mark.textContent = rawText.slice(idx, idx + ql.length)
+      mark.textContent = text.slice(idx, idx + ql.length)
       el.appendChild(mark)
       pos = idx + ql.length
       idx = lower.indexOf(ql, pos)
     }}
-    if (pos < rawText.length) el.appendChild(document.createTextNode(rawText.slice(pos)))
+    if (pos < text.length) el.appendChild(document.createTextNode(text.slice(pos)))
   }}
 
   function updateLangLinks(q, filter) {{
@@ -1149,7 +1161,7 @@ def render_featured_cards(games: list[dict[str, object]], lang: str, strings: di
     for idx, g in enumerate(featured_games):
         img = safe_http_url(str(g.get('image_url', '')))
         tid = str(g['id'])
-        title = str(g['name_zh'] if lang == 'zh' else g['name_en'])
+        title = no_orphan_title(str(g['name_zh'] if lang == 'zh' else g['name_en']))
         note = str(g.get('gallery_note_en', ''))
         readme_url = safe_http_url(str(g.get('upstream_readme_url', '')))
         hidden_cls = ' is-hidden' if idx >= 12 else ''
@@ -1187,8 +1199,8 @@ def render_game_cards(games: list[dict[str, object]], lang: str, strings: dict[s
     copy_svg = '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"></path><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"></path></svg>'
     for g in games:
         tid = str(g['id'])
-        primary = str(g['name_zh'] if lang == 'zh' else g['name_en'])
-        secondary = str(g['name_en'] if lang == 'zh' else g['name_zh'])
+        primary = no_orphan_title(str(g['name_zh'] if lang == 'zh' else g['name_en']))
+        secondary = no_orphan_title(str(g['name_en'] if lang == 'zh' else g['name_zh']))
         update_val = str(g['update_zh'] if lang == 'zh' else g['update_en'])
         status_val = str(g['status_zh'] if lang == 'zh' else g['status_en'])
         sw2_up = str(g['sw2_upstream_zh'] if lang == 'zh' else g['sw2_upstream_en'])

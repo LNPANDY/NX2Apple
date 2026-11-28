@@ -1,8 +1,8 @@
 # Build and deploy the bilingual searchable GitHub Pages compatibility portal.
 #
-# Pull requests run the build and unit-test checks only (with contents: read and no configure-pages call, so PR
+# Pull requests run the build and unit-test checks only (with contents: read and no deploy/configure-pages step, so PR
 # checks pass even before GitHub Pages is enabled in repository settings). Pushes to main and published releases
-# deploy the built artifact to GitHub Pages.
+# check whether GitHub Pages is configured for GitHub Actions and deploy when ready.
 name: Pages portal
 
 on:
@@ -33,7 +33,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || 'github-pages-deploy' }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -72,9 +72,12 @@ jobs:
           assert data['counts']['switch2'] > 0
           print(f"Verified {data['counts']['all']} games ({data['counts']['switch2']} Switch 2)")
           PY
-      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+      - name: Upload Pages artifact
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: ${{ runner.temp }}/pages-site
+          include-hidden-files: true
 
   deploy:
     name: Deploy Pages portal
@@ -82,17 +85,35 @@ jobs:
     if: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.event_name == 'release') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
     permissions:
+      contents: read
       pages: write
       id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Check whether GitHub Pages uses GitHub Actions
+        id: pages_check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          build_type=$(gh api "repos/${{ github.repository }}/pages" --jq '.build_type // ""' 2>/dev/null || true)
+          if [ "$build_type" = "workflow" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::GitHub Pages is not enabled with GitHub Actions yet. Set Source to GitHub Actions under Settings > Pages to publish."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Setup Pages
+        if: ${{ steps.pages_check.outputs.ready == 'true' }}
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
         with:
           enablement: false
       - name: Deploy to GitHub Pages
         id: deployment
+        if: ${{ steps.pages_check.outputs.ready == 'true' }}
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

@@ -238,10 +238,26 @@ class BuildPagesFixtureAndSecurityTests(unittest.TestCase):
                 f'Action must be pinned to 40-char commit SHA with version comment: {ref}',
             )
         build_block = text.split('  build:')[1].split('  deploy:')[0]
+        deploy_block = text.split('  deploy:')[1]
         self.assertNotIn('actions/configure-pages', build_block)
-        self.assertIn('pages: write', text)
-        self.assertIn('id-token: write', text)
-        self.assertIn("github.event_name != 'pull_request'", text)
+        self.assertIn('include-hidden-files: true', build_block)
+        self.assertIn("github.event_name != 'pull_request'", build_block)
+        self.assertIn('pages: write', deploy_block)
+        self.assertIn('id-token: write', deploy_block)
+        self.assertIn("github.event_name != 'pull_request'", deploy_block)
+        self.assertIn('group: github-pages', deploy_block)
+        self.assertIn("steps.pages_check.outputs.ready == 'true'", deploy_block)
+        self.assertIn('build_type', deploy_block)
+
+    def test_markdown_link_stripping_and_no_orphan_switch2(self) -> None:
+        self.assertEqual(
+            bp.strip_markdown_inline('See [notes](https://example.com) and **bold** `code`'),
+            'See notes and bold code',
+        )
+        self.assertEqual(
+            bp.no_orphan_title("Fire Emblem Fortune's Weave (Switch 2)"),
+            "Fire Emblem Fortune's Weave (Switch\u00a02)",
+        )
 
 
 if __name__ == '__main__':
