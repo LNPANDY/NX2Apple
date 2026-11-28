@@ -1,5 +1,13 @@
 {
-  "_language": {"locales": ["de", "german", "deutsch"], "name": "Deutsch", "order": 3},
+  "_language": {
+    "locales": [
+      "de",
+      "german",
+      "deutsch"
+    ],
+    "name": "Deutsch",
+    "order": 3
+  },
   "activity.averageSession": "Schnitt %@",
   "activity.button": "Aktivitätslog",
   "activity.dayCount": "%lld Tage",
@@ -2005,8 +2013,6 @@
   "launch.opt.DM_OPMODE.1": "Angedockt",
   "launch.opt.DM_PICTURE_FIT.fill": "Füllen",
   "launch.opt.DM_PICTURE_FIT.fit": "Einpassen",
-  "launch.opt.DM_PORTRAIT_EDGE.0": "Standardformat (4:3)",
-  "launch.opt.DM_PORTRAIT_EDGE.1": "Bis ganz oben (über Dynamic Island)",
   "launch.opt.DM_PRESENT_INTERVAL.display": "60 fps",
   "launch.opt.DM_PRESENT_INTERVAL.game": "30 fps",
   "launch.opt.DM_PRESENT_UPSCALE.metalfx": "MetalFX",
@@ -2018,6 +2024,7 @@
   "launch.opt.DM_SCREEN_ASPECT.1.43": "iPhone-Duo-Bildschirm (1.43:1)",
   "launch.opt.DM_SCREEN_ASPECT.1.6": "MacBook (16:10)",
   "launch.opt.DM_SCREEN_ASPECT.auto": "An Bildschirm anpassen",
+  "launch.opt.DM_SCREEN_ASPECT.portrait-full": "Hochformat-Vollbild",
   "launch.opt.DM_TOUCH_SIZE.large": "Groß",
   "launch.opt.DM_TOUCH_SIZE.medium": "Mittel",
   "launch.opt.DM_TOUCH_SIZE.small": "Klein",
@@ -2063,8 +2070,6 @@
   "launch.set.DM_PAD_PRESS_TO_JOIN": "Zum Beitreten eine Taste drücken",
   "launch.set.DM_PICTURE_FIT": "Bild",
   "launch.set.DM_PICTURE_FIT.note": "Füllen schneidet das 16:9-Bild des Spiels zu, damit es den Bildschirm ausfüllt. Lebensleisten, Untertitel oder Karten am Rand können abgeschnitten werden. Ein Vollbild ohne Zuschnitt braucht einen Patch für jedes Spiel.",
-  "launch.set.DM_PORTRAIT_EDGE": "Hochformat-Bildbereich",
-  "launch.set.DM_PORTRAIT_EDGE.note": "Zieht das Bild im Hochformat über die Dynamic Island hinaus bis an den oberen Bildschirmrand. Die native Darstellung greift beim nächsten Start.",
   "launch.set.DM_PRESENT_INTERVAL": "Bildrate",
   "launch.set.DM_PRESENT_SNAP": "Bildpufferung",
   "launch.set.DM_PRESENT_SNAP.note": "Bis zu ein Bild mehr Anzeigeverzögerung.",
@@ -2080,7 +2085,7 @@
   "launch.set.DM_RUMBLE_GAIN": "Vibrationsstärke",
   "launch.set.DM_RUMBLE_MIN": "Vibrationsschwelle",
   "launch.set.DM_SCREEN_ASPECT": "Bildformat",
-  "launch.set.DM_SCREEN_ASPECT.note": "Höhere Bildformate berechnen mehr Pixel und können GPU-Zeit und Wärme erhöhen.",
+  "launch.set.DM_SCREEN_ASPECT.note": "Höhere Bildformate berechnen mehr Pixel und können GPU-Zeit und Wärme erhöhen. Hochformat-Vollbild zieht das Bild im Hochformat über die Dynamic Island hinaus bis an den oberen Bildschirmrand.",
   "launch.set.DM_SHOW_FPS": "Bildraten-Anzeige",
   "launch.set.DM_SW2": "Switch 2-Controller",
   "launch.set.DM_SW2.note": "Spielt Joy-Con 2 und Pro Controller 2 über Bluetooth: Halte während des Spiels die Sync-Taste an einem gedrückt, um ihn zu koppeln (auf iPhone und iPad nach jedem Start). Das System fragt einmal nach dem Bluetooth-Zugriff.",

@@ -1,5 +1,11 @@
 {
-  "_language": {"locales": ["ja", "japanese"], "name": "日本語"},
+  "_language": {
+    "locales": [
+      "ja",
+      "japanese"
+    ],
+    "name": "日本語"
+  },
   "activity.averageSession": "平均 %@",
   "activity.button": "プレイ記録",
   "activity.dayCount": "%lld日間",
@@ -2005,8 +2011,6 @@
   "launch.opt.DM_OPMODE.1": "TV モード",
   "launch.opt.DM_PICTURE_FIT.fill": "全体に表示",
   "launch.opt.DM_PICTURE_FIT.fit": "全体を収める",
-  "launch.opt.DM_PORTRAIT_EDGE.0": "標準（4:3）",
-  "launch.opt.DM_PORTRAIT_EDGE.1": "上端まで拡大（Dynamic Island を越える）",
   "launch.opt.DM_PRESENT_INTERVAL.display": "60 fps",
   "launch.opt.DM_PRESENT_INTERVAL.game": "30 fps",
   "launch.opt.DM_PRESENT_UPSCALE.metalfx": "MetalFX",
@@ -2018,6 +2022,7 @@
   "launch.opt.DM_SCREEN_ASPECT.1.43": "iPhone Duo の画面（1.43:1）",
   "launch.opt.DM_SCREEN_ASPECT.1.6": "MacBook（16:10）",
   "launch.opt.DM_SCREEN_ASPECT.auto": "画面に合わせる",
+  "launch.opt.DM_SCREEN_ASPECT.portrait-full": "縦向き全画面",
   "launch.opt.DM_TOUCH_SIZE.large": "大",
   "launch.opt.DM_TOUCH_SIZE.medium": "中",
   "launch.opt.DM_TOUCH_SIZE.small": "小",
@@ -2063,8 +2068,6 @@
   "launch.set.DM_PAD_PRESS_TO_JOIN": "ボタンを押して参加",
   "launch.set.DM_PICTURE_FIT": "映像",
   "launch.set.DM_PICTURE_FIT.note": "「全体に表示」は、ゲームの 16:9 の映像を切り取って画面全体を覆います。端の近くにある体力ゲージ、字幕、マップなどが切れることがあります。切り取らずに全画面表示するには、ゲームごとのパッチが必要です。",
-  "launch.set.DM_PORTRAIT_EDGE": "縦向き画面枠",
-  "launch.set.DM_PORTRAIT_EDGE.note": "縦向き時にゲーム画面を Dynamic Island を越えて画面上端まで広げます。ネイティブ比率の描画は次回の起動から反映されます。",
   "launch.set.DM_PRESENT_INTERVAL": "フレームレート",
   "launch.set.DM_PRESENT_SNAP": "フレームバッファリング",
   "launch.set.DM_PRESENT_SNAP.note": "表示の遅延が最大 1 フレーム増えます。",
@@ -2080,7 +2083,7 @@
   "launch.set.DM_RUMBLE_GAIN": "振動の強さ",
   "launch.set.DM_RUMBLE_MIN": "振動のしきい値",
   "launch.set.DM_SCREEN_ASPECT": "映像の比率",
-  "launch.set.DM_SCREEN_ASPECT.note": "縦に長い比率ほど描画ピクセルが増え、GPU 負荷と発熱が増える場合があります。",
+  "launch.set.DM_SCREEN_ASPECT.note": "縦に長い比率ほど描画ピクセルが増え、GPU 負荷と発熱が増える場合があります。縦向き全画面を選ぶと、縦向き時のゲーム画面が画面上端まで広がり Dynamic Island を越えて表示されます。",
   "launch.set.DM_SHOW_FPS": "フレームレート表示",
   "launch.set.DM_SW2": "Switch 2 コントローラー",
   "launch.set.DM_SW2.note": "Joy-Con 2 と Pro Controller 2 を Bluetooth で使えます。ゲーム中にコントローラーの Sync ボタンを長押しするとペアリングされます（iPhone と iPad では毎回起動後に操作が必要です）。システムは Bluetooth へのアクセスを一度だけ確認します。",

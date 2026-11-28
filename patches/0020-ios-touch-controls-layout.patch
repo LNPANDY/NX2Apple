@@ -8,45 +8,196 @@ Upstream-Status: pending [builds on seedds/nxnative#683]
 Reason: Let players resize and reposition touch controls with editor and gameplay geometry parity
 Issue: LNPANDY/NX2Apple#347
 ---
- dm/host/loader.c                              |   6 +-
- dm/host/tests/t_nro.c                         |  43 +-
+ dm/games/01006F8002326000/patches.py          |  63 ++-
+ dm/host/loader.c                              |  23 +-
+ dm/host/tests/t_nro.c                         |  54 ++-
  dm/ios/Sources/DmGamepad.m                    | 283 ++++++-----
  dm/ios/Sources/DmLayout.h                     |  61 ++-
  dm/ios/Sources/DmPadGeometry.h                | 457 ++++++++++++++++++
- dm/ios/Sources/front_ios.m                    |  75 ++-
- dm/ios/tests/duo/Tests/DuoHarnessTests.m      | 262 +++++++++-
+ dm/ios/Sources/front_ios.m                    |  77 ++-
+ dm/ios/tests/duo/Tests/DuoHarnessTests.m      | 296 +++++++++++-
  dm/ios/tests/pad_geometry/UIKit/UIKit.h       |  20 +
- .../tests/pad_geometry/pad_geometry_check.m   | 396 +++++++++++++++
+ .../tests/pad_geometry/pad_geometry_check.m   | 402 +++++++++++++++
  dm/ios/tests/test_pad_geometry.py             |  37 ++
- 10 files changed, 1489 insertions(+), 151 deletions(-)
+ 11 files changed, 1594 insertions(+), 179 deletions(-)
  create mode 100644 dm/ios/Sources/DmPadGeometry.h
  create mode 100644 dm/ios/tests/pad_geometry/UIKit/UIKit.h
  create mode 100644 dm/ios/tests/pad_geometry/pad_geometry_check.m
  create mode 100644 dm/ios/tests/test_pad_geometry.py
 
+diff --git a/dm/games/01006F8002326000/patches.py b/dm/games/01006F8002326000/patches.py
+index 9a3f629..8584e5e 100644
+--- a/dm/games/01006F8002326000/patches.py
++++ b/dm/games/01006F8002326000/patches.py
+@@ -4,8 +4,9 @@
+ import struct
+ from nso_asm import ADRP, B
+
+-# Screen shape (DM_SCREEN_ASPECT, loader.c): a screen taller than 16:9 keeps the picture's width (1920) and takes the height of the screen's ratio (state +0x48, 1344 at 1.43), the
+-# layout space 1280 x 2/3 of it (+0x4c, 896; +0x50 the same as a float). The game's platform config (vtable main+0x47fa0e0, no RTTI) hands its sizes out three ways:
++# Screen shape (DM_SCREEN_ASPECT, loader.c): a screen taller than 16:9 takes the output width at state +0x44 (1920 on wide screens, 1280 in portrait so SwapChain and render targets
++# stay within AppSysHeap's budget) and the height of the screen's ratio (+0x48 in 1920 units, 1344 at 1.43; +0x4c the 1280-wide layout height, 896 at 1.43 and 1376 at 0.921; +0x50
++# the same as a float). The game's platform config (vtable main+0x47fa0e0, no RTTI) hands its sizes out three ways:
+ #   main+0x5c9b44 (vtable main+0x47f9c08) fills the graphics create arg: +0x60 the display size (the table main+0x4076728 of 960x540 .. 3840x2160 by the mode at [main+0x512e2e0]
+ #     when [main+0x5131900] is set, else 1920x1080), +0x20 1280x720
+ #   main+0x5cdce0 (slot 7) a static display size main+0x4b87524 (the same choice), main+0x5cdd88 (slot 8) a static 1280.0 x 720.0 (main+0x4b87538)
+@@ -15,10 +16,14 @@ _size_sites = [
+     # (site, the stub's words after ADRP x16 (state), the last one the site's original instruction, reason)
+     (0x5c9b80, [
+         0xb9405611,   # ldr w17, [x16, #0x54]   sites
+-        0x360000d1,   # tbz w17, #0, orig
+-        0xb9404a11,   # ldr w17, [x16, #0x48]   the output's height (0 = 16:9)
+-        0x34000091,   # cbz w17, orig
+-        0x1b117d28,   # mul w8, w9, w17         height = width x the output's height / 1920 (each mode of the table: 960 → 672, 1280 → 896, 1920 → 1344)
++        0x36000151,   # tbz w17, #0, orig
++        0xb9404a11,   # ldr w17, [x16, #0x48]   the 1920-wide output height (0 = 16:9)
++        0x34000111,   # cbz w17, orig
++        0xb9404608,   # ldr w8, [x16, #0x44]    the output width cap (1280 in portrait, 1920 otherwise; 0 = 1920)
++        0x34000068,   # cbz w8, scale
++        0x6b08013f,   # cmp w9, w8
++        0x1a898109,   # csel w9, w8, w9, hi
++        0x1b117d28,   # scale: mul w8, w9, w17  height = width x oh / 1920 (960 → 672, 1280 → 896 / 1376, 1920 → 1344)
+         0x5280f011,   # mov w17, #1920
+         0x1ad10908,   # udiv w8, w8, w17
+         0x290c2029,   # orig: stp w9, w8, [x1, #0x60]
+@@ -33,10 +38,14 @@ _size_sites = [
+     ], 'graphics create arg +0x20: 1280 x the layout height (bit 1)'),
+     (0x5cdd74, [
+         0xb9405611,   # ldr w17, [x16, #0x54]
+-        0x361000d1,   # tbz w17, #2, orig
++        0x36100151,   # tbz w17, #2, orig
+         0xb9404a11,   # ldr w17, [x16, #0x48]
+-        0x34000091,   # cbz w17, orig
+-        0x1b117d28,   # mul w8, w9, w17
++        0x34000111,   # cbz w17, orig
++        0xb9404608,   # ldr w8, [x16, #0x44]
++        0x34000068,   # cbz w8, scale
++        0x6b08013f,   # cmp w9, w8
++        0x1a898109,   # csel w9, w8, w9, hi
++        0x1b117d28,   # scale: mul w8, w9, w17
+         0x5280f011,   # mov w17, #1920
+         0x1ad10908,   # udiv w8, w8, w17
+         0x29002149,   # orig: stp w9, w8, [x10]
+@@ -52,10 +61,16 @@ _size_sites = [
+     ], 'platform config slot 8: the static layout size 1280.0 x the layout height (bit 3)'),
+     (0x5cdcc8, [
+         0xb9405611,   # ldr w17, [x16, #0x54]
+-        0x36200091,   # tbz w17, #4, orig
++        0x36200151,   # tbz w17, #4, orig
+         0xb9404a11,   # ldr w17, [x16, #0x48]
+-        0x34000051,   # cbz w17, orig
+-        0xb3607e28,   # bfi x8, x17, #32, #32   1920 x the output's height
++        0x34000111,   # cbz w17, orig
++        0xb9404610,   # ldr w16, [x16, #0x44]
++        0x34000050,   # cbz w16, scale
++        0x2a1003e8,   # mov w8, w16             ow (1280 or 1920)
++        0x1b117d10,   # scale: mul w16, w8, w17
++        0x5280f011,   # mov w17, #1920
++        0x1ad10a11,   # udiv w17, w16, w17
++        0xb3607e28,   # bfi x8, x17, #32, #32   ow x output height
+         0xf8014028,   # orig: stur x8, [x1, #0x14]
+     ], 'platform config slot 3: the arg\'s 1920x1080 in the screen\'s shape (bit 4)'),
+ ]
+@@ -87,16 +102,20 @@ def screen_shape(ctx):
+     # ([main+0x59e77d8] +0x50, +0x4c..+0x58) to the entry: the presented picture was cropped back to the top 1920x1080 of the 1920x1344 window. The two loads of the
+     # entry (main+0x1527f00, main+0x1527f2c) take the height of the screen's shape, the width x the output's height / 1920 in integers (1920 → 1344 exactly; a float
+     # product truncated to 1343). Bit 7 of the sites. s4.. and x16 / x17 are free there
+-    for at, orig, cvt, back in ((0x1527f00, 0x2d400500, 0x1e380010, 0x1e220201),    # ldp s0, s1, [x8]; fcvtzs w16, s0; scvtf s1, w16
+-                                (0x1527f2c, 0x2d400d02, 0x1e380050, 0x1e220203)):   # ldp s2, s3, [x8]; fcvtzs w16, s2; scvtf s3, w16
++    for at, orig, fmin_w, cvt, back in ((0x1527f00, 0x2d400500, 0x1e245800, 0x1e380010, 0x1e220201),    # ldp s0, s1, [x8]; fmin s0, s0, s4; fcvtzs w16, s0; scvtf s1, w16
++                                        (0x1527f2c, 0x2d400d02, 0x1e245842, 0x1e380050, 0x1e220203)):   # ldp s2, s3, [x8]; fmin s2, s2, s4; fcvtzs w16, s2; scvtf s3, w16
+         site(at, struct.pack('<I', orig).hex())
+         start = here(); emit(orig)   # the original load
+         emit(ADRP(16, here(), STATE))
+         for w in (0xb9405611,   # ldr w17, [x16, #0x54]   sites
+-                  0x36380111,   # tbz w17, #7, back (+8)
+-                  0xb9404a11,   # ldr w17, [x16, #0x48]   the output's height (0 = 16:9)
+-                  0x340000d1,   # cbz w17, back (+6)
+-                  cvt,          # fcvtzs w16, <width>
++                  0x36380191,   # tbz w17, #7, back (+12)
++                  0xb9404a11,   # ldr w17, [x16, #0x48]   the 1920-wide output height (0 = 16:9)
++                  0x34000151,   # cbz w17, back (+10)
++                  0xb9404610,   # ldr w16, [x16, #0x44]   the output width cap (1280 in portrait)
++                  0x34000070,   # cbz w16, scale (+3)
++                  0x1e230204,   # ucvtf s4, w16
++                  fmin_w,       # fmin <width>, <width>, s4
++                  cvt,          # scale: fcvtzs w16, <width>
+                   0x1b117e10,   # mul w16, w16, w17
+                   0x5280f011,   # mov w17, #1920
+                   0x1ad10a10,   # udiv w16, w16, w17
+@@ -105,10 +124,10 @@ def screen_shape(ctx):
+         emit(B(here(), at + 4))
+         put(at, [B(at, start)], 'resolution table entry of the frame (crop, render scale): the height of the screen\'s shape (bit 7)')
+     # The layouts' DrawInfo ([+0x60] of the renderer at main+0x31cee50) takes the framebuffer's size twice, 1920.0 x 1080.0 at +0x108 (main+0x31cee58..60) and 1920 x 1080
+-    # at +0x138 (main+0x31cee98..9c), which nn::ui2d's scissors and captures map the screen with: both take the output's height. Each stub runs the site's original movk
+-    # first. v16 is dead there (a call follows with x0 only), x16 / x17 free. Bit 8 of the sites
+-    for at, orig, words in ((0x31cee60, 0xf2e890f8, (0x1e230230, 0x1e260211, 0xb3607e38)),   # movk x24, #0x4487, lsl #48; ucvtf s16, w17; fmov w17, s16; bfi x24, x17, #32, #32
+-                            (0x31cee9c, 0xf2c08708, (0xb3607e28,))):                        # movk x8, #0x438, lsl #32; bfi x8, x17, #32, #32
++    # at +0x138 (main+0x31cee98..9c), which nn::ui2d's scissors and captures map the screen with: both take the output's width and height (1280 x lh in portrait, else 1920 x oh).
++    # Each stub runs the site's original movk first. v16 is dead there (a call follows with x0 only), x16 / x17 free. Bit 8 of the sites
++    for at, orig, words in ((0x31cee60, 0xf2e890f8, (0xb9404611, 0x7114023f, 0x54000081, 0x52a89418, 0xb9405211, 0x14000004, 0xb9404a11, 0x1e230230, 0x1e260211, 0xb3607e38)),
++                            (0x31cee9c, 0xf2c08708, (0xb9404611, 0x7114023f, 0x54000081, 0x2a1103e8, 0xb9404e11, 0x14000002, 0xb9404a11, 0xb3607e28))):
+         site(at, struct.pack('<I', orig).hex())
+         start = here(); emit(orig)
+         emit(ADRP(16, here(), STATE))
 diff --git a/dm/host/loader.c b/dm/host/loader.c
-index 0c07cf1..70403e0 100644
+index 0c07cf1..4122ad0 100644
 --- a/dm/host/loader.c
 +++ b/dm/host/loader.c
-@@ -507,13 +507,13 @@ void dm_fps_state_apply(void) {
+@@ -486,6 +486,8 @@ static void install_fps_state(module_t *m) {
+     if (m->render_scale_max > 1) g_render_scale_max = (float)m->render_scale_max;
+     g_fstep_t120 = m->fstep_t120;
+ }
++static int g_screen_portrait_narrow;      // front_ios.m: 1 on a narrow portrait phone window so screen-shape output stays 1280 wide instead of 1920
++void dm_screen_set_portrait_narrow(int narrow) { g_screen_portrait_narrow = narrow != 0; }
+ // The settings in the state page, written when the game starts (main.c, after host loading): on iOS the loading runs at app launch, before the launcher has set DM_FPS_TARGET and
+ // DM_RENDER_SCALE (Launcher.swift), and nothing reads the page before the game runs
+ void dm_fps_state_apply(void) {
+@@ -507,22 +509,25 @@ void dm_fps_state_apply(void) {
      const char *dr = getenv("DM_DYNAMIC_RESOLUTION"); uint32_t dyn = dr && !strcmp(dr, "1");
      if (dr && strcmp(dr, "0") && strcmp(dr, "1")) LOG("[RED] DM_DYNAMIC_RESOLUTION=%s: must be 0 or 1; keeping full resolution", dr);
      memcpy(dm_fps_state + 0x40, &dyn, sizeof dyn);
 -    // Screen shape: DM_SCREEN_ASPECT, the screen's width / height between 1.3 and 1.77, makes the builds with screen-shape stubs
-+    // Screen shape: DM_SCREEN_ASPECT, the screen's width / height between 0.85 and 1.77, makes the builds with screen-shape stubs
-     // (Breath of the Wild 1.9.0's patches.py) render that shape: the output keeps its width (1920) and takes the height that gives the ratio, a multiple of 48 so the
+-    // (Breath of the Wild 1.9.0's patches.py) render that shape: the output keeps its width (1920) and takes the height that gives the ratio, a multiple of 48 so the
 -    // 2/3-size layout space (1280 wide) stays whole: 1.43 → 1920x1344 and 1280x896. State +0x48 u32 output height, +0x4c u32 layout height, +0x50 its float; 0 = 16:9
-+    // 2/3-size layout space (1280 wide) stays whole: 1.43 → 1920x1344 and 1280x896, portrait full-top ~0.98 → 1920x1968 and 1280x1312. State +0x48 u32 output height, +0x4c u32 layout height, +0x50 its float; 0 = 16:9
++    // Screen shape: DM_SCREEN_ASPECT, the screen's width / height between 0.85 and 1.77, makes the builds with screen-shape stubs
++    // (Breath of the Wild 1.9.0's patches.py) render that shape: wide screens (1.3..1.77 on Mac, iPad or unfolded Duo) keep width 1920 and take height oh (a multiple of 48
++    // so the 2/3-size 1280-wide layout space lh stays a multiple of 32: 1.43 → 1920x1344 and 1280x896), while portrait full-top (< 1.3) and narrow portrait phone windows
++    // output at width 1280 (1280 x lh, e.g. 0.921 → 1280x1376, 1.333 → 1280x960) to match the phone's width and stay within fixed guest heaps. State +0x44 u32 output width
++    // (1280 or 1920), +0x48 u32 1920-space height oh, +0x4c u32 1280-space layout height lh, +0x50 its float; 0 = 16:9
      const char *as = getenv("DM_SCREEN_ASPECT");
-     if (as && *as && strcmp(as, "0") && strcmp(as, "auto")) {   // 0: 16:9; auto: the iOS front end resolves it to the screen's shape (a Mac window has none)
+-    if (as && *as && strcmp(as, "0") && strcmp(as, "auto")) {   // 0: 16:9; auto: the iOS front end resolves it to the screen's shape (a Mac window has none)
++    if (as && *as && strcmp(as, "0") && strcmp(as, "auto") && strcmp(as, "portrait-full")) {   // 0: 16:9; auto / portrait-full: the iOS front end resolves them to the screen's shape
          char *end; float a = strtof(as, &end);
 -        if (end == as || *end || !(a >= 1.3f && a < 1.77f)) LOG("[RED] DM_SCREEN_ASPECT=%s: a width / height from 1.3 to 1.77; keeping 16:9", as);
 +        if (end == as || *end || !(a >= 0.85f && a < 1.77f)) LOG("[RED] DM_SCREEN_ASPECT=%s: a width / height from 0.85 to 1.77; keeping 16:9", as);
          else {
              uint32_t oh = (uint32_t)(1920.0f / a / 48.0f + 0.5f) * 48, lh = oh * 2 / 3; float lf = (float)lh;
-             memcpy(dm_fps_state + 0x48, &oh, 4); memcpy(dm_fps_state + 0x4c, &lh, 4); memcpy(dm_fps_state + 0x50, &lf, 4);
+-            memcpy(dm_fps_state + 0x48, &oh, 4); memcpy(dm_fps_state + 0x4c, &lh, 4); memcpy(dm_fps_state + 0x50, &lf, 4);
+-            extern void mtl_present_screen(uint32_t w, uint32_t h); mtl_present_screen(1920, oh);   // the picture's shape for a texture that follows it (nvn_mtl.m present_shape)
++            uint32_t ow = (a < 1.3f || g_screen_portrait_narrow) ? 1280u : 1920u, out_h = ow == 1280u ? lh : oh;
++            memcpy(dm_fps_state + 0x44, &ow, 4); memcpy(dm_fps_state + 0x48, &oh, 4); memcpy(dm_fps_state + 0x4c, &lh, 4); memcpy(dm_fps_state + 0x50, &lf, 4);
++            extern void mtl_present_screen(uint32_t w, uint32_t h); mtl_present_screen(ow, out_h);   // the picture's shape for a texture that follows it (nvn_mtl.m present_shape)
+             const char *ms = getenv("DM_SCREEN_ASPECT_SITES"); uint32_t mask = ms ? (uint32_t)strtoul(ms, NULL, 0) : 0xffffffffu;   // the stubs of the game's own conversions, one bit each (+0x54)
+             memcpy(dm_fps_state + 0x54, &mask, 4);
+             if (ms) LOG("%s: screen shape: conversion sites %#x (DM_SCREEN_ASPECT_SITES)", g_fps_mod, mask);
+             // The field of view: views of the screen's ratio (the scene, the HUD's camera) keep 16:9's sides and show more above and below (patches.py's sead::PerspectiveProjection stubs)
+-            float r = 1920.0f / (float)oh, k = (16.0f / 9.0f) / r, tol = 0.01f;
++            float r = (float)ow / (float)out_h, k = (16.0f / 9.0f) / r, tol = 0.01f;
+             const char *fo = getenv("DM_SCREEN_FOV"); if (fo && !strcmp(fo, "off")) tol = -1.0f;   // trials: the scene keeps the game's vertical angle (no view matches); the HUD camera still widens
+             memcpy(dm_fps_state + 0x58, &r, 4); memcpy(dm_fps_state + 0x5c, &k, 4); memcpy(dm_fps_state + 0x60, &tol, 4);
+             float wide = 16.0f / 9.0f, wtol = 0.001f, far = 10000.0f;   // the HUD camera's projection: 16:9, near 1, far 10000 (+0x74 / +0x78 / +0x7c)
+@@ -540,7 +545,7 @@ void dm_fps_state_apply(void) {
+             if (hv && sscanf(hv, "%f,%f,%f,%f,%f", &anc[2], &anc[3], &anc[4], &anc[5], &anc[6]) < 4) LOG("[RED] DM_SCREEN_HUD=%s: <edge>,<listed>,<full width>,<full height>[,<tallest>]; keeping the rest", hv);
+             memcpy(dm_fps_state + 0x80, anc, sizeof anc);
+             LOG("%s: screen shape: HUD moves out by %.0f (edge %.0f, listed widgets %.0f), panes %.0fx%.0f or larger stretched %.3f", g_fps_mod, anc[0], anc[2], anc[3], anc[4], anc[5], anc[1]);
+-            LOG("%s: screen shape %.3f: output 1920x%u, layout 1280x%u (DM_SCREEN_ASPECT; only builds with screen-shape stubs follow it)", g_fps_mod, a, oh, lh);
++            LOG("%s: screen shape %.3f: output %ux%u, layout 1280x%u (DM_SCREEN_ASPECT; only builds with screen-shape stubs follow it)", g_fps_mod, a, ow, out_h, lh);
+         }
+     }
+     char cap[32]; snprintf(cap, sizeof cap, ", capped at %d fps", t);
 diff --git a/dm/host/tests/t_nro.c b/dm/host/tests/t_nro.c
-index 98f4877..61a6052 100644
+index 98f4877..9f42969 100644
 --- a/dm/host/tests/t_nro.c
 +++ b/dm/host/tests/t_nro.c
 @@ -7,7 +7,8 @@ void dm_thread_service_connect(void) {}   // threads started so far have nothing
@@ -59,7 +210,7 @@ index 98f4877..61a6052 100644
  // 40 fps (loader.c, compiled here): only a stub that takes ticks of 1/120 s (the FRAME_STEP_120 capability in its fixups table) gets it; the loader writes the step's unit (+0x38)
  // for it, 120, at every start, and 0 for every other stub. Elsewhere DM_FPS_TARGET=40 holds 30
  static float page_target(const uint8_t *page) { float t; memcpy(&t, page, 4); return t; }
-@@ -32,6 +33,45 @@ static void fps_40(void) {
+@@ -32,6 +33,56 @@ static void fps_40(void) {
      puts("40 fps only for a stub in ticks of 1/120 s (FRAME_STEP_120), the step's unit in the state page: OK");
  }
 
@@ -71,31 +222,42 @@ index 98f4877..61a6052 100644
 +    unsetenv("DM_FPS_TARGET"); unsetenv("DM_RENDER_SCALE"); unsetenv("DM_DYNAMIC_RESOLUTION");
 +    install_fps_state(&m);
 +
-+    // Portrait full-top slot (~0.98 on Pro Max): accepted and quantized to a multiple of 48 (1968, layout 1312)
-+    g_present_w = g_present_h = 0;
++    // Portrait full-top slot (~0.98 on Pro Max, < 1.3): 1280x1312 output (oh 1968, layout 1312)
++    g_present_w = g_present_h = 0; dm_screen_set_portrait_narrow(0);
 +    setenv("DM_SCREEN_ASPECT", "0.980", 1); dm_fps_state_apply();
-+    assert(page_u32(page, 0x48) == 1968 && page_u32(page, 0x4c) == 1312);
-+    assert(g_present_w == 1920 && g_present_h == 1968);
++    assert(page_u32(page, 0x44) == 1280 && page_u32(page, 0x48) == 1968 && page_u32(page, 0x4c) == 1312);
++    assert(g_present_w == 1280 && g_present_h == 1312);
 +
-+    // Lower bound 0.85: accepted (2256, layout 1504)
++    // Lower bound 0.85: accepted at 1280x1504 (oh 2256, layout 1504)
 +    memset(page, 0, sizeof page); g_present_w = g_present_h = 0;
 +    install_fps_state(&m);
 +    setenv("DM_SCREEN_ASPECT", "0.85", 1); dm_fps_state_apply();
-+    assert(page_u32(page, 0x48) == 2256 && page_u32(page, 0x4c) == 1504);
-+    assert(g_present_w == 1920 && g_present_h == 2256);
++    assert(page_u32(page, 0x44) == 1280 && page_u32(page, 0x48) == 2256 && page_u32(page, 0x4c) == 1504);
++    assert(g_present_w == 1280 && g_present_h == 1504);
 +
-+    // Standard portrait 4:3 (1.333): 1920x1440, layout 1280x960
++    // Wide 4:3 (iPad, 1.333 with narrow=0): keeps 1920x1440, layout 1280x960
 +    memset(page, 0, sizeof page); g_present_w = g_present_h = 0;
 +    install_fps_state(&m);
 +    setenv("DM_SCREEN_ASPECT", "1.333", 1); dm_fps_state_apply();
-+    assert(page_u32(page, 0x48) == 1440 && page_u32(page, 0x4c) == 960);
++    assert(page_u32(page, 0x44) == 1920 && page_u32(page, 0x48) == 1440 && page_u32(page, 0x4c) == 960);
++    assert(g_present_w == 1920 && g_present_h == 1440);
 +
-+    // Out-of-range (< 0.85 or >= 1.77): rejected, keeping 16:9 (0)
++    // Narrow portrait 4:3 (iPhone, 1.333 with narrow=1): outputs 1280x960
++    memset(page, 0, sizeof page); g_present_w = g_present_h = 0; dm_screen_set_portrait_narrow(1);
++    install_fps_state(&m);
++    setenv("DM_SCREEN_ASPECT", "1.333", 1); dm_fps_state_apply();
++    assert(page_u32(page, 0x44) == 1280 && page_u32(page, 0x48) == 1440 && page_u32(page, 0x4c) == 960);
++    assert(g_present_w == 1280 && g_present_h == 960);
++    dm_screen_set_portrait_narrow(0);
++
++    // Out-of-range (< 0.85 or >= 1.77) or unresolved portrait-full: keeping 16:9 (0)
 +    memset(page, 0, sizeof page); g_present_w = g_present_h = 0;
 +    install_fps_state(&m);
 +    setenv("DM_SCREEN_ASPECT", "0.84", 1); dm_fps_state_apply();
 +    assert(page_u32(page, 0x48) == 0 && g_present_h == 0);
 +    setenv("DM_SCREEN_ASPECT", "1.77", 1); dm_fps_state_apply();
++    assert(page_u32(page, 0x48) == 0 && g_present_h == 0);
++    setenv("DM_SCREEN_ASPECT", "portrait-full", 1); dm_fps_state_apply();
 +    assert(page_u32(page, 0x48) == 0 && g_present_h == 0);
 +
 +    unsetenv("DM_SCREEN_ASPECT"); dm_fps_state = NULL; g_fps_mod = NULL;
@@ -105,7 +267,7 @@ index 98f4877..61a6052 100644
  // ALIAS_CUT rows in fixups.tsv: restored at load on a 64 GB Mac alias region, kept under a smaller DM_ALIAS_SIZE or DM_KEEP_ALIAS_CUTS=1, and fail-closed on byte mismatch.
  static void alias_cuts(void) {
      char dir[] = "/tmp/dm_alias_cut_XXXXXX";
-@@ -121,6 +161,7 @@ static void unload(int i) { h_ro_UnloadModule(&handles[i - 1]); assert(!g_mod[i]
+@@ -121,6 +172,7 @@ static void unload(int i) { h_ro_UnloadModule(&handles[i - 1]); assert(!g_mod[i]
 
  int main(void) {
      fps_40();
@@ -541,7 +703,7 @@ index f495fc8..218ca48 100644
  - (void)refresh {   // pressed state → fill, sticks → knob position
      uint64_t all = _faceBits | _dpadBits | _btnBits;
 diff --git a/dm/ios/Sources/DmLayout.h b/dm/ios/Sources/DmLayout.h
-index 8b1ac90..6c20ab2 100644
+index 8b1ac90..e86c1d3 100644
 --- a/dm/ios/Sources/DmLayout.h
 +++ b/dm/ios/Sources/DmLayout.h
 @@ -5,7 +5,11 @@
@@ -613,12 +775,12 @@ index 8b1ac90..6c20ab2 100644
      return CGPointMake(fmin(fmax((p.x - CGRectGetMinX(game)) / w, 0), 0.999), fmin(fmax((p.y - CGRectGetMinY(game)) / h, 0), 0.999));
  }
 
-+static inline BOOL dm_portrait_edge(const char *_Nullable value) { return value && !strcmp(value, "1"); }   // DM_PORTRAIT_EDGE: 0 (4:3 default) or 1 (full top past Dynamic Island)
++static inline BOOL dm_screen_aspect_portrait_full(const char *_Nullable value) { return value && !strcmp(value, "portrait-full"); }   // DM_SCREEN_ASPECT=portrait-full
 +
-+// Portrait full-top mode (DM_PORTRAIT_EDGE=1): in upright portrait split, extends the picture canvas from the very top edge of the
-+// view (y = 0, past the Dynamic Island) down to the top of the touch controls, while keeping the controls half unchanged.
-+static inline DmLayout dm_layout_with_portrait_edge(CGRect b, UIEdgeInsets insets, BOOL partiallyOpen, CGRect division, CGFloat aspect, BOOL portraitEdgeToEdge) {
-+    if (!portraitEdgeToEdge || b.size.height <= b.size.width) return dm_layout(b, insets, partiallyOpen, division, aspect);
++// Portrait full-screen mode (DM_SCREEN_ASPECT=portrait-full): in upright portrait split, extends the picture canvas from the very top edge
++// of the view (y = 0, past the Dynamic Island) down to the top of the touch controls, while keeping the controls half unchanged.
++static inline DmLayout dm_layout_with_portrait_full(CGRect b, UIEdgeInsets insets, BOOL partiallyOpen, CGRect division, CGFloat aspect, BOOL portraitFull) {
++    if (!portraitFull || b.size.height <= b.size.width) return dm_layout(b, insets, partiallyOpen, division, aspect);
 +    CGRect fit = dm_aspect_fit(b, aspect);
 +    DmLayout l = { .game = fit, .gameClip = fit, .upper = b, .controls = b };
 +    if (CGRectIsEmpty(b)) return l;
@@ -1104,7 +1266,7 @@ index 0000000..d2efd77
 +
 +NS_ASSUME_NONNULL_END
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index 0690096..e4fa4df 100644
+index 0690096..f610cd8 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
 @@ -93,12 +93,14 @@ - (void)updateConstraints {
@@ -1118,22 +1280,20 @@ index 0690096..e4fa4df 100644
  @property (nonatomic) BOOL launched;
  @property (nonatomic, strong) id tv;   // the TV scene accessory's registration (iOS 27)
  @property (nonatomic) BOOL fill;   // DM_PICTURE_FIT=fill: in landscape the picture covers the screen, its edges cropped (DmLayout.h dm_layout_picture)
-+@property (nonatomic) BOOL portraitEdge;   // DM_PORTRAIT_EDGE=1: in portrait the picture extends to y = 0 past the Dynamic Island
++@property (nonatomic) BOOL portraitFull;   // latched from DM_SCREEN_ASPECT=portrait-full before resolution: in portrait the picture extends to y = 0 past the Dynamic Island
  @property (nonatomic) BOOL partiallyOpen;   // an iPhone Duo's hinge half open (UIHingeInteraction, iOS 27.1)
  @property (nonatomic) NSInteger hingeStatus;
  @property (nonatomic, copy) NSString *layoutLog;   // the last layout line logged
-@@ -158,6 +160,31 @@ - (void)hingeChanged:(UIHinge *)hinge API_AVAILABLE(ios(27.1)) {
+@@ -158,6 +160,33 @@ - (void)hingeChanged:(UIHinge *)hinge API_AVAILABLE(ios(27.1)) {
      [self.view setNeedsLayout];
  }
  #endif
-+// Picture shape "auto" (the launcher's Match screen): the app window's own shape when it is taller than 16:9 (an iPad's 4:3, an unfolded iPhone Duo's 1.43:1, the portrait 4:3 picture slot,
-+// or the full-top portrait slot under DM_PORTRAIT_EDGE=1; loader.c takes 0.85 to 1.77), else 16:9. The window's, not the screen's: on an iPad under Stage Manager or Split View
-+// the app does not fill the screen. Resolved here, before the host writes the state page (main.c dm_fps_state_apply)
++extern void dm_screen_set_portrait_narrow(int narrow) __attribute__((weak));   // loader.c
++// Picture shape "auto" (Match screen) and "portrait-full" (Portrait full screen past Dynamic Island): the app window's own shape when it is taller than 16:9 (an iPad's 4:3,
++// an unfolded iPhone Duo's 1.43:1, the portrait 4:3 picture slot under "auto", or the full-top y=0..controls.minY portrait slot under "portrait-full"; loader.c takes 0.85 to 1.77),
++// else 16:9. Narrow portrait phone windows (< 600 pt wide, non-Duo) also mark loader.c to output at 1280 width instead of 1920. Resolved before main.c dm_fps_state_apply
 +void front_ios_resolve_auto_screen_aspect(CGSize sz, UIEdgeInsets insets, NSInteger hingeStatus, BOOL partiallyOpen) {
-+    const char *a = getenv("DM_SCREEN_ASPECT");
-+    if (!a || strcmp(a, "auto")) return;
 +    const char *rot = getenv("DM_ROTATION");
-+    BOOL portraitEdge = dm_portrait_edge(getenv("DM_PORTRAIT_EDGE"));
 +    if (rot && !strcmp(rot, "portrait") && sz.width > sz.height) {
 +        sz = CGSizeMake(sz.height, sz.width);
 +        insets = UIEdgeInsetsMake(MAX(insets.top, MAX(insets.left, insets.right)), 0, insets.bottom, 0);
@@ -1141,20 +1301,24 @@ index 0690096..e4fa4df 100644
 +        sz = CGSizeMake(sz.height, sz.width);
 +        insets = UIEdgeInsetsMake(0, MAX(insets.top, insets.left), insets.bottom, MAX(insets.top, insets.right));
 +    }
++    if (dm_screen_set_portrait_narrow) dm_screen_set_portrait_narrow(sz.height > sz.width && hingeStatus == 0 && sz.width < 600);
++    const char *a = getenv("DM_SCREEN_ASPECT");
++    BOOL portraitFull = dm_screen_aspect_portrait_full(a);
++    if (!a || (strcmp(a, "auto") && !portraitFull)) return;
 +    double r = MAX(sz.width, sz.height) / MAX(MIN(sz.width, sz.height), 1);
 +    if (sz.height > sz.width) {
 +        CGRect b = CGRectMake(0, 0, sz.width, sz.height);
-+        DmLayout l = dm_layout_with_portrait_edge(b, dm_game_safe_insets(b, insets, hingeStatus != 0), partiallyOpen, CGRectNull, DM_PICTURE_16_9, portraitEdge);
++        DmLayout l = dm_layout_with_portrait_full(b, dm_game_safe_insets(b, insets, hingeStatus != 0), partiallyOpen, CGRectNull, DM_PICTURE_16_9, portraitFull);
 +        if (!CGRectIsEmpty(l.gameClip) && l.gameClip.size.height > 0) r = l.gameClip.size.width / l.gameClip.size.height;
 +    }
 +    char v[16]; if (r >= 0.85 && r < 1.77) snprintf(v, sizeof v, "%.3f", r); else strcpy(v, "0");
-+    setenv("DM_SCREEN_ASPECT", v, 1); LOG("front end: picture shape auto: window %.0fx%.0f points (%.3f:1) → DM_SCREEN_ASPECT=%s", sz.width, sz.height, r, v);
++    setenv("DM_SCREEN_ASPECT", v, 1); LOG("front end: picture shape %s: window %.0fx%.0f points (%.3f:1) → DM_SCREEN_ASPECT=%s", portraitFull ? "portrait-full" : "auto", sz.width, sz.height, r, v);
 +}
 +
  // The game view, the pad and the frame-rate counter are made once the launcher has set the switches they read (DM_SHOW_FPS, DM_METAL_HUD); the host's loading began at app launch (main.m)
  - (void)startGame {
      if (self.game) return;
-@@ -173,24 +200,21 @@ - (void)startGame {
+@@ -173,24 +202,21 @@ - (void)startGame {
      front_hud_env();   // apply the Play selection before the device check and game view (GitHub issue #840)
      const char *dev = front_ios_device_check();
      if (dev) { [self showHint:[NSString stringWithFormat:@"This device is not supported.\n%s", dev]]; return; }   // the host does not start
@@ -1171,7 +1335,7 @@ index 0690096..e4fa4df 100644
 -    dm_rotation_set(NULL);   // the launcher's pick (Play put it in the environment), a saved one with DM_LAUNCHER=0, or an env file's
      self.fill = dm_picture_fill(getenv("DM_PICTURE_FIT"));
 -    if (self.fill) LOG("front end: picture Fill (DM_PICTURE_FIT=fill), the 16:9 picture covers the screen in landscape and its edges are cropped");
-+    self.portraitEdge = dm_portrait_edge(getenv("DM_PORTRAIT_EDGE"));
++    self.portraitFull = dm_screen_aspect_portrait_full(getenv("DM_SCREEN_ASPECT"));   // latch before front_ios_resolve_auto_screen_aspect overwrites DM_SCREEN_ASPECT
 +    front_ios_resolve_auto_screen_aspect(self.view.window ? self.view.window.bounds.size : UIScreen.mainScreen.bounds.size,
 +                                         self.view.window ? self.view.window.safeAreaInsets : self.view.safeAreaInsets,
 +                                         self.hingeStatus, self.partiallyOpen);
@@ -1190,7 +1354,7 @@ index 0690096..e4fa4df 100644
      g_layer = (CAMetalLayer *)self.game.layer;
      if (getenv("DM_METAL_HUD") && atoi(getenv("DM_METAL_HUD"))) { g_layer.developerHUDProperties = @{@"mode": @"default"}; LOG("front end: Metal performance HUD on (DM_METAL_HUD)"); }   // Apple's HUD over the game: frame rate, frame and GPU time, memory
      else if (front_ios_hud_enabled_from_saved_choice()) g_layer.developerHUDProperties = @{@"mode": @"disabled"};   // the launcher switched off a HUD enabled by the saved choice
-@@ -221,10 +245,18 @@ - (void)viewDidLayoutSubviews {
+@@ -221,10 +247,18 @@ - (void)viewDidLayoutSubviews {
  #endif
      BOOL duoPortrait = b.size.height > b.size.width && (self.hingeStatus != 0 || !CGRectIsNull(division));
      UIEdgeInsets gameInsets = dm_game_safe_insets(b, self.view.safeAreaInsets, duoPortrait);
@@ -1198,7 +1362,7 @@ index 0690096..e4fa4df 100644
 -    DmLayout layout = onTV ? dm_layout_pad_only(b) : dm_layout_picture(dm_layout(b, gameInsets, self.partiallyOpen, division, g_picture_aspect), b, self.fill, g_picture_aspect);
 -    if (!onTV) self.game.frame = layout.game;
 +    BOOL onTV = self.game.superview != self.gameClip && self.game.superview != self.view;   // the TV's view lays the picture out; the phone is all pad
-+    DmLayout layout = onTV ? dm_layout_pad_only(b) : dm_layout_picture(dm_layout_with_portrait_edge(b, gameInsets, self.partiallyOpen, division, g_picture_aspect, self.portraitEdge), b, self.fill, g_picture_aspect);
++    DmLayout layout = onTV ? dm_layout_pad_only(b) : dm_layout_picture(dm_layout_with_portrait_full(b, gameInsets, self.partiallyOpen, division, g_picture_aspect, self.portraitFull), b, self.fill, g_picture_aspect);
 +    if (!onTV) {
 +        self.gameClip.frame = layout.gameClip;
 +        self.game.frame = self.game.superview == self.gameClip ? CGRectOffset(layout.game, -layout.gameClip.origin.x, -layout.gameClip.origin.y) : layout.game;
@@ -1212,7 +1376,7 @@ index 0690096..e4fa4df 100644
      NSString *line = [NSString stringWithFormat:@"%@, hinge %ld%s, divisions %@, picture %@, controls %@", onTV ? @"pad only (picture on the TV)" : layout.separated ? @"split" : self.fill ? @"overlay, Fill" : @"overlay",
                        (long)self.hingeStatus, self.partiallyOpen ? " (half open)" : "", regionLog, NSStringFromCGRect(layout.game), NSStringFromCGRect(layout.controls)];
      if (![line isEqualToString:self.layoutLog]) { self.layoutLog = line; LOG("front end: layout %s", line.UTF8String); }
-@@ -315,7 +347,11 @@ static void tv_attach(void) {
+@@ -315,7 +349,11 @@ static void tv_attach(void) {
  }
  static void tv_detach(void) {
      DmGameView *v = g_root.game; g_tv = nil; v.maxPixelWidth = 0;
@@ -1225,7 +1389,7 @@ index 0690096..e4fa4df 100644
      if (g_tv_mode_was >= 0) { dm_set_opmode(g_tv_mode_was); g_tv_mode_was = -1; dm_gamepad_opmode_changed(); }
      LOG("front end: TV disconnected, the picture is back on the phone");
  }
-@@ -457,7 +493,8 @@ static void screen_refresh(void) {
+@@ -457,7 +495,8 @@ static void screen_refresh(void) {
  // shown (DmGamepad.m hitTest); the page takes them as a click on what they land on, and the gamepad and controllers drive it as on the Switch
  void front_web_attach(UIView *box) {
      UIView *v = g_root.view; box.frame = v.bounds;
@@ -1236,7 +1400,7 @@ index 0690096..e4fa4df 100644
  void front_web_detach(UIView *box) { (void)box; }
  // An app of several programs (main.m: dm/programs.txt; DM_EXEC_OUT is set only there). iOS cannot start the app's process again, so oe::ExecuteProgram records the next program and the
 diff --git a/dm/ios/tests/duo/Tests/DuoHarnessTests.m b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
-index b85cf40..160c8e9 100644
+index b85cf40..2a657f9 100644
 --- a/dm/ios/tests/duo/Tests/DuoHarnessTests.m
 +++ b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
 @@ -193,6 +193,7 @@ - (void)tearDown {
@@ -1301,7 +1465,7 @@ index b85cf40..160c8e9 100644
 
      dm_setting_live("DM_RUMBLE", "0"); XCTAssertEqual(duo_harness_rumble(), 0);
      dm_setting_live("DM_RUMBLE", "1"); XCTAssertEqual(duo_harness_rumble(), 1);
-@@ -1569,4 +1597,230 @@ - (void)testRotationSettingSetsTheOrientationMasks {
+@@ -1569,4 +1597,264 @@ - (void)testRotationSettingSetsTheOrientationMasks {
      unsetenv("DM_ROTATION");
  }
 
@@ -1475,58 +1639,92 @@ index b85cf40..160c8e9 100644
 +    }
 +}
 +
-+- (void)testPortraitEdgeToEdgeExtendsPicturePastDynamicIslandWhileKeepingControlsAndGearSafe {
++- (void)testPortraitFullScreenAspectExtendsPicturePastDynamicIslandAndLatchesState {
 +    const char *prevAspect = getenv("DM_SCREEN_ASPECT");
 +    char *savedAspect = prevAspect ? strdup(prevAspect) : NULL;
-+    const char *prevEdge = getenv("DM_PORTRAIT_EDGE");
-+    char *savedEdge = prevEdge ? strdup(prevEdge) : NULL;
 +    const char *prevRot = getenv("DM_ROTATION");
 +    char *savedRot = prevRot ? strdup(prevRot) : NULL;
++    UIViewController *root = [self harnessRootViewController];
++    UIWindow *win = root.view.window;
++    CGRect savedWinFrame = win.frame;
 +    @try {
 +        CGSize pmPortrait = CGSizeMake(440, 956);
 +        UIEdgeInsets pmInsets = UIEdgeInsetsMake(62, 0, 34, 0);
 +
-+        // Default DM_PORTRAIT_EDGE=0 keeps 4:3 (1.333)
++        // 1. DM_SCREEN_ASPECT=auto in portrait resolves to 4:3 (1.333) and marks narrow portrait (1280px output).
 +        setenv("DM_ROTATION", "portrait", 1);
-+        setenv("DM_PORTRAIT_EDGE", "0", 1);
 +        setenv("DM_SCREEN_ASPECT", "auto", 1);
 +        front_ios_resolve_auto_screen_aspect(pmPortrait, pmInsets, 0, NO);
 +        XCTAssertEqualObjects(@(getenv("DM_SCREEN_ASPECT")), @"1.333");
 +
-+        // DM_PORTRAIT_EDGE=1 resolves exact full-top slot ratio (440 / 478 = 0.921) even when window starts landscape
-+        setenv("DM_PORTRAIT_EDGE", "1", 1);
-+        setenv("DM_SCREEN_ASPECT", "auto", 1);
++        // 2. DM_SCREEN_ASPECT=portrait-full resolves exact full-top slot ratio (440 / 478 = 0.921) even when window starts landscape.
++        setenv("DM_SCREEN_ASPECT", "portrait-full", 1);
 +        front_ios_resolve_auto_screen_aspect(CGSizeMake(956, 440), UIEdgeInsetsMake(0, 62, 20, 62), 0, NO);
 +        double resolved = atof(getenv("DM_SCREEN_ASPECT"));
 +        XCTAssertEqualWithAccuracy(resolved, 440.0 / 478.0, 0.002);
 +        XCTAssertGreaterThanOrEqual(resolved, 0.85);
 +
-+        // Landscape ignores DM_PORTRAIT_EDGE=1
++        // 3. Landscape treats DM_SCREEN_ASPECT=portrait-full like auto (16:9 on phone) and clears narrow portrait flag.
 +        setenv("DM_ROTATION", "landscape", 1);
-+        setenv("DM_SCREEN_ASPECT", "auto", 1);
++        setenv("DM_SCREEN_ASPECT", "portrait-full", 1);
 +        front_ios_resolve_auto_screen_aspect(CGSizeMake(956, 440), UIEdgeInsetsMake(0, 62, 20, 62), 0, NO);
 +        XCTAssertEqualObjects(@(getenv("DM_SCREEN_ASPECT")), @"0");
 +
-+        // Verify DmLayout and gamepad gear button placement
++        // 4. iPad portrait (744x1133) keeps wide 1920px output (portrait_narrow == 0).
++        setenv("DM_ROTATION", "portrait", 1);
++        setenv("DM_SCREEN_ASPECT", "auto", 1);
++        front_ios_resolve_auto_screen_aspect(CGSizeMake(744, 1133), UIEdgeInsetsMake(24, 0, 20, 0), 0, NO);
++
++        // 5. Explicit 1.43 and 0 stay unchanged in portrait and keep the standard 4:3 frame below the Dynamic Island.
++        setenv("DM_SCREEN_ASPECT", "1.43", 1);
++        front_ios_resolve_auto_screen_aspect(pmPortrait, pmInsets, 0, NO);
++        XCTAssertEqualObjects(@(getenv("DM_SCREEN_ASPECT")), @"1.43");
++        XCTAssertFalse(dm_screen_aspect_portrait_full(getenv("DM_SCREEN_ASPECT")));
++
++        // 6. Verify DmLayout, latched portraitFull on DmRootVC after DM_SCREEN_ASPECT overwrite, and safe gear placement.
 +        CGRect bounds = CGRectMake(0, 0, 440, 956);
-+        DmLayout stdLayout = dm_layout_with_portrait_edge(bounds, pmInsets, NO, CGRectNull, resolved, NO);
-+        DmLayout edgeLayout = dm_layout_with_portrait_edge(bounds, pmInsets, NO, CGRectNull, resolved, YES);
++        DmLayout stdLayout = dm_layout_with_portrait_full(bounds, pmInsets, NO, CGRectNull, resolved, NO);
++        DmLayout fullLayout = dm_layout_with_portrait_full(bounds, pmInsets, NO, CGRectNull, resolved, YES);
 +        XCTAssertEqualWithAccuracy(CGRectGetMinY(stdLayout.upper), 62.0, 0.5);
 +        XCTAssertGreaterThanOrEqual(CGRectGetMinY(stdLayout.gameClip), 62.0);
-+        XCTAssertEqualWithAccuracy(CGRectGetMinY(edgeLayout.gameClip), 0.0, 0.001);
-+        XCTAssertEqualWithAccuracy(CGRectGetMaxY(edgeLayout.gameClip), CGRectGetMinY(edgeLayout.controls), 0.001);
-+        XCTAssertTrue(CGRectEqualToRect(edgeLayout.controls, stdLayout.controls));
-+        XCTAssertEqualWithAccuracy(edgeLayout.game.size.width, edgeLayout.gameClip.size.width, 1.0);
-+        XCTAssertEqualWithAccuracy(edgeLayout.game.size.height, edgeLayout.gameClip.size.height, 1.0);
++        XCTAssertEqualWithAccuracy(CGRectGetMinY(fullLayout.gameClip), 0.0, 0.001);
++        XCTAssertEqualWithAccuracy(CGRectGetMaxY(fullLayout.gameClip), CGRectGetMinY(fullLayout.controls), 0.001);
++        XCTAssertTrue(CGRectEqualToRect(fullLayout.controls, stdLayout.controls));
++        XCTAssertEqualWithAccuracy(fullLayout.game.size.width, fullLayout.gameClip.size.width, 1.0);
++        XCTAssertEqualWithAccuracy(fullLayout.game.size.height, fullLayout.gameClip.size.height, 1.0);
 +
-+        UIView *pad = [self padForLayout:edgeLayout bounds:bounds];
++        if (win) {
++            [root setValue:@YES forKey:@"portraitFull"];
++            setenv("DM_SCREEN_ASPECT", "0.921", 1);
++            win.frame = bounds;
++            front_picture_shape(1280, 1376);
++            XCTestExpectation *applied = [self expectationWithDescription:@"portrait-full latched"];
++            dispatch_async(dispatch_get_main_queue(), ^{ [applied fulfill]; });
++            [self waitForExpectations:@[applied] timeout:2];
++            [root.view setNeedsLayout];
++            [root.view layoutIfNeeded];
++            UIView *gameClip = [root valueForKey:@"gameClip"];
++            XCTAssertEqualWithAccuracy(CGRectGetMinY(gameClip.frame), 0.0, 0.5, @"Latched portraitFull keeps y=0 even after DM_SCREEN_ASPECT is resolved to 0.921");
++            [root setValue:@NO forKey:@"portraitFull"];
++        }
++
++        UIView *pad = [self padForLayout:fullLayout bounds:bounds];
 +        UIView *gear = [pad valueForKey:@"menu"];
 +        XCTAssertNotNil(gear);
 +        XCTAssertGreaterThan(CGRectGetMinY(gear.frame), pmInsets.top, @"Settings gear sits in the lower controls safe area, never under the Dynamic Island");
-+        XCTAssertTrue(CGRectContainsRect(edgeLayout.controls, gear.frame));
++        XCTAssertTrue(CGRectContainsRect(fullLayout.controls, gear.frame));
 +    } @finally {
++        if (win) {
++            [root setValue:@NO forKey:@"portraitFull"];
++            win.frame = savedWinFrame;
++            front_picture_shape(1920, 1080);
++            XCTestExpectation *restored = [self expectationWithDescription:@"portrait-full restored"];
++            dispatch_async(dispatch_get_main_queue(), ^{ [restored fulfill]; });
++            [self waitForExpectations:@[restored] timeout:2];
++            [root.view setNeedsLayout];
++            [root.view layoutIfNeeded];
++        }
 +        if (savedAspect) { setenv("DM_SCREEN_ASPECT", savedAspect, 1); free(savedAspect); } else unsetenv("DM_SCREEN_ASPECT");
-+        if (savedEdge) { setenv("DM_PORTRAIT_EDGE", savedEdge, 1); free(savedEdge); } else unsetenv("DM_PORTRAIT_EDGE");
 +        if (savedRot) { setenv("DM_ROTATION", savedRot, 1); free(savedRot); } else unsetenv("DM_ROTATION");
 +    }
 +}
@@ -1560,10 +1758,10 @@ index 0000000..e638d5a
 +@class UIView;
 diff --git a/dm/ios/tests/pad_geometry/pad_geometry_check.m b/dm/ios/tests/pad_geometry/pad_geometry_check.m
 new file mode 100644
-index 0000000..7c0f29c
+index 0000000..5ef39da
 --- /dev/null
 +++ b/dm/ios/tests/pad_geometry/pad_geometry_check.m
-@@ -0,0 +1,396 @@
+@@ -0,0 +1,402 @@
 +// The virtual gamepad's placement (DmPadGeometry.h) on the screens it runs on, checked on the Mac: built and run by test_pad_geometry.py.
 +// Every line that starts with FAIL is a broken rule; the exit status is the number of them (capped).
 +#import <UIKit/UIKit.h>
@@ -1926,31 +2124,37 @@ index 0000000..7c0f29c
 +                for (int k = 0; k < n; k++) if (dm_pad_shapes_overlap(&me, &sh[k])) FAIL("%s %s: the hint covers shape %d", screens[i].name, k_sizes[z], sh[k].id);
 +            }
 +
-+    // Portrait full-top (DM_PORTRAIT_EDGE=1): picture slot starts at y = 0 (past Dynamic Island) and reaches controls.origin.y,
-+    // controls and menu gear stay identical in the lower safe area, and landscape is unaffected.
++    // Portrait full screen (DM_SCREEN_ASPECT=portrait-full): picture slot starts at y = 0 (past Dynamic Island) and reaches controls.origin.y,
++    // controls and menu gear stay identical in the lower safe area, other choices keep the 4:3 slot, and landscape is unaffected.
 +    {
++        if (!dm_screen_aspect_portrait_full("portrait-full") || dm_screen_aspect_portrait_full("auto")
++            || dm_screen_aspect_portrait_full("1.43") || dm_screen_aspect_portrait_full("0") || dm_screen_aspect_portrait_full(NULL))
++            FAIL("dm_screen_aspect_portrait_full matched unexpected values");
 +        CGRect pm = CGRectMake(0, 0, 440, 956);
 +        UIEdgeInsets pmSafe = {62, 0, 34, 0};
-+        DmLayout stdL = dm_layout_with_portrait_edge(pm, pmSafe, NO, CGRectNull, DM_PICTURE_16_9, NO);
-+        DmLayout edgeL = dm_layout_with_portrait_edge(pm, pmSafe, NO, CGRectNull, DM_PICTURE_16_9, YES);
++        DmLayout stdL = dm_layout_with_portrait_full(pm, pmSafe, NO, CGRectNull, DM_PICTURE_16_9, NO);
++        DmLayout fullL = dm_layout_with_portrait_full(pm, pmSafe, NO, CGRectNull, DM_PICTURE_16_9, YES);
++        DmLayout duoPortrait = dm_layout_with_portrait_full(pm, pmSafe, NO, CGRectNull, 1920.0 / 1344.0, dm_screen_aspect_portrait_full("1.43"));
 +        if (!NEAR(stdL.upper.origin.y, 62) || stdL.gameClip.origin.y < 62 || !NEAR(stdL.gameClip.size.width / stdL.gameClip.size.height, 4.0 / 3.0))
 +            FAIL("Pro Max portrait default: expected 4:3 below top safe area");
-+        if (!NEAR(edgeL.upper.origin.y, 0) || !NEAR(edgeL.gameClip.origin.y, 0) || !NEAR(CGRectGetMaxY(edgeL.gameClip), CGRectGetMinY(edgeL.controls)))
-+            FAIL("Pro Max portrait full-top: gameClip did not span y=0..controls.minY");
-+        if (!CGRectEqualToRect(stdL.controls, edgeL.controls))
-+            FAIL("Pro Max portrait full-top: controls rect changed");
-+        CGFloat nativeAspect = edgeL.gameClip.size.width / edgeL.gameClip.size.height;
-+        DmLayout edgeNative = dm_layout_with_portrait_edge(pm, pmSafe, NO, CGRectNull, nativeAspect, YES);
-+        if (!CGRectEqualToRect(edgeNative.game, edgeNative.gameClip))
-+            FAIL("Pro Max portrait full-top: native aspect output did not fill gameClip without bars or cropping");
++        if (!NEAR(duoPortrait.upper.origin.y, 62) || duoPortrait.gameClip.origin.y < 62 || !NEAR(duoPortrait.game.size.width / duoPortrait.game.size.height, 1920.0 / 1344.0))
++            FAIL("Pro Max portrait 1.43:1: expected 4:3 slot below top safe area without shifting upward");
++        if (!NEAR(fullL.upper.origin.y, 0) || !NEAR(fullL.gameClip.origin.y, 0) || !NEAR(CGRectGetMaxY(fullL.gameClip), CGRectGetMinY(fullL.controls)))
++            FAIL("Pro Max portrait-full: gameClip did not span y=0..controls.minY");
++        if (!CGRectEqualToRect(stdL.controls, fullL.controls))
++            FAIL("Pro Max portrait-full: controls rect changed");
++        CGFloat nativeAspect = fullL.gameClip.size.width / fullL.gameClip.size.height;
++        DmLayout fullNative = dm_layout_with_portrait_full(pm, pmSafe, NO, CGRectNull, nativeAspect, YES);
++        if (!CGRectEqualToRect(fullNative.game, fullNative.gameClip))
++            FAIL("Pro Max portrait-full: native aspect output did not fill gameClip without bars or cropping");
 +        DmPadGeo gStd = dm_pad_geo(pm, pmSafe, stdL, YES, (DmPadOptions){1});
-+        DmPadGeo gEdge = dm_pad_geo(pm, pmSafe, edgeL, YES, (DmPadOptions){1});
-+        if (!geo_equal(&gStd, &gEdge) || !(gEdge.swap.y > pmSafe.top && CGRectContainsPoint(gEdge.safe, gEdge.swap)))
-+            FAIL("Pro Max portrait full-top: gamepad controls or gear button moved out of lower safe area");
++        DmPadGeo gFull = dm_pad_geo(pm, pmSafe, fullL, YES, (DmPadOptions){1});
++        if (!geo_equal(&gStd, &gFull) || !(gFull.swap.y > pmSafe.top && CGRectContainsPoint(gFull.safe, gFull.swap)))
++            FAIL("Pro Max portrait-full: gamepad controls or gear button moved out of lower safe area");
 +        DmLayout lsStd = dm_layout(screens[4].bounds, screens[4].insets, NO, CGRectNull, DM_PICTURE_16_9);
-+        DmLayout lsEdge = dm_layout_with_portrait_edge(screens[4].bounds, screens[4].insets, NO, CGRectNull, DM_PICTURE_16_9, YES);
-+        if (!CGRectEqualToRect(lsStd.game, lsEdge.game) || !CGRectEqualToRect(lsStd.gameClip, lsEdge.gameClip) || lsEdge.separated)
-+            FAIL("Landscape was affected by DM_PORTRAIT_EDGE");
++        DmLayout lsFull = dm_layout_with_portrait_full(screens[4].bounds, screens[4].insets, NO, CGRectNull, DM_PICTURE_16_9, YES);
++        if (!CGRectEqualToRect(lsStd.game, lsFull.game) || !CGRectEqualToRect(lsStd.gameClip, lsFull.gameClip) || lsFull.separated)
++            FAIL("Landscape was affected by portrait-full");
 +    }
 +
 +    check_layout_values();

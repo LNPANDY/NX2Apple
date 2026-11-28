@@ -144,7 +144,7 @@ import ShellUI
         }
     }
 
-    @Test func portraitFullTopPreservesAutoScreenAspectForFrontIOSToResolveExactDeviceSlot() async throws {
+    @Test func portraitFullScreenAspectPassesThroughForFrontIOSToLatchAndResolveDeviceSlot() async throws {
         let box = try box()
         let url = box.games.appendingPathComponent(Fixtures.orbit).appendingPathComponent("launcher.json")
         var json = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
@@ -156,7 +156,12 @@ import ShellUI
             "label": "Picture shape",
             "note": "",
             "default": "auto",
-            "options": [["auto", "Match screen"], ["0", "16:9 (Switch)"]]
+            "options": [
+                ["auto", "Match screen"],
+                ["portrait-full", "Portrait full screen"],
+                ["1.43", "iPhone Duo screen (1.43:1)"],
+                ["0", "16:9 (Switch)"]
+            ]
         ])
         settings.append([
             "env": "DM_ROTATION",
@@ -167,15 +172,6 @@ import ShellUI
             "default": "auto",
             "options": [["auto", "Automatic"], ["landscape", "Landscape"], ["portrait", "Portrait"]]
         ])
-        settings.append([
-            "env": "DM_PORTRAIT_EDGE",
-            "kind": "choice",
-            "section": "Game",
-            "label": "Portrait frame",
-            "note": "Extends the portrait picture to the top of the screen past the Dynamic Island. Native full-top rendering takes effect on next launch.",
-            "default": "0",
-            "options": [["0", "Standard (4:3)"], ["1", "Full top (past Dynamic Island)"]]
-        ])
         json["settings"] = settings
         try JSONSerialization.data(withJSONObject: json).write(to: url)
 
@@ -183,27 +179,30 @@ import ShellUI
         let model = ShellHostModel(config: box.config(), launcher: launcher)
         model.change(Fixtures.orbit, setting: "DM_ROTATION", value: "portrait")
 
-        // Default DM_PORTRAIT_EDGE=0 resolves DM_SCREEN_ASPECT=auto to 1.333 (4:3).
+        // Default DM_SCREEN_ASPECT=auto resolves to 1.333 (standard 4:3 below Dynamic Island).
         await model.playNow(Fixtures.orbit)
         let standardGame = try #require(launcher.launched.last)
         let standardPlan = EngineLaunchPlan.make(game: standardGame, appResources: box.root, documents: box.root, envFileText: nil)
-        #expect(standardPlan.environment["DM_PORTRAIT_EDGE"] == "0")
         #expect(standardPlan.environment["DM_SCREEN_ASPECT"] == "1.333")
 
-        // DM_PORTRAIT_EDGE=1 passes DM_SCREEN_ASPECT="auto" through so front_ios.m computes the exact full-top aspect (~0.95..1.05).
-        model.change(Fixtures.orbit, setting: "DM_PORTRAIT_EDGE", value: "1")
-        await model.playNow(Fixtures.orbit)
-        let edgeGame = try #require(launcher.launched.last)
-        let edgePlan = EngineLaunchPlan.make(game: edgeGame, appResources: box.root, documents: box.root, envFileText: nil)
-        #expect(edgePlan.environment["DM_PORTRAIT_EDGE"] == "1")
-        #expect(edgePlan.environment["DM_SCREEN_ASPECT"] == "auto")
+        // DM_SCREEN_ASPECT=portrait-full passes "portrait-full" through across every rotation mode so front_ios.m latches portraitFull and resolves the exact slot aspect (~0.921) in portrait or 16:9 in landscape.
+        model.change(Fixtures.orbit, setting: "DM_SCREEN_ASPECT", value: "portrait-full")
+        for rotation in ["portrait", "auto", "landscape"] {
+            model.change(Fixtures.orbit, setting: "DM_ROTATION", value: rotation)
+            await model.playNow(Fixtures.orbit)
+            let fullGame = try #require(launcher.launched.last)
+            let fullPlan = EngineLaunchPlan.make(game: fullGame, appResources: box.root, documents: box.root, envFileText: nil)
+            #expect(fullPlan.environment["DM_SCREEN_ASPECT"] == "portrait-full")
+        }
 
-        // Explicit 16:9 (0) stays 0 even with DM_PORTRAIT_EDGE=1.
-        model.change(Fixtures.orbit, setting: "DM_SCREEN_ASPECT", value: "0")
-        await model.playNow(Fixtures.orbit)
-        let forced169Game = try #require(launcher.launched.last)
-        let forced169Plan = EngineLaunchPlan.make(game: forced169Game, appResources: box.root, documents: box.root, envFileText: nil)
-        #expect(forced169Plan.environment["DM_PORTRAIT_EDGE"] == "1")
-        #expect(forced169Plan.environment["DM_SCREEN_ASPECT"] == "0")
+        // Explicit 1.43 and 0 stay untouched in locked portrait.
+        model.change(Fixtures.orbit, setting: "DM_ROTATION", value: "portrait")
+        for explicit in ["1.43", "0"] {
+            model.change(Fixtures.orbit, setting: "DM_SCREEN_ASPECT", value: explicit)
+            await model.playNow(Fixtures.orbit)
+            let explicitGame = try #require(launcher.launched.last)
+            let explicitPlan = EngineLaunchPlan.make(game: explicitGame, appResources: box.root, documents: box.root, envFileText: nil)
+            #expect(explicitPlan.environment["DM_SCREEN_ASPECT"] == explicit)
+        }
     }
 }

@@ -35,25 +35,24 @@ import ShellUI
         #expect(Set(payload.items.map(\.env)).isDisjoint(with: excluded))
     }
 
-    @Test func portraitEdgeRowAppearsAndLocalizesWhenGameSupportsScreenAspect() throws {
-        let profileWithEdgeJSON = """
+    @Test func pictureShapeRowStaysOnStartScreenNotInLiveMenu() throws {
+        let profileWithShapeJSON = """
         {
           "schema": 1,
           "game": "01006F8002326000",
           "settings": [
             {"env":"DM_ROTATION","kind":"choice","section":"Game","label":"Rotation","note":"","default":"auto","options":[["auto","Automatic"],["landscape","Landscape"],["portrait","Portrait"]]},
-            {"env":"DM_PORTRAIT_EDGE","kind":"choice","section":"Game","label":"Portrait frame","note":"","default":"0","options":[["0","Standard (4:3)"],["1","Full top (past Dynamic Island)"]]}
+            {"env":"DM_SCREEN_ASPECT","kind":"choice","section":"Game","label":"Picture shape","note":"","default":"auto","options":[["auto","Match screen"],["portrait-full","Portrait full screen"],["1.43","iPhone Duo screen (1.43:1)"],["0","16:9 (Switch)"]]}
           ]
         }
         """
-        let profile = try LauncherProfile.parse(Data(profileWithEdgeJSON.utf8))
+        let profile = try LauncherProfile.parse(Data(profileWithShapeJSON.utf8))
+        let payload = ShellInGameMenu.build(profile: profile, titleID: Fixtures.orbit, shellDefaults: [:])
+        #expect(payload.items.map(\.env) == ["DM_ROTATION"])
         let lprojPath = try #require(ShellStrings.bundle.path(forResource: "zh-Hans", ofType: "lproj"))
         let zhBundle = try #require(Bundle(path: lprojPath))
-        let payload = ShellInGameMenu.build(profile: profile, titleID: Fixtures.orbit, shellDefaults: [:], bundle: zhBundle)
-        #expect(payload.items.map(\.env) == ["DM_ROTATION", "DM_PORTRAIT_EDGE"])
-        let edgeItem = try #require(payload.items.first { $0.env == "DM_PORTRAIT_EDGE" })
-        #expect(edgeItem.label == "竖屏画框")
-        #expect(edgeItem.options == [["0", "标准（4:3）"], ["1", "顶天立地（越过灵动岛）"]])
+        #expect(ShellStrings.setting("Portrait full screen", bundle: zhBundle) == "竖框全面屏")
+        #expect(ShellStrings.setting("Taller shapes render more pixels and can increase GPU time and heat. Portrait full screen extends the portrait picture to the top of the screen past the Dynamic Island.", bundle: zhBundle) == "更高的画面比例会渲染更多像素，可能增加 GPU 耗时与发热。选择竖框全面屏时，竖屏画面会延伸至屏幕顶部并越过灵动岛。")
     }
 
     @Test func localizesMenuUsingBundle() throws {

@@ -49,7 +49,7 @@ index fede774..ddf558b 100644
 +    if (!g_dev) dev_init_once();
 +    pthread_mutex_unlock(&g_dev_mu);
 +}
- 
+
  // ---------- Command buffers ----------
  // Transient memory (converted indices, staging for blits, large uniform blocks): bump allocation in 4 MB shared buffers, each reused once the command buffer that last used it completed
 @@ -2280,7 +2285,15 @@ static int sync_wait(id<MTLSharedEvent> event, uint64_t serial, uint64_t timeout
@@ -116,11 +116,11 @@ index fede774..ddf558b 100644
      return EGL_TRUE;
 @@ -4480,7 +4501,7 @@ void dm_gl_teardown(void) { @autoreleasepool {
      g_nclr_cache = 0;
- 
+
      for (int i = 0; i < NWIN; i++) { g_win.col[i] = g_win.srgb_rt[i] = nil; g_win.serial[i] = g_win.ticket[i] = 0; }
 -    g_win.ds = nil; g_win.made = 0;
 +    g_win.ds = nil; g_win.made = 0; g_win.cur = 0; g_win.w = 0; g_win.h = 0;
- 
+
      for (int i = 0; i < g_nsh; i++) { free(g_sh[i].a); free(g_sh[i].u); free(g_sh[i].t); free(g_sh[i].b); }
      free(g_sh); g_sh = NULL; g_nsh = 0;
 @@ -4514,6 +4535,7 @@ void dm_gl_teardown(void) { @autoreleasepool {
@@ -129,7 +129,7 @@ index fede774..ddf558b 100644
      g_next_swap = 0;
 +    g_frames = 0;
      g_renderprogs_done = 0;
- 
+
  #if TARGET_OS_OSX
 diff --git a/dm/host/dm.h b/dm/host/dm.h
 index 6139a82..b8a48b8 100644
@@ -159,7 +159,7 @@ index f09bc9c..21cbb9b 100644
 +    _Atomic int freed;                 // guards aout_free() idempotency across teardown races
 +    int free_blocks;                   // OutputStream internal output: free any remaining oblocks in q[] / rel[] on teardown
  } aout;
- 
+
  // Registry of open outputs: suspended / resumed all at once by the front-end lifecycle (going to background).
 @@ -78,6 +81,7 @@ static pthread_mutex_t g_aos_lock __attribute__((section("__DATA,__dm_keep"))) =
  static pthread_cond_t g_aos_cv __attribute__((section("__DATA,__dm_keep"))) = PTHREAD_COND_INITIALIZER;
@@ -168,7 +168,7 @@ index f09bc9c..21cbb9b 100644
 +static int g_wd_stop;
  static int g_suspended;
  static _Atomic uint32_t g_io_buffer_hint_frames;
- 
+
 @@ -119,6 +123,16 @@ void dm_audio_io_buffer_hint(unsigned frames) {
      pthread_mutex_unlock(&g_aos_lock);
  }
@@ -472,7 +472,7 @@ index f09bc9c..21cbb9b 100644
 +    if (!a && !au_was_opened(g)) die("AudioOut %p was not created by the host", g);
 +    float v; memcpy(&v, &b, 4); return v;
  }
- 
+
  // The buffer descriptor functions (both SetAudioOutBufferInfo overloads, GetAudioOutBufferDataPointer / BufferSize / DataSize) only fill and read the game's own struct and run in
 @@ -1009,8 +1120,7 @@ static void audio_dump(aout *a, const aout_buf *b) {
          src += n * DM_AUDIO_SINK_CHANNELS; frames -= n;
@@ -515,7 +515,7 @@ index f09bc9c..21cbb9b 100644
 +    if (!a && !au_was_opened(g)) die("AudioOut %p was not created by the host", g);
 +    return b;
 +}
- 
+
  // Audio input (a microphone): the host has none. SDL3's Switch audio driver lists the input devices when its audio starts (Absolum); the SDK's versions reach the audin service.
  // No device is listed and an open fails, so the calls that need an open AudioIn are never reached; they still answer without touching the guest object, in case a game ignores the open's result.
 @@ -1099,11 +1225,42 @@ HLE_FORCE("_ZN2nn5audio22GetAudioInSampleFormatEPKNS0_7AudioInE", "recording sam
@@ -752,11 +752,11 @@ index f09bc9c..21cbb9b 100644
 +    pthread_mutex_unlock(&g_aos_lock);
 +    return r;
 +}
- 
+
  // Front-end lifecycle / audio session interruption: suspend real audio output, with the silent sink taking over real-time consumption meanwhile (pacing unbroken); switch back to the AudioUnit on resume.
  // The front end calls with 1 on going to background / interruption began, and with 0 on returning to foreground / interruption ended (shouldResume).
 @@ -1372,21 +1596,34 @@ void dm_audio_route_changed(void) { audio_route_check(1); }
- 
+
  void dm_audio_stop_all(void) {
      aout *stopped[AOMAX] = {0};
 +    ostream *stopped_os[AOMAX] = {0};
@@ -817,7 +817,7 @@ index 23b352a..c8cc75f 100644
  void *dm_pcmout_released(void *k);
  void dm_pcmout_wait(void *k, int ms);
 +void dm_pcmout_wake(void *k);
- 
+
  // P_SIZE: bytes of the game's AudioRendererParameter copied before the two fields are changed. SDK 16's struct is 0x38 bytes; SDK 8's (Link's Awakening) has one more word,
  // its revision at +0x38: copying only 0x38 left the revision uninitialized and the SDK rejected it (CheckValidRevision, Result 0x499). The SDK reads only its own size of the copy
 @@ -105,6 +106,9 @@ HLE_FORCE("_ZN2nn5audio30GetAudioRendererWorkBufferSizeERKNS0_22AudioRendererPar
@@ -887,7 +887,7 @@ index 23b352a..c8cc75f 100644
 +    pthread_cond_broadcast(&a->cv);   // dm_audren_stop_all sees open / render_active cleared
 +    pthread_mutex_unlock(&a->mu);
  }
- 
+
  // Both OpenAudioRenderer forms: CPU rendering + manual execution, then the host's render thread. With the event the game waits on it, which each render signals; without it the
 @@ -298,19 +314,24 @@ static Result ar_open(void **handle, void *ev, const uint8_t *param, void *work,
      pthread_mutex_lock(&g_ar_mu);
@@ -1055,7 +1055,7 @@ index 0aaaf01..7c7ec77 100644
 +
 +void dm_bigstack_teardown(void) { bs_drain_retired(); }
  static void bs_init(void) { if (pthread_key_create(&g_bs_key, bs_free)) die("big stack pthread_key_create"); }
- 
+
  // sp inside the guest address block -> the top of this thread's host stack (16-byte aligned); otherwise 0 (no switch)
 diff --git a/dm/host/hle_lifecycle.c b/dm/host/hle_lifecycle.c
 index 560b194..5a2fc85 100644
@@ -1150,13 +1150,13 @@ index d532b59..f5a4f8d 100644
 +++ b/dm/host/hle_svc.c
 @@ -1144,12 +1144,22 @@ static void *regions_thread(void *arg) {
  }
- 
+
  int svc_thread(int num, uint64_t *regs);   // hle_thread.c: thread and synchronization kind
 +// Weak fallbacks allow single-file SVC unit tests (t_heap_size, t_svc_memory, t_layout_runtime) to link without hle_lifecycle.c / hle_thread.c.
 +__attribute__((weak)) void dm_host_shutdown(const char *why) { (void)why; _exit(0); }
 +__attribute__((weak)) int dm_host_has_shell_quit(void) { return 0; }
 +__attribute__((weak)) void dm_teardown_park_self(void) { _exit(0); }
- 
+
  uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
      { void hlecount_svc(int); hlecount_svc(num); }   // DM_HLECOUNT: svc counts by number
      mem_init();
@@ -1211,7 +1211,7 @@ index e7b8eba..f2933a9 100644
 @@ -219,6 +219,11 @@ static inline void hq_text_line(const char *text, int i, const char *def, char *
      memcpy(out, s, n); out[n] = 0;
  }
- 
+
 +// Holding either the controller's Home button or both - and + (View and Menu) together opens the quit prompt.
 +static inline int hq_pad_home(int home, int minus, int plus) {
 +    return home != 0 || (minus != 0 && plus != 0);
@@ -1282,7 +1282,7 @@ index 6d56d57..1ec15fc 100644
  module_t *module_of(const void *p) { (void)p; return NULL; }   // call sites in the log: no guest modules in the unit test
  int dm_guest_as_contains(uintptr_t a) { (void)a; return 0; }   // hle_svc.c: no guest address space in the unit test, so the big-stack take-overs (Start / Stop / CloseAudioOut, hle_bigstack.c) run on the calling host stack
  void dm_host_helper_qos(qos_class_t q) { (void)q; }   // hle_thread.c: the helper threads keep the default class in the unit test
- 
+
 +// Minimal AudioRenderer SDK + guest thread stubs to exercise real render_main <-> dm_audren_stop_all / teardown_post races.
 +typedef struct { void (*fn)(void *); void *arg; pthread_t th; } mock_guest_th;
 +static pthread_t g_last_render_th;
@@ -1591,7 +1591,7 @@ index 5142683..5f8e82d 100644
 -#undef pthread_once
 +#undef pthread_create
  __thread _Atomic int dm_host_work;   // defined by the graphics host in a full build
- 
+
 -// The fixture steps the watchdog itself. Keep the route listener's normal initialization.
 -static int mock_once(pthread_once_t *once, void (*init)(void)) {
 -    return init == au_watchdog_start ? 0 : pthread_once(once, init);
@@ -1599,7 +1599,7 @@ index 5142683..5f8e82d 100644
 +static int mock_pthread_create(pthread_t *t, const pthread_attr_t *attr, void *(*fn)(void *), void *arg) {
 +    return fn == au_watchdog ? 1 : pthread_create(t, attr, fn, arg);
  }
- 
+
  static struct {
 diff --git a/dm/host/tests/t_audio_spsc.c b/dm/host/tests/t_audio_spsc.c
 index 9607611..1e9eda1 100644
@@ -1607,7 +1607,7 @@ index 9607611..1e9eda1 100644
 +++ b/dm/host/tests/t_audio_spsc.c
 @@ -7,10 +7,27 @@ __thread _Atomic int dm_host_work;   // defined by the graphics host in a full b
  enum { NBUF = 100000, MAX_SIZE = 37 };
- 
+
  uint64_t now_ns(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return (uint64_t)t.tv_sec * 1000000000ull + t.tv_nsec; }
 -static struct { const void *k; void *v; } om[8];
 -void *objmap_get(const void *k) { for (int i = 0; i < 8; i++) if (om[i].k == k) return om[i].v; return NULL; }
@@ -1634,13 +1634,13 @@ index 9607611..1e9eda1 100644
 +    pthread_mutex_unlock(&om_lock);
 +    return v;
 +}
- 
+
  static _Atomic int g_sig, g_after_last;
  static _Atomic int g_last_pull;
 @@ -142,8 +159,92 @@ static int flush_pending(void) {
      return failed;
  }
- 
+
 +typedef struct {
 +    void *out;
 +    _Atomic int entered;
@@ -1769,7 +1769,7 @@ index cc6afc3..b06c734 100644
 @@ -43,6 +44,13 @@ __asm__(".text\n.p2align 2\n.globl _call_args\n_call_args:\n"
          "    blr x16\n"
          "    mov sp, x29\n    ldp x29, x30, [sp], #16\n    ret\n");
- 
+
 +HLE_FORCE("_ZN4test10exit_on_bsEm", "unit test", uint64_t, exit_on_bs, uint64_t unused) {
 +    (void)unused;
 +    // Call pthread_exit while executing directly inside the thread's bigstack.
@@ -1783,7 +1783,7 @@ index cc6afc3..b06c734 100644
 @@ -54,6 +62,18 @@ __asm__(".text\n.p2align 2\n.globl _call_on\n_call_on:\n"
          ".globl _call_on_site\n_call_on_site:\n"
          "    mov sp, x29\n    ldp x29, x30, [sp], #16\n    ret\n");
- 
+
 +static void *exit_worker(void *p) {
 +    (void)p;
 +    call_on(0, 0, 0.0, g_hi, exit_on_bs_bs);
@@ -1798,11 +1798,11 @@ index cc6afc3..b06c734 100644
 +
  static int checks, fails;
  #define CHECK(c, msg) do { checks++; if (!(c)) { fails++; fprintf(stderr, "FAIL: %s\n", msg); } } while (0)
- 
+
 @@ -96,6 +116,15 @@ int main(void) {
      CHECK(g_fp && dm_guest_as_contains(g_fp), "the logging take-over itself ran on the guest stack");
      CHECK(!strcmp(got, "[dm] big-stack test line 41 from a guest stack 2.50\n"), "the log line written from 1 KB of guest stack");
- 
+
 +    // Teardown exiting a thread from inside its own bigstack must defer munmap instead of SIGSEGVing.
 +    pthread_t th1, th2; void *ret1 = NULL, *ret2 = NULL;
 +    CHECK(pthread_create(&th1, NULL, exit_worker, NULL) == 0, "spawn bigstack-exit thread");
@@ -1822,7 +1822,7 @@ index b904d9b..6431357 100644
 @@ -227,6 +227,15 @@ int main(void) {
      CHECK(!strcmp(hq_in_app_name(0), "system") && !strcmp(hq_in_app_name(1), "app") && !strcmp(hq_in_app_name(-1), "unavailable"), "the setting's words");
      CHECK(!strcmp(hq_in_app_name(0x7fffffffffffffffL), "off"), "disabled is off");
- 
+
 +    // - + + (View + Menu) chord acts identically to Home when both are held together.
 +    CHECK(!hq_pad_home(0, 0, 0) && !hq_pad_home(0, 1, 0) && !hq_pad_home(0, 0, 1), "single minus or plus alone does not trigger quit");
 +    CHECK(hq_pad_home(1, 0, 0) && hq_pad_home(0, 1, 1) && hq_pad_home(1, 1, 0), "Home or minus+plus chord triggers quit");
@@ -1855,7 +1855,7 @@ index 6a8d531..027369e 100644
 +    ostream_release(o);
      for (int i = 1; i < CAP / FRAMES; i++) if (h_os_Write(stream, pcm, FRAMES) != FRAMES) FAIL("write %d", i);
      if (h_os_Free(stream) != 0 || h_os_Write(stream, pcm, FRAMES) != 0) FAIL("a full stream took more frames");
- 
+
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
 index 6d967a6..91658b7 100644
 --- a/dm/ios/Sources/DmGamepad.m
@@ -1892,7 +1892,7 @@ index 6d967a6..91658b7 100644
 +    else if (_padOff && !_layout.onTV && !_menuOpen && ![self voiceOverRunning] && !_padHintShown && _padHintWords.length && !CGRectIsEmpty(self.bounds)) [self wakeMenu];
      [self refresh];
  }
- 
+
 @@ -719,7 +731,7 @@ static void read_pad(GCController *c) {
  static BOOL pad_listen(GCController *c) {
      GCExtendedGamepad *g = c.extendedGamepad;
@@ -2040,13 +2040,13 @@ index 6d967a6..91658b7 100644
          [self wakeMenu];
      }
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index 832e18f..7842fe1 100644
+index 9ff2130..6cdc00f 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
-@@ -385,6 +385,12 @@ void front_picture_shape(int w, int h) {   // front.h: the views take the presen
+@@ -387,6 +387,12 @@ void front_picture_shape(int w, int h) {   // front.h: the views take the presen
      });
  }
- 
+
 +bool dm_tv_connected(void) { return g_tv != nil || g_tv_mode_was >= 0; }
 +static bool hud_live_available(void) {
 +    const char *per = getenv("DM_HUD_PER_LAYER"), *mtl = getenv("MTL_HUD_ENABLED");
@@ -2056,7 +2056,7 @@ index 832e18f..7842fe1 100644
  // The settings the in-game menu offers (GameMenu.swift, from the gamepad's menu button), each taking effect while the game runs; the launcher's other settings need the next start.
  // value NULL: only whether env is one of them; otherwise apply it (GameMenu.swift has saved it and put it in the environment). Console mode changes as on a Switch put in or taken out of its
  // dock (the operation mode change notification); while a TV shows the picture the game stays docked, and the choice applies when the TV is unplugged
-@@ -422,6 +428,16 @@ bool dm_setting_live(const char *env, const char *value) {
+@@ -415,6 +421,16 @@ bool dm_setting_live(const char *env, const char *value) {
          }
          return true;
      }
@@ -2073,9 +2073,9 @@ index 832e18f..7842fe1 100644
      return false;
  }
  @implementation DmTVSceneDelegate
-@@ -772,8 +788,10 @@ static void save_sync_background(void) {
+@@ -765,8 +781,10 @@ static void save_sync_background(void) {
  }
- 
+
  static _Atomic int g_quitting;
 +static _Atomic uint64_t g_quit_epoch __attribute__((section("__DATA,__dm_keep")));
 +static void quit_now(void);
@@ -2085,7 +2085,7 @@ index 832e18f..7842fe1 100644
      switch (ev) {
          case 0: quit_close(); dm_movie_active(0); dm_gamepad_inactive(); dm_focus_set(2); break;
          case 1:
-@@ -793,12 +811,23 @@ void front_ios_focus_event(int ev) {
+@@ -786,12 +804,23 @@ void front_ios_focus_event(int ev) {
              front_ios_audio_apply(); dm_gamepad_active(); dm_focus_set(1); dm_movie_active(1);
              dm_prewarm_upload_schedule();
              break;
@@ -2102,7 +2102,7 @@ index 832e18f..7842fe1 100644
 +        }
      }
  }
- 
+
  // ---- Quit to the launcher (LNPANDY/NX2Apple#421) ----
  // Two ways open the quit prompt (quit_prompt.h) over the game: Quit at the end of the in-game menu (the gear at the top centre, GameMenu.swift, which stays while
 -// a controller hides the other touch controls), and holding a controller's Home button for 2 seconds (home_quit.h, as on the Mac; the indicator at the top fills
@@ -2110,7 +2110,7 @@ index 832e18f..7842fe1 100644
  // while it is held). A tap on Quit or A quits, a tap on Cancel or outside the card, B or a new press of Home closes it. While it is open the game is told it lost
  // the focus, as the Switch's HOME menu does, and gets no touch or controller input.
  // Quitting ends the process: one game runs per process (dm_profile() and the host's early loading run once, the shell's ShellMain.m), so the engine cannot hand
-@@ -853,7 +882,7 @@ static void quit_buttons(int *home, int *a, int *b, GCController *__strong *hold
+@@ -846,7 +875,7 @@ static void quit_buttons(int *home, int *a, int *b, GCController *__strong *hold
      *home = *a = *b = 0;
      for (GCController *c in GCController.controllers) {
          GCExtendedGamepad *g = c.extendedGamepad; if (!g) continue;
@@ -2119,7 +2119,7 @@ index 832e18f..7842fe1 100644
          *a |= g.buttonA.isPressed; *b |= g.buttonB.isPressed;
      }
  }
-@@ -921,9 +950,21 @@ static void front_ios_teardown(void) {
+@@ -914,9 +943,21 @@ static void front_ios_teardown(void) {
      }
      g_layer = nil;
      g_rotation_was[0] = 0;
@@ -2146,11 +2146,11 @@ index e5b52e2..d6bfd47 100644
 --- a/dm/ios/framework/ShellGlue.h
 +++ b/dm/ios/framework/ShellGlue.h
 @@ -5,6 +5,7 @@
- 
+
  // Bumped only when a signature below changes: a shell refuses a framework whose dm_glue_version does not match.
  #define DM_GLUE_VERSION 1
 +#define DM_GLUE_FOCUS_REQUEST_QUIT 4
- 
+
  typedef const char *(*dm_glue_start_fn)(const char *const *argv, int argc, const void *game_image);
  typedef void (*dm_glue_present_fn)(void *window);
 diff --git a/dm/ios/framework/ShellGlue.m b/dm/ios/framework/ShellGlue.m

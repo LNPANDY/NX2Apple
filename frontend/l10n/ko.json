@@ -1,5 +1,12 @@
 {
-  "_language": {"locales": ["ko", "korean", "한국어"], "name": "한국어"},
+  "_language": {
+    "locales": [
+      "ko",
+      "korean",
+      "한국어"
+    ],
+    "name": "한국어"
+  },
   "activity.averageSession": "평균 %@",
   "activity.button": "플레이 기록",
   "activity.dayCount": "%lld일",
@@ -2005,8 +2012,6 @@
   "launch.opt.DM_OPMODE.1": "독 모드",
   "launch.opt.DM_PICTURE_FIT.fill": "채우기",
   "launch.opt.DM_PICTURE_FIT.fit": "맞추기",
-  "launch.opt.DM_PORTRAIT_EDGE.0": "표준 (4:3)",
-  "launch.opt.DM_PORTRAIT_EDGE.1": "상단 끝까지 (Dynamic Island 너머)",
   "launch.opt.DM_PRESENT_INTERVAL.display": "60 fps",
   "launch.opt.DM_PRESENT_INTERVAL.game": "30 fps",
   "launch.opt.DM_PRESENT_UPSCALE.metalfx": "MetalFX",
@@ -2018,6 +2023,7 @@
   "launch.opt.DM_SCREEN_ASPECT.1.43": "iPhone Duo 화면 (1.43:1)",
   "launch.opt.DM_SCREEN_ASPECT.1.6": "MacBook (16:10)",
   "launch.opt.DM_SCREEN_ASPECT.auto": "화면에 맞춤",
+  "launch.opt.DM_SCREEN_ASPECT.portrait-full": "세로 전체 화면",
   "launch.opt.DM_TOUCH_SIZE.large": "크게",
   "launch.opt.DM_TOUCH_SIZE.medium": "보통",
   "launch.opt.DM_TOUCH_SIZE.small": "작게",
@@ -2063,8 +2069,6 @@
   "launch.set.DM_PAD_PRESS_TO_JOIN": "버튼을 눌러 참가",
   "launch.set.DM_PICTURE_FIT": "화면",
   "launch.set.DM_PICTURE_FIT.note": "채우기는 게임의 16:9 화면을 잘라 화면을 덮습니다. 가장자리 근처의 체력 바, 자막, 지도가 잘릴 수 있습니다. 자르지 않고 전체 화면으로 보려면 게임마다 패치가 필요합니다.",
-  "launch.set.DM_PORTRAIT_EDGE": "세로 화면 영역",
-  "launch.set.DM_PORTRAIT_EDGE.note": "세로 모드에서 게임 화면을 Dynamic Island 너머 화면 맨 위까지 확장합니다. 네이티브 비율 렌더링은 다음 실행부터 적용됩니다.",
   "launch.set.DM_PRESENT_INTERVAL": "프레임 속도",
   "launch.set.DM_PRESENT_SNAP": "프레임 버퍼링",
   "launch.set.DM_PRESENT_SNAP.note": "화면 지연이 최대 한 프레임 늘어납니다.",
@@ -2080,7 +2084,7 @@
   "launch.set.DM_RUMBLE_GAIN": "진동 세기",
   "launch.set.DM_RUMBLE_MIN": "진동 최소 임계값",
   "launch.set.DM_SCREEN_ASPECT": "화면 비율",
-  "launch.set.DM_SCREEN_ASPECT.note": "세로로 더 긴 비율은 더 많은 픽셀을 렌더링하므로 GPU 시간과 발열이 증가할 수 있습니다.",
+  "launch.set.DM_SCREEN_ASPECT.note": "세로로 더 긴 비율은 더 많은 픽셀을 렌더링하므로 GPU 시간과 발열이 증가할 수 있습니다. 세로 전체 화면을 선택하면 세로 모드 화면이 Dynamic Island 너머 화면 상단 끝까지 확장됩니다.",
   "launch.set.DM_SHOW_FPS": "프레임 카운터",
   "launch.set.DM_SW2": "Switch 2 컨트롤러",
   "launch.set.DM_SW2.note": "Joy-Con 2와 Pro Controller 2를 블루투스로 사용합니다. 게임 중에 하나의 Sync를 길게 눌러 페어링하세요(iPhone 및 iPad에서는 매 실행 후 다시 페어링). 시스템이 블루투스 접근을 한 번 묻습니다.",

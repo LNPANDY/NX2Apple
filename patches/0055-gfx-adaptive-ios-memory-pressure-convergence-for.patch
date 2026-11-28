@@ -39,7 +39,7 @@ Issue: none
  create mode 100644 dm/gfx/tests/t_rt_recycle_policy.c
 
 diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
-index 58b8f2d..3da6081 100644
+index b6429cd..edd5209 100644
 --- a/dm/games/settings.tsv
 +++ b/dm/games/settings.tsv
 @@ -15,8 +15,12 @@
@@ -60,14 +60,14 @@ index b9f6f68..f3339ab 100644
 --- a/dm/gfx/metal/mtl_backend.m
 +++ b/dm/gfx/metal/mtl_backend.m
 @@ -7,7 +7,9 @@
- 
+
  #import <Foundation/Foundation.h>
  #import <Metal/Metal.h>
 +#include <TargetConditionals.h>
  #include <stdio.h>
 +#include <stdlib.h>
  #include "mtl_backend.h"
- 
+
  // ---- Internal objects (held in ObjC classes, ARC manages Metal object lifetimes; exposed as opaque C pointers) ----
 @@ -49,6 +51,14 @@ static void err(const char *where, NSError *e) {
          id<MTLDevice> dev = MTLCreateSystemDefaultDevice();
@@ -1644,7 +1644,7 @@ index 0a82376..bf302a4 100644
 @@ -3574,7 +3669,7 @@ static BOOL obj_is_tex(id object) {
      return is_texture;
  }
- 
+
 -static int g_red_once[179];   // one past the highest key: a new key raises this, and the macro refuses to compile otherwise
 +static int g_red_once[184];   // one past the highest key: a new key raises this, and the macro refuses to compile otherwise
  #define RED_ONCE(k, ...) do { _Static_assert((k) < sizeof g_red_once / sizeof *g_red_once, "a RED_ONCE key past g_red_once: raise its size"); if (!g_red_once[k]++) MLOG("[RED] " __VA_ARGS__); } while (0)
@@ -1662,7 +1662,7 @@ index 0a82376..bf302a4 100644
 @@ -4512,7 +4607,9 @@ static void up_copy_add(id<MTLTexture> src, MTLSize size, id<MTLTexture> dst, NS
  static void up_blit_add(id<MTLBuffer> src, size_t off, size_t row, size_t image, MTLSize size,
                          id<MTLTexture> dst, NSUInteger slice, NSUInteger level) { up_blit_add_at(src, off, row, image, size, dst, slice, level, MTLOriginMake(0, 0, 0)); }
- 
+
 -static id<MTLTexture> pkg_upload_(const tex_t *t, uint64_t *stamp, id<MTLTexture> reuse, MTLTextureUsage keep, id<MTLTexture> prev, const void *span, uint64_t since, unsigned *taken);
 +static int bcp_find(const tex_t *t, tex_t *o);
 +static int tex_cpu_written(const tex_t *t);
@@ -2286,7 +2286,7 @@ index 0a82376..bf302a4 100644
 +    fg_teardown();
      if (g_snap_res && g_q4) [g_q4 removeResidencySet:g_snap_res];
      g_snap_res = nil; g_snap_ev = nil;
- 
+
 @@ -24919,6 +25204,14 @@ void dm_gfx_teardown(void) { @autoreleasepool {
      for (unsigned i = 0; i < g_rh_n; i++) if (g_rh[i].heap) CFRelease(g_rh[i].heap);
      free(g_rh); g_rh = NULL; g_rh_n = g_rh_cap = 0; g_rh_bytes = 0;
@@ -2299,7 +2299,7 @@ index 0a82376..bf302a4 100644
 +    atomic_store(&g_rh_tex_trim_req, 0);
 +    g_rh_tex_pressured = 0;
 +    rh_test_set(0, 0, 0, 0);
- 
+
      pthread_mutex_lock(&g_res_commit_mu);
      pthread_mutex_lock(&g_res_mu);
 @@ -25031,6 +25324,7 @@ void dm_gfx_teardown(void) { @autoreleasepool {
@@ -2380,7 +2380,7 @@ index f410093..00934ef 100644
 +    if (m == &g_ghost) { ghost_used(k); ghost_trim(2); }   // two per put: idle entries drain faster than new ones come (down to g_ghost_limit); in-use entries always stay
  }
  void tex_put(uint64_t k, id o) { pthread_mutex_lock(&g_smu); tex_put_locked(k, o); pthread_mutex_unlock(&g_smu); }
- 
+
 @@ -608,6 +625,28 @@ own_alias_unheld own_alias_unheld_locked(void) {
      }
      CFRelease(sized); return s;
@@ -3687,13 +3687,13 @@ index bc4ba41..f6385c0 100644
          mm.values["DM_FULLSCREEN"] = "1"; mm.apply()
          expect(String(cString: getenv("DM_FULLSCREEN")) == "1" && d.string(forKey: "launcher.DM_FULLSCREEN") == "1", "Fullscreen goes into the environment and is saved")
 diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
-index 1028435..c56b19c 100644
+index bba8237..ccc8541 100644
 --- a/dm/tools/tests/test_launcher_settings.py
 +++ b/dm/tools/tests/test_launcher_settings.py
 @@ -83,6 +83,18 @@ class LauncherSettingsTests(unittest.TestCase):
          self.assertEqual(('DM_FPS_TARGET' in mhr, 'DM_PRESENT_INTERVAL' in mhr), (True, False))   # Monster Hunter Rise: present_interval display with fps_target, one Frame rate row
          self.assertFalse({'DM_FPS_TARGET', 'DM_PRESENT_INTERVAL'} & set(wonder))
- 
+
 +    def test_frame_generation_row_follows_30_fps_and_nvn_only(self):
 +        botw, mt2, wonder = build(BOTW, 'nvn'), build('010051701FB46000', 'nvn'), build(WONDER, 'nvn')
 +        self.assertEqual(botw['DM_FRAMEGEN']['needs'], 'DM_FPS_TARGET=30')
@@ -3706,10 +3706,10 @@ index 1028435..c56b19c 100644
 +        for api, gid in [('vulkan', '0100535012974000'), ('gl', '010014E00DB56000'), ('', BOTW)]:
 +            self.assertNotIn('DM_FRAMEGEN', build(gid, api))
 +
- 
+
      def test_hdr_texture_downsample_is_for_games_that_decode_bc_on_the_cpu_on_the_iphone(self):   # DM_BC6H_RGB9E5, #544
          totk = build('0100F2C0115B6000', 'nvn')   # tex_bc_cpu on in its profile
-@@ -166,7 +178,7 @@ class LauncherSettingsTests(unittest.TestCase):
+@@ -173,7 +185,7 @@ class LauncherSettingsTests(unittest.TestCase):
              listed = settings.build(BOTW, tmp, Path(tmp) / 'control.nacp')
          rows = {s['env']: s for s in listed['settings']}
          self.assertEqual(listed['schema'], 1)
@@ -3717,4 +3717,4 @@ index 1028435..c56b19c 100644
 +        self.assertEqual([e for e, s in rows.items() if s.get('level') == 'basic'], ['DM_NVN_TEX_MIP_SKIP', 'DM_FPS_TARGET', 'DM_RENDER_SCALE', 'DM_OPMODE', 'DM_LANG', 'DM_RUMBLE'])
          self.assertEqual(rows['DM_RUMBLE_GAIN']['needs'], 'DM_RUMBLE=1')
          self.assertFalse({'level', 'needs'} & set(rows['DM_METAL_HUD']), 'a row without meta has no optional fields')
- 
+

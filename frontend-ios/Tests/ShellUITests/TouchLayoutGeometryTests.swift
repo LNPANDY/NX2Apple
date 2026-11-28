@@ -130,13 +130,13 @@ import Testing
         let iPadFit = PadGeo.region(.iPadUpright, pictureFill: false)
         #expect(iPadFit.gameClip == iPadFit.upper)
 
-        let stdPt = PadGeo.region(.proMaxPortrait, pictureFill: false, portraitEdgeToEdge: false)
-        let edgePt = PadGeo.region(.proMaxPortrait, pictureFill: false, portraitEdgeToEdge: true, aspect: 430.0 / 466.0)
-        #expect(edgePt.separated)
-        #expect(edgePt.upper.minY == 0 && edgePt.gameClip.minY == 0)
-        #expect(edgePt.gameClip.maxY == edgePt.controls.minY)
-        #expect(edgePt.game == edgePt.gameClip)
-        #expect(edgePt.controls == stdPt.controls)
+        let stdPt = PadGeo.region(.proMaxPortrait, pictureFill: false, portraitFull: false)
+        let fullPt = PadGeo.region(.proMaxPortrait, pictureFill: false, portraitFull: true, aspect: 430.0 / 466.0)
+        #expect(fullPt.separated)
+        #expect(fullPt.upper.minY == 0 && fullPt.gameClip.minY == 0)
+        #expect(fullPt.gameClip.maxY == fullPt.controls.minY)
+        #expect(fullPt.game == fullPt.gameClip)
+        #expect(fullPt.controls == stdPt.controls)
     }
 
 }
