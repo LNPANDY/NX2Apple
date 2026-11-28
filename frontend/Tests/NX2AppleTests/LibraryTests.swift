@@ -38,6 +38,26 @@ import NXModel
         return app
     }
 
+    func testLibraryReceiptIncludesCompletedBuildsAndOnlyLocalBuildPaths() throws {
+        let mac = try makeApp(titleID)
+        var built = LibraryGame(titleID: titleID, name: "Hades")
+        built.appPath = mac.path
+        built.inputs = ["keys": ["/private/local/keys"], "base": ["/private/local/game.nsp"]]
+        let unbuilt = LibraryGame(titleID: "0100000000000000", name: "Unbuilt")
+
+        let url = temporary.appendingPathComponent("Library.nx2library")
+        try LibraryReceipt(games: [built, unbuilt]).write(to: url)
+        let data = try Data(contentsOf: url)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(json["schema"] as? Int, 1)
+        let games = try XCTUnwrap(json["games"] as? [[String: Any]])
+        XCTAssertEqual(games.count, 1)
+        XCTAssertEqual(games.first?["id"] as? String, titleID)
+        XCTAssertEqual(games.first?["macAppPath"] as? String, mac.path)
+        XCTAssertNil(games.first?["frameworkPath"])
+        XCTAssertFalse(String(decoding: data, as: UTF8.self).contains("/private/local"))
+    }
+
     /// The library opens on the player's own games: Owned is the default, also for the "all" an earlier build may have stored.
     func testLibraryFilterDefaultsToOwned() throws {
         let defaults = TestDefaults.make("nxnative-tests-filter")

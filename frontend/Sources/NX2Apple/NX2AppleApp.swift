@@ -40,6 +40,11 @@ struct NX2AppleApp: App {
             .defaultSize(width: 1280, height: 900)
             .windowResizability(.automatic)
             .commands {
+                CommandGroup(after: .importExport) {
+                    Button(L10n.string("library.shareReceipt", Lang.initial())) {
+                        LibraryReceipt.share(session.library.games, lang: Lang.initial())
+                    }
+                }
                 // View → Console Mode. Command-Option-K: Control-Command-F is the system's full screen, and the others are taken by Find and Show Colors.
                 CommandGroup(after: .toolbar) {
                     Button(L10n.string(console.active ? "console.menuLeave" : "console.entry", Lang.initial())) { console.toggle() }
